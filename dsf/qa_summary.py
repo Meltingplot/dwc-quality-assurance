@@ -62,6 +62,41 @@ def _indices(snapshot, prefix, suffix):
     return sorted(set(out))
 
 
+class _RatioBase:
+    """measured/commanded over the same interval: the base is the first moment both are known
+    (the monitor's ``calibrated`` block is null until RRF has calibrated it, often mid-job)."""
+
+    def __init__(self, first):
+        self.base = {}
+        self.first = {}
+        if first:
+            self.observe(first)
+
+    def observe(self, snap):
+        for i in _indices(snap, "fm.", ".totalExtrusion"):
+            c = snap.get(f"fm.{i}.totalExtrusion")
+            m = snap.get(f"fm.{i}.calibrated.totalDistance")
+            if i not in self.base and c is not None and m is not None:
+                self.base[i] = (c, m)
+        for name, value in snap.items():
+            self.first.setdefault(name, value)
+
+    def delta(self, last, name):
+        a, b = self.first.get(name), (last or {}).get(name)
+        return None if a is None or b is None else round(b - a, 3)
+
+    def entry(self, last, i):
+        commanded = self.delta(last, f"fm.{i}.totalExtrusion")
+        measured = self.delta(last, f"fm.{i}.calibrated.totalDistance")
+        entry = {"commandedMm": commanded, "measuredMm": measured,
+                 "extruderMm": self.delta(last, f"extruder.{i}.position")}
+        base = self.base.get(i)
+        c, m = (last or {}).get(f"fm.{i}.totalExtrusion"), (last or {}).get(f"fm.{i}.calibrated.totalDistance")
+        if base is not None and c is not None and m is not None and c - base[0] > 0:
+            entry["ratio"] = round((m - base[1]) / (c - base[0]), 4)
+        return entry
+
+
 def cross_section(diameter):
     d = diameter if diameter and diameter > 0 else 1.75
     return math.pi * (d / 2) ** 2
@@ -85,11 +120,13 @@ class LayerAccumulator:
         self.setpoints = {}      # i -> first setpoint seen in the layer (None: changed)
         self.span_s = 0.0
         self.print_z = None      # Z of the last extruding sample (travel Z hops do not count)
+        self.ratio = _RatioBase(first)
 
     def advance(self, snap, dt):
         if dt <= 0 or dt > MAX_HOLD_S:
             return
         self.span_s += dt
+        self.ratio.observe(snap)
         if (snap.get("move.currentMove.extrusionRate") or 0) > 0 and snap.get("axis.Z.machinePosition") is not None:
             self.print_z = snap["axis.Z.machinePosition"]
         for i in _indices(snap, "heater.", ".current"):
@@ -117,17 +154,11 @@ class LayerAccumulator:
         duration_s = max(0.0, (ended_ms - self.started_ms) / 1000.0)
         filament = {}
         flow = {}
+        self.ratio.observe(last)
         for i in sorted(set(_indices(last, "extruder.", ".position")) | set(_indices(last, "fm.", ".totalExtrusion"))):
-            def delta(name):
-                a, b = self.first.get(name), last.get(name)
-                return None if a is None or b is None else round(b - a, 3)
-            commanded = delta(f"fm.{i}.totalExtrusion")
-            measured = delta(f"fm.{i}.calibrated.totalDistance")
-            extruder = delta(f"extruder.{i}.position")
-            entry = {"commandedMm": commanded, "measuredMm": measured, "extruderMm": extruder}
-            if commanded and measured is not None and commanded > 0:
-                entry["ratio"] = round(measured / commanded, 4)
+            entry = self.ratio.entry(last, i)
             filament[str(i)] = entry
+            commanded, extruder = entry["commandedMm"], entry["extruderMm"]
             basis = commanded if commanded is not None else extruder
             if basis is not None and duration_s > 0:
                 flow[str(i)] = round(max(0.0, basis) * cross_section(self.diameters.get(i)) / duration_s, 3)
@@ -185,8 +216,10 @@ class JobAccumulator:
         self.flow_curve = {}     # fm -> {flow_bin: TW of lastPercentage}
         self.pwm_at_setpoint = {}  # heater -> TW avgPwm while reached
         self.heat_up = {}        # heater -> {"since": ms, "setpoint": v, "seconds": [..]}
+        self.ratio = _RatioBase(first)
 
     def advance(self, snap, dt, now_ms):
+        self.ratio.observe(snap)
         if dt <= 0 or dt > MAX_HOLD_S:
             self.last = dict(snap)
             return
@@ -232,18 +265,11 @@ class JobAccumulator:
 
     def filament_totals(self):
         result = {}
+        self.ratio.observe(self.last)
         for i in sorted(set(_indices(self.last, "fm.", ".totalExtrusion")) | set(_indices(self.last, "extruder.", ".position"))):
-            def delta(name):
-                a, b = self.first.get(name), self.last.get(name)
-                return None if a is None or b is None else round(b - a, 3)
-            commanded = delta(f"fm.{i}.totalExtrusion")
-            measured = delta(f"fm.{i}.calibrated.totalDistance")
-            entry = {"commandedMm": commanded, "measuredMm": measured,
-                     "extruderMm": delta(f"extruder.{i}.position"),
-                     "avgPercentage": self.last.get(f"fm.{i}.avgPercentage"),
-                     "mmPerRev": self.last.get(f"fm.{i}.calibrated.mmPerRev")}
-            if commanded and measured is not None and commanded > 0:
-                entry["ratio"] = round(measured / commanded, 4)
+            entry = self.ratio.entry(self.last, i)
+            entry["avgPercentage"] = self.last.get(f"fm.{i}.avgPercentage")
+            entry["mmPerRev"] = self.last.get(f"fm.{i}.calibrated.mmPerRev")
             hist = self.percent_hist.get(i)
             if hist:
                 entry["percentDistribution"] = [{"from": c, "to": c + PERCENT_CLASS, "s": round(s, 1)}

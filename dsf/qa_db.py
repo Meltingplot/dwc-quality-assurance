@@ -444,13 +444,21 @@ class Writer:
              *(dumps(layer.get(c)) for c in json_cols)))
 
     def op_samples(self, job_key, rows, resolution, block_id=None):
-        """``rows``: iterable of ``(ts_ms, channel_name, value)``. A coarse sample never
-        replaces a fine one at the same time stamp."""
+        """``rows``: iterable of ``(ts_ms, channel_name, value)``.
+
+        A coarse and a fine sample at the same time stamp come from the same snapshot, so they
+        share one row: it stays coarse (the coarse grid has no gaps) and carries the block id
+        (the block has every row). ``resolution`` 0 = on the coarse grid, 1 = only in a block.
+        """
         data = [(job_key, self._channel_id(name), ts, value, resolution, block_id)
                 for ts, name, value in rows if value is not None]
-        verb = "INSERT OR REPLACE" if resolution == RESOLUTION_FINE else "INSERT OR IGNORE"
+        if resolution == RESOLUTION_FINE:
+            conflict = "DO UPDATE SET block_id=excluded.block_id"
+        else:
+            conflict = "DO UPDATE SET resolution=0"
         self._con.executemany(
-            f"{verb} INTO samples (job_key, channel, ts_ms, value, resolution, block_id) VALUES (?,?,?,?,?,?)", data)
+            "INSERT INTO samples (job_key, channel, ts_ms, value, resolution, block_id) VALUES (?,?,?,?,?,?) "
+            f"ON CONFLICT (job_key, channel, ts_ms) {conflict}", data)
         return len(data)
 
     def op_block_insert(self, block_id, job_key, start_ms, end_ms, triggers):
@@ -516,6 +524,16 @@ class Writer:
                                   (job_key,)).fetchone()
         values = [v for v in (row[0], event[0]) if v is not None]
         return max(values) if values else None
+
+    def op_reference_set(self, axis, spectrum_id, mode):
+        """Reference spectrum of an axis: ``manual`` with a spectrum of that axis, or back to ``auto``."""
+        if mode == "manual":
+            row = self._con.execute("SELECT id FROM spectra WHERE id=? AND axis=?", (spectrum_id, axis)).fetchone()
+            if row is None:
+                return False
+        self._con.execute("INSERT OR REPLACE INTO reference_spectra (axis, spectrum_id, mode, set_at) VALUES (?,?,?,?)",
+                          (axis, spectrum_id if mode == "manual" else None, mode, now_ms()))
+        return True
 
     def op_integrity(self):
         rows = self._con.execute("PRAGMA integrity_check").fetchall()
