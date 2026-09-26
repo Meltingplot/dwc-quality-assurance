@@ -1,0 +1,205 @@
+name: Release
+
+# Builds the plugin against a Meltingplot DuetWebControl 3.7 release and publishes it as a
+# GitHub Release with two assets:
+#   QualityAssurance-<version>.zip          the installable package
+#   QualityAssurance-<version>.zip.sha256   its checksum
+# The CHX 350 image does not install plugins from Settings > Plugins; the image build pins
+# this release in plugins.list (see docs/image.md), and the release notes carry that line.
+#
+# Trigger: push to the `release` branch (or run manually via workflow_dispatch).
+# Version: `version` in plugin.json (override with the workflow_dispatch input). The workflow
+#   creates the `vX.Y.Z` tag and the release itself.
+# Pre-releases (`X.Y.Z-(alpha|beta|rc).N`) may only be cut from `main`: the guard job refuses
+#   them on any other ref, so a release tag never points at an unmerged branch.
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version X.Y.Z or X.Y.Z-(alpha|beta|rc).N (defaults to plugin.json version)'
+        required: false
+        default: ''
+      duetwebcontrol_ref:
+        description: 'Meltingplot/DuetWebControl tag to build against (default: newest v3.7 tag)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    name: Check release source
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          version="$INPUT_VERSION"
+          if [ -z "$version" ]; then
+            version=$(node -p "require('./plugin.json').version")
+          fi
+          version="${version#v}"
+          prerelease=false
+          if echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$'; then
+            prerelease=true
+          elif ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$version' is not a release version (X.Y.Z or X.Y.Z-(alpha|beta|rc).N)"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pre-releases may only be cut from main
+        if: steps.version.outputs.prerelease == 'true' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Pre-release ${{ steps.version.outputs.tag }} requested on '${{ github.ref_name }}'. Merge first, then run this workflow on main."
+          exit 1
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    needs: guard
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install "pytest>=8" "pytest-cov>=5" "dsf-python==3.7.0b1"
+      - run: pytest tests/ -v --tb=short
+        env:
+          PYTHONPATH: dsf
+
+  frontend-tests:
+    name: Frontend Lint & Tests
+    runs-on: ubuntu-latest
+    needs: guard
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    needs: [guard, python-tests, frontend-tests]
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v6
+        with:
+          path: plugin
+
+      - name: Resolve the DuetWebControl ref
+        id: dwc
+        env:
+          INPUT_REF: ${{ github.event.inputs.duetwebcontrol_ref }}
+        run: |
+          ref="$INPUT_REF"
+          if [ -z "$ref" ]; then
+            # Newest 3.7 tag of the fork by creation date (tags look like v3.7.0-rc.2+mp.5)
+            git init -q dwc-tags
+            git -C dwc-tags fetch -q --tags --filter=blob:none https://github.com/Meltingplot/DuetWebControl.git
+            ref=$(git -C dwc-tags for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/v3.7*' | head -n1)
+          fi
+          test -n "$ref" || { echo "::error::no DuetWebControl 3.7 tag found"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Building against Meltingplot/DuetWebControl $ref"
+
+      - name: Checkout DuetWebControl
+        uses: actions/checkout@v6
+        with:
+          repository: Meltingplot/DuetWebControl
+          ref: ${{ steps.dwc.outputs.ref }}
+          path: DuetWebControl
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Stamp the version
+        working-directory: plugin
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            for (const f of ["plugin.json", "package.json"]) {
+              const j = JSON.parse(fs.readFileSync(f, "utf8"));
+              j.version = process.env.VERSION;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+            }'
+
+      - name: Install plugin dependencies
+        working-directory: plugin
+        run: npm ci
+
+      - name: Install DWC dependencies
+        working-directory: DuetWebControl
+        run: npm install
+
+      - name: Build plugin
+        working-directory: DuetWebControl
+        run: node scripts/build-plugin-pkg.js ../plugin
+
+      - name: Verify and checksum
+        id: pkg
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          mkdir -p release
+          mv "plugin/QualityAssurance-$VERSION.zip" "release/QualityAssurance-$VERSION.zip"
+          bash plugin/scripts/verify-package.sh "release/QualityAssurance-$VERSION.zip" DuetWebControl
+          (cd release && sha256sum "QualityAssurance-$VERSION.zip" > "QualityAssurance-$VERSION.zip.sha256")
+          echo "sha256=$(cut -d' ' -f1 "release/QualityAssurance-$VERSION.zip.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          TAG: ${{ needs.guard.outputs.tag }}
+          PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+          DWC_REF: ${{ steps.dwc.outputs.ref }}
+          SHA256: ${{ steps.pkg.outputs.sha256 }}
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/download/$TAG/QualityAssurance-$VERSION.zip"
+          notes="Built against Meltingplot/DuetWebControl \`$DWC_REF\`.
+
+          Line for \`layer/mp-dsf.d/plugins.list\` of the image build:
+
+          \`\`\`
+          QualityAssurance $VERSION sha256:$SHA256 $url
+          \`\`\`
+          "
+          extra_args=()
+          if [ "$PRERELEASE" = "true" ]; then
+            extra_args+=(--prerelease)
+          fi
+          gh release create "$TAG" \
+            "release/QualityAssurance-$VERSION.zip" \
+            "release/QualityAssurance-$VERSION.zip.sha256" \
+            --repo "${{ github.repository }}" \
+            --title "Quality Assurance $VERSION" \
+            --target "${{ github.sha }}" \
+            --notes "$notes" \
+            --generate-notes \
+            "${extra_args[@]}"

@@ -1,0 +1,33 @@
+{
+  "id": "QualityAssurance",
+  "name": "Quality Assurance",
+  "author": "Meltingplot GmbH",
+  "version": "0.1.0",
+  "license": "MIT",
+  "homepage": "https://github.com/Meltingplot/dwc-quality-assurance",
+  "tags": ["meltingplot", "quality", "monitoring"],
+  "dwcVersion": "auto-major",
+  "sbcRequired": true,
+  "sbcDsfVersion": "auto-major",
+  "sbcExecutable": "qa-daemon.py",
+  "sbcOutputRedirected": true,
+  "sbcAutoRestart": true,
+  "sbcPermissions": [
+    "commandExecution",
+    "objectModelReadWrite",
+    "registerHttpEndpoints",
+    "fileSystemAccess",
+    "readGCodes",
+    "networkAccess",
+    "launchProcesses"
+  ],
+  "sbcPythonDependencies": ["dsf-python"],
+  "sbcPackageDependencies": ["ffmpeg"],
+  "data": {
+    "status": "idle",
+    "currentJobId": "",
+    "lastJobId": "",
+    "dbSizeBytes": "0",
+    "lastError": ""
+  }
+}
