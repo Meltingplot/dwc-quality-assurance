@@ -14,7 +14,7 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 |---|---|---|---|
 | GET | `status` | – | daemon, collector, database, timelapse state |
 | GET | `settings` | – | `{settings, errors}` |
-| POST | `settings` | body: settings object (partial is fine, ≤ 32 KiB) | `{settings, errors: []}`; 422 `{errors}` when invalid |
+| POST | `settings` | body: settings object (partial is fine, ≤ 32 KiB) | always 200: `{saved, settings, errors}`; nothing is stored when `errors` is not empty (DWC's REST connector drops the body of a 4xx answer) |
 | GET | `jobs` | `limit` (50, ≤ 1000), `offset`, `result` (`finished`/`completed`, `cancelled`, `aborted`, `running`, `unknown`), `material` | `{total, offset, jobs: [JobEntry]}` newest first |
 | GET | `job` | `id` | JobEntry + `context`, `summary`, `fileCrc32`, `startLayer`, `durationS`, `warmupS`, `pauseS` |
 | GET | `job/layers` | `id` | `{jobId, meta, layers: [Layer]}` |
@@ -29,7 +29,8 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET/POST | `spectra/reference` | POST body `{axis, spectrumId}` or `{axis, mode: "auto"}` | `{references: [...]}` |
 | WebSocket | `live` | – | frames, see below |
 
-Errors: `{"error": "..."}` with 400 (bad parameter), 404 (unknown job/layer), 409, 422, 500.
+Errors: `{"error": "..."}` with 400 (bad parameter), 404 (unknown job/layer), 409, 500. Through DWC's REST connector a
+4xx arrives as `FileNotFoundError` (404) or `OperationFailedError("bad status code <n>")` without the body.
 
 ## JobEntry (list) — the CHX UI history contract
 

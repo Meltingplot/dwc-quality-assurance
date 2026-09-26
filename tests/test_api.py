@@ -187,10 +187,12 @@ def test_settings_roundtrip(ctx):
     status, body = get(ctx, "settings")
     assert body["settings"]["sampleIntervalS"] == 5
     response = qa_api.call(ctx, qa_api.ENDPOINTS[("POST", "settings")], Req(body=json.dumps({"sampleIntervalS": 0})))
-    assert response.status == 422
+    assert response.status == 200 and response.body["saved"] is False
+    assert response.body["errors"][0].startswith("sampleIntervalS")
+    assert response.body["settings"]["sampleIntervalS"] == 5
     response = qa_api.call(ctx, qa_api.ENDPOINTS[("POST", "settings")],
                            Req(body=json.dumps({"timelapse": {"snapshotUrl": "http://10.42.0.1/snapshot"}})))
-    assert response.status == 200
+    assert response.status == 200 and response.body["saved"] is True
     assert ctx.settings.current()["timelapse"]["snapshotUrl"] == "http://10.42.0.1/snapshot"
     response = qa_api.call(ctx, qa_api.ENDPOINTS[("POST", "settings")], Req(body="{nope"))
     assert response.status == 400

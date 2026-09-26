@@ -8,6 +8,9 @@ const VUE_RULES = {
     'vue/singleline-html-element-content-newline': 'off',
     'vue/multi-word-component-names': 'off',
     'vue/html-self-closing': 'off',
+    // attributes continue on the next line without a line break before the first (DWC/CHX350 style)
+    'vue/first-attribute-linebreak': 'off',
+    'vue/html-closing-bracket-newline': 'off',
 };
 
 module.exports = {

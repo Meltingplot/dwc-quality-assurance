@@ -6,5 +6,188 @@
 		"start": "Start backend",
 		"starting": "Starting…",
 		"startFailed": "The backend could not be started: {error}"
+	},
+	"common": {
+		"noData": "No data",
+		"refresh": "Refresh"
+	},
+	"tabs": {
+		"jobs": "Jobs",
+		"job": "Job",
+		"trends": "Trends",
+		"settings": "Settings"
+	},
+	"results": {
+		"running": "Running",
+		"completed": "Finished",
+		"cancelled": "Cancelled",
+		"aborted": "Aborted",
+		"unknown": "Unknown end"
+	},
+	"jobs": {
+		"file": "File",
+		"started": "Started",
+		"duration": "Duration",
+		"result": "Result",
+		"material": "Material",
+		"ratio": "Measured/commanded",
+		"load": "Heater load",
+		"events": "Events",
+		"partial": "partial",
+		"partialFrom": "Recorded from layer {layer}",
+		"none": "No jobs recorded yet"
+	},
+	"job": {
+		"export": "Export JSON",
+		"duration": "Duration",
+		"layers": "Layers",
+		"ratio": "Measured/commanded",
+		"avgPercentage": "Monitor average",
+		"loadMean": "Heater load (mean)",
+		"events": "Events",
+		"tabLayers": "Layers",
+		"tabChannels": "Channels",
+		"tabEvents": "Events",
+		"tabSummary": "Summary",
+		"tabContext": "Context",
+		"distribution": "Filament monitor reading, time per 2 % class (s)"
+	},
+	"layers": {
+		"none": "No layers recorded for this job.",
+		"duration": "Duration",
+		"temperatures": "Temperatures",
+		"heaterLoad": "Heater load",
+		"monitor": "Filament monitor",
+		"filament": "Measured vs. commanded",
+		"flow": "Flow",
+		"filamentHint": "Commanded: extrusion the filament monitor saw commanded; measured: movement it measured (calibrated.totalDistance).",
+		"loadMean": "Load at setpoint",
+		"loadShareHigh": "Time ≥ high",
+		"percentMean": "Mean",
+		"percentMin": "Min",
+		"percentMax": "Max",
+		"commanded": "Commanded",
+		"measured": "Measured"
+	},
+	"channels": {
+		"pick": "Channels",
+		"resolution": "Resolution",
+		"auto": "Everything recorded",
+		"coarse": "5 s grid",
+		"fine": "Full resolution (blocks)",
+		"pruned": "The raw data of this job was removed by retention; layers, events and the summary remain.",
+		"downsampled": "More points than can be shown: every n-th point is drawn."
+	},
+	"events": {
+		"time": "Time",
+		"layer": "Layer",
+		"type": "Event",
+		"detail": "Detail",
+		"position": "Position (machine)",
+		"none": "No events"
+	},
+	"eventTypes": {
+		"filament_status": "Filament monitor",
+		"filament_percent_window": "Monitor outside window",
+		"heater_fault": "Heater fault",
+		"heater_monitor": "Heater monitor",
+		"heater_load": "Heater load",
+		"mfm_error_tolerated": "MFM error tolerated",
+		"mfm_recovery": "MFM recovery",
+		"mfm_flow_bias": "MFM flow bias",
+		"voltage_dip": "Voltage dip",
+		"phantom_reading": "Phantom reading",
+		"driver_error": "Driver",
+		"setpoint_change": "Setpoint",
+		"job_start": "Job start",
+		"job_end": "Job end",
+		"pause": "Pause",
+		"resume": "Resume",
+		"babystep": "Babystep",
+		"timelapse_failed": "Timelapse failed",
+		"accelerometer_failed": "Accelerometer failed",
+		"daemon_started_mid_job": "Recording started mid-job"
+	},
+	"trends": {
+		"metric": "Metric",
+		"metrics": {
+			"heater_load_mean": "Heater load at setpoint",
+			"fm_avg_percentage": "Filament monitor average",
+			"filament_ratio": "Measured/commanded filament",
+			"mm_per_rev": "Monitor mm/rev (calibrated)",
+			"esteps_suggested": "E-steps suggested by the MFM",
+			"heat_up_s": "Heat-up time",
+			"duration_s": "Job duration",
+			"events": "Events per job"
+		},
+		"units": {
+			"heater_load_mean": "%",
+			"fm_avg_percentage": "%",
+			"filament_ratio": "%",
+			"mm_per_rev": "mm/rev",
+			"esteps_suggested": "steps/mm",
+			"heat_up_s": "s",
+			"duration_s": "s",
+			"events": ""
+		},
+		"hint": {
+			"heater_load_mean": "Mean load of each nozzle heater at its setpoint, per setpoint and nozzle. A rising load at the same setpoint, material and nozzle points at a weakening heater or a starting blockage.",
+			"fm_avg_percentage": "The monitor's average of the whole job. A slow drift over jobs points at wear of drive gear, idler or bearing.",
+			"filament_ratio": "Filament measured by the monitor per filament commanded, over the whole job.",
+			"mm_per_rev": "What RRF calibrated the monitor's sensitivity to in each job.",
+			"esteps_suggested": "The correction the machine's flow-bias detector suggested.",
+			"heat_up_s": "Time from a new setpoint to reaching it, first time in each job.",
+			"duration_s": "Job duration as RRF reports it.",
+			"events": "Events of a job without start and end."
+		}
+	},
+	"settings": {
+		"saved": "Settings saved.",
+		"sampling": "Recording",
+		"chamber": "Chamber temperature",
+		"context": "Job context",
+		"timelapse": "Timelapse",
+		"save": "Save",
+		"reset": "Discard changes",
+		"chamberModes": {
+			"auto": "Automatic (chamber heater, else sensor by name)",
+			"heater": "Heater",
+			"sensor": "Analog sensor"
+		},
+		"fields": {
+			"sampleIntervalS": "Coarse sample interval",
+			"ringBufferS": "Ring buffer",
+			"postTriggerS": "Full resolution after a trigger",
+			"temperatureK": "Temperature jump",
+			"filamentPercentPoints": "Monitor jump",
+			"vInPercent": "Supply voltage jump / dip",
+			"phantomJumpK": "Phantom reading jump",
+			"filamentPercentWindowMinS": "Monitor outside its window at least",
+			"loadHigh": "Heater load: high from",
+			"loadLimit": "Heater load: limit from",
+			"retentionJobs": "Keep raw data of the newest jobs",
+			"retentionDays": "Keep raw data younger than",
+			"chamberMode": "Source",
+			"chamberIndex": "Heater or sensor number",
+			"chamberSensorName": "Sensor name (automatic)",
+			"contextGlobals": "Global variables stored with each job",
+			"mfm": "Record the machine's filament monitor evaluation (MFM globals)",
+			"timelapseEnabled": "Timelapse",
+			"snapshotUrl": "Camera snapshot URL"
+		}
+	},
+	"live": {
+		"recording": "Recording",
+		"idle": "No job running",
+		"layer": "layer {layer}",
+		"load": "Heater {heater} load",
+		"monitor": "Filament monitor",
+		"lastEvent": "Last event",
+		"states": {
+			"connecting": "connecting",
+			"open": "live",
+			"polling": "polling",
+			"closed": "offline"
+		}
 	}
 }
