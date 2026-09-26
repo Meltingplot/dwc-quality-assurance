@@ -9,7 +9,7 @@
 set -euo pipefail
 
 zip="$1"
-dwc_dir="$2"
+dwc_dir="$(cd "$2" && pwd)"   # absolute: node would read a relative path as a module name
 
 fail() { printf '[fail] %s\n' "$*" >&2; exit 1; }
 

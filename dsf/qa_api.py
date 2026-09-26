@@ -11,6 +11,7 @@ backend, 2026-09-26), SQLite reads use one connection per thread.
 ``read_request`` reads at most 32 KiB, so POST bodies stay small.
 """
 
+import asyncio
 import json
 import threading
 import time
@@ -38,12 +39,85 @@ def error_response(message, status=400):
     return Response(status, {"error": message}, "json")
 
 
+class LiveHub:
+    """Fan-out of live frames to the WebSocket clients of the ``live`` endpoint.
+
+    ``publish`` is called from the collector thread; each client lives in the endpoint's own
+    asyncio loop, so frames are handed over with ``loop.call_soon_threadsafe``. A client that
+    falls behind by ``MAX_QUEUE`` frames loses the oldest ones.
+    """
+
+    MAX_QUEUE = 500
+
+    def __init__(self):
+        self._clients = {}
+        self._lock = threading.Lock()
+        self._next = 1
+        self.closed = False
+
+    def register(self, loop):
+        queue = asyncio.Queue()
+        with self._lock:
+            cid = self._next
+            self._next += 1
+            self._clients[cid] = (loop, queue)
+        return cid, queue
+
+    def unregister(self, cid):
+        with self._lock:
+            self._clients.pop(cid, None)
+
+    def count(self):
+        with self._lock:
+            return len(self._clients)
+
+    @staticmethod
+    def _put(queue, text):
+        while queue.qsize() >= LiveHub.MAX_QUEUE:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        queue.put_nowait(text)
+
+    def publish(self, frame):
+        with self._lock:
+            clients = list(self._clients.values())
+        if not clients:
+            return
+        text = json.dumps(frame, separators=(",", ":"))
+        for loop, queue in clients:
+            try:
+                loop.call_soon_threadsafe(self._put, queue, text)
+            except RuntimeError:
+                pass  # loop closed
+
+    def close(self):
+        self.closed = True
+        with self._lock:
+            clients = list(self._clients.values())
+        for loop, queue in clients:
+            try:
+                loop.call_soon_threadsafe(self._put, queue, None)
+            except RuntimeError:
+                pass
+
+
 @dataclass
 class ApiContext:
     version: str = "unknown"
     started: float = field(default_factory=time.monotonic)
     # The command connection is shared by all endpoint threads and is not thread-safe
     cmd_lock: threading.Lock = field(default_factory=threading.Lock)
+    settings: object = None
+    writer: object = None
+    readers: object = None
+    data_dir: str = ""
+    index_cache: object = None
+    prepare_result: str = ""
+    resolve_path: object = None
+    collector: object = None
+    live: LiveHub = field(default_factory=LiveHub)
 
 
 def query(request, key, default=None):

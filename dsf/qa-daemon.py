@@ -6,9 +6,14 @@ SQLite database under /opt/dsf/sd/QualityAssurance/ and serves them through HTTP
 under /machine/QualityAssurance/ to the DWC page, the CHX 350 UI and a later Quality Control
 plugin. It records only; it never judges.
 
+Threads (PLAN.md §5.3): the main thread runs the object-model subscription and the collector;
+the database writer has its own thread; dsf-python serves every HTTP endpoint from its own
+thread and asyncio loop; the G-code layer index is built in a background thread.
+
 Targets DSF 3.7 / dsf-python 3.7.0b1 on Python >= 3.11.
 """
 
+import json
 import os
 import signal
 import sys
@@ -24,9 +29,13 @@ import qa_patches  # noqa: E402
 logger = qa_log.setup()
 qa_patches.apply()
 
-from dsf.connections import CommandConnection  # noqa: E402
+from dsf.connections import CommandConnection, SubscribeConnection, SubscriptionMode  # noqa: E402
 
 import qa_api  # noqa: E402
+import qa_collector  # noqa: E402
+import qa_db  # noqa: E402
+import qa_gcode  # noqa: E402
+import qa_settings  # noqa: E402
 
 PLUGIN_ID = qa_log.PLUGIN_ID
 
@@ -37,6 +46,10 @@ PLUGIN_DATA_KEYS = ("status", "currentJobId", "lastJobId", "dbSizeBytes", "lastE
 # DSF may launch the plugin before duetcontrolserver accepts connections (boot, upgrade)
 CONNECT_ATTEMPTS = 15
 CONNECT_RETRY_DELAY_S = 2.0
+# Consecutive subscription errors after which the daemon exits; sbcAutoRestart starts it again
+MAX_SUBSCRIBE_ERRORS = 10
+RETENTION_INTERVAL_S = 600
+PLUGIN_DATA_INTERVAL_S = 5
 
 _shutdown = threading.Event()
 
@@ -48,8 +61,6 @@ def _signal_handler(_signum, _frame):
 def read_version():
     """Version from the installed manifest next to the plugin directory
     (<plugins>/QualityAssurance.json beside <plugins>/QualityAssurance/dsf/<this file>)."""
-    import json
-
     plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     manifest = os.path.join(os.path.dirname(plugin_dir), f"{PLUGIN_ID}.json")
     try:
@@ -78,32 +89,138 @@ def connect_with_retry(connection, description, attempts=CONNECT_ATTEMPTS, delay
     raise RuntimeError(f"{description} connection failed after {attempts} attempts: {last_error}")
 
 
+class PluginData:
+    """Status summary in the object model (plugins.QualityAssurance.data), written on change."""
+
+    def __init__(self, cmd, lock):
+        self._cmd = cmd
+        self._lock = lock
+        self._last = {}
+
+    def set(self, values):
+        for key, value in values.items():
+            if key not in PLUGIN_DATA_KEYS:
+                continue
+            text = "" if value is None else str(value)
+            if self._last.get(key) == text:
+                continue
+            try:
+                with self._lock:
+                    self._cmd.set_plugin_data(PLUGIN_ID, key, text)
+                self._last[key] = text
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("set_plugin_data %s failed: %s", key, exc)
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
 def main():
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
 
+    settings = qa_settings.Settings()
+    for problem in settings.load():
+        logger.warning("settings: %s", problem)
+    data_dir = qa_settings.data_dir()
+    writer = qa_db.Writer(data_dir, settings.current()["commitIntervalS"])
+    prepared = writer.start()
+    if prepared.startswith("restored") or prepared == "replaced":
+        logger.warning("database was damaged: %s", prepared)
+
     cmd = CommandConnection()
     if not connect_with_retry(cmd, "CommandConnection"):
+        writer.stop()
         return
     qa_log.deferred_warnings.send_to(cmd)
 
-    context = qa_api.ApiContext(version=read_version(), started=time.monotonic())
-    endpoints = qa_api.register_endpoints(cmd, context)
+    ctx = qa_api.ApiContext(version=read_version(), started=time.monotonic(), settings=settings,
+                            writer=writer, readers=qa_db.Readers(data_dir), data_dir=data_dir,
+                            index_cache=qa_gcode.IndexCache(data_dir), prepare_result=prepared)
+
+    def resolve_path(virtual):
+        with ctx.cmd_lock:
+            response = cmd.resolve_path(virtual)
+        real = getattr(response, "result", response)
+        return real if isinstance(real, str) else None
+
+    ctx.resolve_path = resolve_path
+    plugin_data = PluginData(cmd, ctx.cmd_lock)
+    collector = qa_collector.Collector(writer, settings, resolve_path=resolve_path, broadcast=ctx.live.publish,
+                                       plugin_version=ctx.version, index_cache=ctx.index_cache)
+    ctx.collector = collector
+    collector.init_ids()
+
+    endpoints = []
+    sub = None
     try:
+        endpoints = qa_api.register_endpoints(cmd, ctx)
+        sub = SubscribeConnection(SubscriptionMode.PATCH)
+        if not connect_with_retry(sub, "SubscribeConnection"):
+            return
+        model = sub.get_object_model()
+        collector.update(model, None, now_ms())
+        qa_log.deferred_warnings.send_to(cmd, ctx.cmd_lock)
+
+        errors = 0
+        last_retention = 0.0
+        last_data = 0.0
         while not _shutdown.is_set():
-            _shutdown.wait(1.0)
-            qa_log.deferred_warnings.send_to(cmd, context.cmd_lock)
+            try:
+                patch = json.loads(sub.get_object_model_patch())
+                model.update_from_json(patch)
+                collector.update(model, patch, now_ms())
+                errors = 0
+            except TimeoutError:
+                # the 3 s subscription timeout is the heartbeat
+                collector.tick(now_ms())
+            except Exception as exc:  # noqa: BLE001
+                if _shutdown.is_set():
+                    break
+                errors += 1
+                logger.error("subscription error (%d/%d): %s", errors, MAX_SUBSCRIBE_ERRORS, exc)
+                if errors >= MAX_SUBSCRIBE_ERRORS:
+                    raise
+                _shutdown.wait(1.0)
+                continue
+
+            mono = time.monotonic()
+            if mono - last_retention >= RETENTION_INTERVAL_S:
+                last_retention = mono
+                retention = settings.current()["retention"]
+                writer.submit("retention", retention["jobs"], retention["days"], retention["maxDbBytes"])
+                writer.submit("checkpoint")
+            if mono - last_data >= PLUGIN_DATA_INTERVAL_S:
+                last_data = mono
+                status = collector.status()
+                plugin_data.set({
+                    "status": status["state"],
+                    "currentJobId": status["currentJobId"],
+                    "lastJobId": status["lastJobId"],
+                    "dbSizeBytes": qa_db.file_size(data_dir),
+                    "lastError": writer.last_error or "",
+                })
+            qa_log.deferred_warnings.send_to(cmd, ctx.cmd_lock)
     finally:
+        try:
+            collector.shutdown(now_ms())
+        except Exception as exc:  # noqa: BLE001
+            logger.error("collector shutdown failed: %s", exc)
+        writer.stop()
+        ctx.live.close()
         for endpoint in endpoints:
             try:
                 endpoint.close()
             except Exception:  # noqa: BLE001
                 pass
-        qa_log.deferred_warnings.send_to(cmd, context.cmd_lock)
-        try:
-            cmd.close()
-        except Exception:  # noqa: BLE001
-            pass
+        qa_log.deferred_warnings.send_to(cmd, ctx.cmd_lock)
+        for connection in (sub, cmd):
+            if connection is not None:
+                try:
+                    connection.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 if __name__ == "__main__":
