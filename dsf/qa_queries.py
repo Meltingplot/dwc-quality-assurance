@@ -1,0 +1,355 @@
+"""Read side of the database for the HTTP API (PLAN.md §5.6, contract with the CHX UI §5.10).
+
+Pure functions on a read-only SQLite connection; every one answers from indexed ranges so an
+endpoint stays well below the 10 s the HMI's haproxy gives a busy backend.
+"""
+
+import datetime
+import json
+
+import qa_db
+
+MAX_POINTS_PER_CHANNEL = 20_000
+
+# QA result -> CHX UI history result (useJobHistory.ts: running|finished|cancelled|aborted).
+# "unknown" = the daemon was not running when the job ended.
+CHX_RESULT = {"running": "running", "completed": "finished", "cancelled": "cancelled", "aborted": "aborted",
+              "unknown": "unknown"}
+
+
+def iso(ms):
+    if ms is None:
+        return None
+    return datetime.datetime.fromtimestamp(ms / 1000, tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _loads(row, *columns):
+    out = dict(row)
+    for column in columns:
+        if column in out:
+            out[column] = qa_db.loads(out[column])
+    return out
+
+
+def job_key(con, job_id):
+    row = con.execute("SELECT key FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return row[0] if row else None
+
+
+def _summary_excerpt(summary):
+    if not summary:
+        return None
+    heater_load = (summary.get("thermal") or {}).get("heaterLoad") or {}
+    filament = summary.get("filament") or {}
+    return {
+        "abortReason": summary.get("abortReason"),
+        "layers": summary.get("layers"),
+        "events": {k: v.get("count") for k, v in (summary.get("events") or {}).items()},
+        "filamentRatio": {k: v.get("ratio") for k, v in filament.items() if v.get("ratio") is not None},
+        "avgPercentage": {k: v.get("avgPercentage") for k, v in filament.items() if v.get("avgPercentage") is not None},
+        "heaterLoadMean": {k: v.get("mean") for k, v in heater_load.items() if v.get("nozzle")},
+        "heaterLoadEvents": {k: v.get("events") for k, v in heater_load.items() if v.get("nozzle")},
+        "spoolUsageG": summary.get("spoolUsageG"),
+    }
+
+
+def job_list_entry(row):
+    summary = qa_db.loads(row["summary"])
+    ended, started = row["ended_at"], row["started_at"]
+    return {
+        # CHX UI contract (useJobHistory: HistoryEntry + analysable)
+        "id": row["id"],
+        "file": row["file_name"],
+        "result": CHX_RESULT.get(row["result"], row["result"]),
+        "printTimeS": row["duration_s"],
+        "timestamp": iso(ended if ended is not None else started),
+        "analysable": True,
+        # QA
+        "qaResult": row["result"],
+        "startedAt": iso(started),
+        "endedAt": iso(ended),
+        "partial": bool(row["partial"]),
+        "numLayers": row["num_layers"],
+        "material": row["material"],
+        "rawPruned": bool(row["raw_pruned"]),
+        "summary": _summary_excerpt(summary),
+    }
+
+
+def jobs(con, limit=50, offset=0, result=None, material=None):
+    where = []
+    args = []
+    if result:
+        where.append("result=?")
+        args.append({"finished": "completed"}.get(result, result))
+    if material:
+        where.append("material=?")
+        args.append(material)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    total = con.execute(f"SELECT COUNT(*) FROM jobs {clause}", args).fetchone()[0]
+    rows = con.execute(f"SELECT * FROM jobs {clause} ORDER BY started_at DESC LIMIT ? OFFSET ?",
+                       (*args, limit, offset)).fetchall()
+    return {"total": total, "offset": offset, "jobs": [job_list_entry(r) for r in rows]}
+
+
+def job(con, job_id):
+    row = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row is None:
+        return None
+    out = job_list_entry(row)
+    out.update({
+        "fileCrc32": row["file_crc32"],
+        "startLayer": row["start_layer"],
+        "durationS": row["duration_s"],
+        "warmupS": row["warmup_s"],
+        "pauseS": row["pause_s"],
+        "context": qa_db.loads(row["context"]),
+        "summary": qa_db.loads(row["summary"]),
+    })
+    return out
+
+
+def layers(con, job_id, load_thresholds=None):
+    """Layer aggregates (§5.10: the CHX analysis channels come from these)."""
+    key = job_key(con, job_id)
+    if key is None:
+        return None
+    ctx_row = con.execute("SELECT context FROM jobs WHERE key=?", (key,)).fetchone()
+    context = qa_db.loads(ctx_row[0]) or {}
+    rows = con.execute("SELECT * FROM job_layers WHERE job_key=? ORDER BY layer", (key,)).fetchall()
+    result = []
+    for row in rows:
+        entry = _loads(row, "filament", "flow", "temps", "fm_stats", "pwm_stats", "load_stats")
+        entry.pop("job_key", None)
+        entry["startedAt"] = iso(entry.pop("started_at"))
+        entry["endedAt"] = iso(entry.pop("ended_at"))
+        entry["durationS"] = entry.pop("duration_s")
+        entry["fractionPrinted"] = entry.pop("fraction_printed")
+        entry["fmStats"] = entry.pop("fm_stats")
+        entry["pwmStats"] = entry.pop("pwm_stats")
+        entry["loadStats"] = entry.pop("load_stats")
+        result.append(entry)
+    return {
+        "jobId": job_id,
+        "meta": {
+            "sensors": context.get("sensors", []),
+            "heaters": [{"index": h["index"], "role": h["role"], "tool": h.get("tool"), "sensor": h.get("sensor"),
+                         "sensorName": h.get("sensorName")} for h in context.get("heaters", [])],
+            "chamber": context.get("chamber"),
+            "filamentDiameters": {str(e["index"]): e.get("filamentDiameter") for e in context.get("extruders", [])},
+            "heaterLoad": load_thresholds or {"high": 0.8, "limit": 0.9},
+        },
+        "layers": result,
+    }
+
+
+def events(con, job_id, type_=None):
+    key = job_key(con, job_id)
+    if key is None:
+        return None
+    sql = "SELECT * FROM events WHERE job_key=?"
+    args = [key]
+    if type_:
+        types = [t for t in type_.split(",") if t]
+        sql += f" AND type IN ({','.join('?' * len(types))})"
+        args += types
+    rows = con.execute(sql + " ORDER BY ts_ms, id", args).fetchall()
+    out = []
+    for row in rows:
+        entry = _loads(row, "positions", "offsets", "payload")
+        entry.pop("job_key", None)
+        entry["ts"] = iso(entry["ts_ms"])
+        out.append(entry)
+    return {"jobId": job_id, "events": out}
+
+
+def blocks(con, job_id):
+    key = job_key(con, job_id)
+    if key is None:
+        return None
+    rows = con.execute("SELECT id, start_ms, end_ms, triggers FROM blocks WHERE job_key=? ORDER BY start_ms", (key,))
+    return {"jobId": job_id, "blocks": [_loads(r, "triggers") for r in rows]}
+
+
+def channels(con):
+    names = [r[0] for r in con.execute("SELECT name FROM channels ORDER BY name")]
+    derived = sorted({n.replace(".avgPwm", ".load") for n in names if n.startswith("heater.") and n.endswith(".avgPwm")})
+    return {"channels": names, "derived": derived}
+
+
+def _max_pwm_timeline(con, key, context, heater):
+    """[(from_ms, maxPwm)] for a heater: the job-start value, then every change event."""
+    start = None
+    for h in (context or {}).get("heaters", []):
+        if h["index"] == heater:
+            start = ((h.get("model") or {}).get("maxPwm"))
+    timeline = [(0, start if start and start > 0 else 1.0)]
+    for row in con.execute("SELECT ts_ms, payload FROM events WHERE job_key=? AND type='setpoint_change' "
+                           "AND subtype='heater.maxPwm' AND device=? ORDER BY ts_ms", (key, heater)):
+        value = (qa_db.loads(row["payload"]) or {}).get("to")
+        timeline.append((row["ts_ms"], value if value and value > 0 else 1.0))
+    return timeline
+
+
+def _series(con, key, channel, start, end, resolution):
+    row = con.execute("SELECT id FROM channels WHERE name=?", (channel,)).fetchone()
+    if row is None:
+        return []
+    sql = "SELECT ts_ms, value, resolution FROM samples WHERE job_key=? AND channel=? AND ts_ms BETWEEN ? AND ?"
+    args = [key, row[0], start, end]
+    if resolution == "coarse":
+        sql += " AND resolution=0"
+    elif resolution == "fine":
+        sql += " AND block_id IS NOT NULL"
+    return con.execute(sql + " ORDER BY ts_ms", args).fetchall()
+
+
+def samples(con, job_id, names, start=None, end=None, resolution="auto"):
+    """Time series ``{channel: [[ts_ms, value], ...]}``; ``heater.<n>.load`` is derived from
+    avgPwm and the maxPwm valid at the time (§3 "Abgeleitete Kanäle"). Downsampled by stride
+    beyond MAX_POINTS_PER_CHANNEL."""
+    row = con.execute("SELECT key, context, started_at, ended_at FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row is None:
+        return None
+    key = row["key"]
+    start = row["started_at"] if start is None else start
+    end = (row["ended_at"] or 2 ** 62) if end is None else end
+    context = None
+    result = {}
+    downsampled = False
+    for name in names:
+        if name.startswith("heater.") and name.endswith(".load"):
+            heater = int(name.split(".")[1])
+            if context is None:
+                context = qa_db.loads(row["context"])
+            timeline = _max_pwm_timeline(con, key, context, heater)
+            points = []
+            index = 0
+            for r in _series(con, key, f"heater.{heater}.avgPwm", start, end, resolution):
+                while index + 1 < len(timeline) and timeline[index + 1][0] <= r["ts_ms"]:
+                    index += 1
+                points.append([r["ts_ms"], round(min(1.0, max(0.0, r["value"] / timeline[index][1])), 4)])
+        else:
+            points = [[r["ts_ms"], r["value"]] for r in _series(con, key, name, start, end, resolution)]
+        if len(points) > MAX_POINTS_PER_CHANNEL:
+            stride = -(-len(points) // MAX_POINTS_PER_CHANNEL)
+            points = points[::stride]
+            downsampled = True
+        result[name] = points
+    return {"jobId": job_id, "from": start, "to": end, "resolution": resolution, "downsampled": downsampled,
+            "channels": result}
+
+
+def spectra(con, job_id):
+    key = job_key(con, job_id)
+    if key is None:
+        return None
+    rows = con.execute("SELECT * FROM spectra WHERE job_key=? ORDER BY ts_ms", (key,)).fetchall()
+    out = []
+    for row in rows:
+        entry = _loads(row, "freqs", "amplitudes")
+        entry.pop("job_key", None)
+        out.append(entry)
+    return {"jobId": job_id, "spectra": out}
+
+
+def references(con):
+    return {"references": [dict(r) for r in con.execute("SELECT * FROM reference_spectra ORDER BY axis")]}
+
+
+def export(con, job_id):
+    detail = job(con, job_id)
+    if detail is None:
+        return None
+    return {
+        "exportedAt": iso(qa_db.now_ms()),
+        "format": "dwc-quality-assurance/job/1",
+        "job": detail,
+        "layers": layers(con, job_id)["layers"],
+        "events": events(con, job_id)["events"],
+        "blocks": blocks(con, job_id)["blocks"],
+        "spectra": spectra(con, job_id)["spectra"],
+    }
+
+
+# --- trends -------------------------------------------------------------------------------------
+
+def _context_value(context, path):
+    value = context
+    for part in path:
+        if isinstance(value, dict):
+            value = value.get(part)
+        elif isinstance(value, list) and isinstance(part, int) and 0 <= part < len(value):
+            value = value[part]
+        else:
+            return None
+    return value
+
+
+def _nozzle_diameter(context, tool):
+    slicer = _context_value(context, ["slicer", "config", "nozzle_diameter"])
+    if slicer:
+        try:
+            return float(str(slicer).split(",")[0])
+        except ValueError:
+            pass
+    value = _context_value(context, ["globalsStart", "nozzle_diameter"])
+    if isinstance(value, list) and tool is not None and 0 <= tool < len(value):
+        return value[tool]
+    return None
+
+
+TREND_METRICS = ("heater_load_mean", "fm_avg_percentage", "filament_ratio", "esteps_suggested", "mm_per_rev",
+                 "heat_up_s", "duration_s", "events")
+
+
+def trends(con, metric, limit=100, material=None):
+    """One point per job (newest first), grouped where the plan asks for it (§5.4.1 Trends)."""
+    if metric not in TREND_METRICS:
+        raise ValueError(f"unknown metric {metric}; one of {', '.join(TREND_METRICS)}")
+    sql = "SELECT id, started_at, result, material, duration_s, context, summary FROM jobs WHERE result != 'running'"
+    args = []
+    if material:
+        sql += " AND material=?"
+        args.append(material)
+    rows = con.execute(sql + " ORDER BY started_at DESC LIMIT ?", (*args, limit)).fetchall()
+    points = []
+    for row in rows:
+        summary = qa_db.loads(row["summary"]) or {}
+        context = qa_db.loads(row["context"]) or {}
+        base = {"jobId": row["id"], "ts": iso(row["started_at"]), "result": row["result"], "material": row["material"]}
+        if metric == "heater_load_mean":
+            for heater, stats in ((summary.get("thermal") or {}).get("heaterLoad") or {}).items():
+                if not stats.get("nozzle"):
+                    continue
+                for group in stats.get("bySetpoint") or []:
+                    points.append({**base, "heater": int(heater), "tool": stats.get("tool"),
+                                   "setpoint": group["setpoint"], "value": group["mean"], "timeS": group["timeS"],
+                                   "nozzleDiameter": _nozzle_diameter(context, stats.get("tool"))})
+        elif metric in ("fm_avg_percentage", "filament_ratio", "mm_per_rev"):
+            field = {"fm_avg_percentage": "avgPercentage", "filament_ratio": "ratio", "mm_per_rev": "mmPerRev"}[metric]
+            for monitor, stats in (summary.get("filament") or {}).items():
+                if stats.get(field) is not None:
+                    points.append({**base, "monitor": int(monitor), "value": stats[field]})
+        elif metric == "esteps_suggested":
+            mfm = summary.get("mfm") or {}
+            if mfm.get("estepsSuggested"):
+                steps = (context.get("extruders") or [{}])[0].get("stepsPerMm")
+                points.append({**base, "value": mfm["estepsSuggested"], "stepsPerMm": steps,
+                               "applied": mfm.get("estepsApplied")})
+        elif metric == "heat_up_s":
+            for heater, runs in ((summary.get("thermal") or {}).get("heatUp") or {}).items():
+                if runs:
+                    points.append({**base, "heater": int(heater), "value": runs[0]["s"], "setpoint": runs[0]["setpoint"]})
+        elif metric == "duration_s":
+            if row["duration_s"] is not None:
+                points.append({**base, "value": row["duration_s"]})
+        elif metric == "events":
+            counts = {k: v.get("count") for k, v in (summary.get("events") or {}).items()}
+            points.append({**base, "value": sum(c for t, c in counts.items() if t not in ("job_start", "job_end")),
+                           "byType": counts})
+    return {"metric": metric, "points": points}
+
+
+def dumps(value):
+    return json.dumps(value, separators=(",", ":"))

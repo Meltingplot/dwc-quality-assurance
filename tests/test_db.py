@@ -7,6 +7,8 @@ import textwrap
 import threading
 import time
 
+import pytest
+
 import qa_db
 
 DSF_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dsf")
@@ -58,13 +60,18 @@ def test_commit_after_interval(data_dir):
         w.stop()
 
 
-def test_fine_sample_wins_over_coarse(writer, readers):
+@pytest.mark.parametrize("fine_first", [True, False])
+def test_coincident_samples_share_a_row(writer, readers, fine_first):
+    """Same snapshot, same time stamp: the row stays on the coarse grid and joins the block."""
     key = writer.call("job_insert", job_record())
-    writer.submit("samples", key, [(10, "c", 1.0)], qa_db.RESOLUTION_FINE, 7)
-    writer.submit("samples", key, [(10, "c", 2.0)], qa_db.RESOLUTION_COARSE)
+    fine = ("samples", key, [(10, "c", 1.0)], qa_db.RESOLUTION_FINE, 7)
+    coarse = ("samples", key, [(10, "c", 1.0)], qa_db.RESOLUTION_COARSE)
+    for op in ((fine, coarse) if fine_first else (coarse, fine)):
+        writer.submit(*op)
+    writer.submit("samples", key, [(11, "c", 1.5)], qa_db.RESOLUTION_FINE, 7)
     writer.flush()
-    row = readers.get().execute("SELECT value, resolution, block_id FROM samples").fetchone()
-    assert (row["value"], row["resolution"], row["block_id"]) == (1.0, qa_db.RESOLUTION_FINE, 7)
+    rows = [tuple(r) for r in readers.get().execute("SELECT ts_ms, value, resolution, block_id FROM samples ORDER BY ts_ms")]
+    assert rows == [(10, 1.0, qa_db.RESOLUTION_COARSE, 7), (11, 1.5, qa_db.RESOLUTION_FINE, 7)]
 
 
 def test_channel_ids_survive_restart(data_dir):

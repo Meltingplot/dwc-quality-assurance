@@ -7,59 +7,8 @@ import pytest
 
 import qa_collector
 import qa_db
-import qa_gcode
 
-from conftest import make_model
-
-GCODE = ";LAYER_CHANGE\nG1 Z0.2\nG1 X10 Y10 E1 F1200\n;LAYER_CHANGE\nG1 Z0.4\nG1 X20 Y20 E1\n"
-
-
-class Rig:
-    def __init__(self, writer, settings, tmp_path, data_dir):
-        self.writer = writer
-        self.gcode = tmp_path / "a.gcode"
-        self.gcode.write_text(GCODE)
-        self.frames = []
-        self.index = qa_gcode.IndexCache(data_dir)
-        self.collector = qa_collector.Collector(
-            writer, settings, resolve_path=lambda v: str(self.gcode) if v == "0:/gcodes/a.gcode" else None,
-            broadcast=self.frames.append, plugin_version="test", index_cache=self.index)
-        self.collector.init_ids()
-        self.model = make_model()
-        self.t = 1_700_000_000_000
-        self.collector.update(self.model, None, self.t)
-
-    def patch(self, data, dt_ms=1000):
-        self.t += dt_ms
-        patch = json.loads(json.dumps(data))
-        self.model.update_from_json(patch)
-        self.collector.update(self.model, patch, self.t)
-
-    def tick(self, dt_ms=3000):
-        self.t += dt_ms
-        self.collector.tick(self.t)
-
-    def rows(self, sql, *args):
-        self.writer.flush()
-        return [dict(r) for r in qa_db.Readers(self.writer.directory).get().execute(sql, args)]
-
-    def events(self, type_=None):
-        rows = self.rows("SELECT * FROM events ORDER BY id")
-        for row in rows:
-            row["payload"] = qa_db.loads(row["payload"])
-        return [r for r in rows if type_ is None or r["type"] == type_]
-
-    def start_job(self):
-        self.patch({"state": {"status": "processing"},
-                    "job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode", "size": len(GCODE), "numLayers": 2}},
-                    "heat": {"heaters": [{"active": 60, "state": "active"}, {"active": 220, "state": "active"}]},
-                    "tools": [{"active": [220]}]})
-
-
-@pytest.fixture
-def rig(writer, settings, tmp_path, data_dir):
-    return Rig(writer, settings, tmp_path, data_dir)
-
+from conftest import GCODE, make_model
 
 def test_job_start_records_context_and_event(rig):
     rig.start_job()
