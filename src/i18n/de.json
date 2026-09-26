@@ -6,5 +6,188 @@
 		"start": "Backend starten",
 		"starting": "Startet…",
 		"startFailed": "Das Backend konnte nicht gestartet werden: {error}"
+	},
+	"common": {
+		"noData": "Keine Daten",
+		"refresh": "Aktualisieren"
+	},
+	"tabs": {
+		"jobs": "Jobs",
+		"job": "Job",
+		"trends": "Trends",
+		"settings": "Einstellungen"
+	},
+	"results": {
+		"running": "Läuft",
+		"completed": "Fertig",
+		"cancelled": "Abgebrochen",
+		"aborted": "Gescheitert",
+		"unknown": "Ende unbekannt"
+	},
+	"jobs": {
+		"file": "Datei",
+		"started": "Start",
+		"duration": "Dauer",
+		"result": "Ergebnis",
+		"material": "Material",
+		"ratio": "Gemessen/befohlen",
+		"load": "Heizlast",
+		"events": "Ereignisse",
+		"partial": "teilweise",
+		"partialFrom": "Aufgezeichnet ab Lage {layer}",
+		"none": "Noch keine Jobs aufgezeichnet"
+	},
+	"job": {
+		"export": "JSON exportieren",
+		"duration": "Dauer",
+		"layers": "Lagen",
+		"ratio": "Gemessen/befohlen",
+		"avgPercentage": "Monitor-Mittel",
+		"loadMean": "Heizlast (Mittel)",
+		"events": "Ereignisse",
+		"tabLayers": "Lagen",
+		"tabChannels": "Kanäle",
+		"tabEvents": "Ereignisse",
+		"tabSummary": "Zusammenfassung",
+		"tabContext": "Kontext",
+		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)"
+	},
+	"layers": {
+		"none": "Für diesen Job sind keine Lagen aufgezeichnet.",
+		"duration": "Dauer",
+		"temperatures": "Temperaturen",
+		"heaterLoad": "Heizlast",
+		"monitor": "Filamentmonitor",
+		"filament": "Gemessen gegen befohlen",
+		"flow": "Volumenstrom",
+		"filamentHint": "Befohlen: die Extrusion, die der Filamentmonitor als befohlen sah; gemessen: die Bewegung, die er gemessen hat (calibrated.totalDistance).",
+		"loadMean": "Last bei Sollwert",
+		"loadShareHigh": "Zeit ≥ hoch",
+		"percentMean": "Mittel",
+		"percentMin": "Min",
+		"percentMax": "Max",
+		"commanded": "Befohlen",
+		"measured": "Gemessen"
+	},
+	"channels": {
+		"pick": "Kanäle",
+		"resolution": "Auflösung",
+		"auto": "Alles Aufgezeichnete",
+		"coarse": "5-s-Raster",
+		"fine": "Volle Auflösung (Blöcke)",
+		"pruned": "Die Rohdaten dieses Jobs hat die Aufbewahrung entfernt; Lagen, Ereignisse und Zusammenfassung sind erhalten.",
+		"downsampled": "Mehr Punkte als darstellbar: jeder n-te Punkt wird gezeichnet."
+	},
+	"events": {
+		"time": "Zeit",
+		"layer": "Lage",
+		"type": "Ereignis",
+		"detail": "Detail",
+		"position": "Position (Maschine)",
+		"none": "Keine Ereignisse"
+	},
+	"eventTypes": {
+		"filament_status": "Filamentmonitor",
+		"filament_percent_window": "Monitor außerhalb des Fensters",
+		"heater_fault": "Heizerfehler",
+		"heater_monitor": "Heizerüberwachung",
+		"heater_load": "Heizlast",
+		"mfm_error_tolerated": "MFM-Fehler toleriert",
+		"mfm_recovery": "MFM-Recovery",
+		"mfm_flow_bias": "MFM-Flow-Bias",
+		"voltage_dip": "Spannungseinbruch",
+		"phantom_reading": "Phantommessung",
+		"driver_error": "Treiber",
+		"setpoint_change": "Sollwert",
+		"job_start": "Jobstart",
+		"job_end": "Jobende",
+		"pause": "Pause",
+		"resume": "Fortsetzen",
+		"babystep": "Babystep",
+		"timelapse_failed": "Zeitraffer fehlgeschlagen",
+		"accelerometer_failed": "Beschleunigungssensor fehlgeschlagen",
+		"daemon_started_mid_job": "Aufzeichnung im Job begonnen"
+	},
+	"trends": {
+		"metric": "Kennzahl",
+		"metrics": {
+			"heater_load_mean": "Heizlast bei Sollwert",
+			"fm_avg_percentage": "Mittelwert des Filamentmonitors",
+			"filament_ratio": "Filament gemessen/befohlen",
+			"mm_per_rev": "Monitor mm/Umdrehung (kalibriert)",
+			"esteps_suggested": "Vom MFM vorgeschlagene E-Steps",
+			"heat_up_s": "Aufheizzeit",
+			"duration_s": "Jobdauer",
+			"events": "Ereignisse je Job"
+		},
+		"units": {
+			"heater_load_mean": "%",
+			"fm_avg_percentage": "%",
+			"filament_ratio": "%",
+			"mm_per_rev": "mm/U",
+			"esteps_suggested": "Schritte/mm",
+			"heat_up_s": "s",
+			"duration_s": "s",
+			"events": ""
+		},
+		"hint": {
+			"heater_load_mean": "Mittlere Last jedes Düsenheizers bei seinem Sollwert, je Sollwert und Düse. Steigt die Last bei gleichem Sollwert, Material und Düse, deutet das auf einen schwächer werdenden Heizer oder eine beginnende Verstopfung.",
+			"fm_avg_percentage": "Mittelwert des Monitors über den ganzen Job. Eine langsame Drift über Jobs deutet auf Verschleiß von Antriebsrad, Andruckrolle oder Lager.",
+			"filament_ratio": "Vom Monitor gemessenes je befohlenem Filament, über den ganzen Job.",
+			"mm_per_rev": "Worauf RRF die Empfindlichkeit des Monitors in jedem Job kalibriert hat.",
+			"esteps_suggested": "Die Korrektur, die der Flow-Bias-Detektor der Maschine vorgeschlagen hat.",
+			"heat_up_s": "Zeit von einem neuen Sollwert bis zum Erreichen, jeweils das erste Mal im Job.",
+			"duration_s": "Jobdauer, wie RRF sie meldet.",
+			"events": "Ereignisse eines Jobs ohne Start und Ende."
+		}
+	},
+	"settings": {
+		"saved": "Einstellungen gespeichert.",
+		"sampling": "Aufzeichnung",
+		"chamber": "Kammertemperatur",
+		"context": "Job-Kontext",
+		"timelapse": "Zeitraffer",
+		"save": "Speichern",
+		"reset": "Änderungen verwerfen",
+		"chamberModes": {
+			"auto": "Automatisch (Kammerheizer, sonst Sensor nach Name)",
+			"heater": "Heizer",
+			"sensor": "Analogsensor"
+		},
+		"fields": {
+			"sampleIntervalS": "Intervall der Grobsamples",
+			"ringBufferS": "Ringpuffer",
+			"postTriggerS": "Volle Auflösung nach einem Auslöser",
+			"temperatureK": "Temperatursprung",
+			"filamentPercentPoints": "Monitorsprung",
+			"vInPercent": "Sprung/Einbruch der Versorgungsspannung",
+			"phantomJumpK": "Sprung einer Phantommessung",
+			"filamentPercentWindowMinS": "Monitor mindestens außerhalb seines Fensters",
+			"loadHigh": "Heizlast: hoch ab",
+			"loadLimit": "Heizlast: Grenze ab",
+			"retentionJobs": "Rohdaten der neuesten Jobs behalten",
+			"retentionDays": "Rohdaten behalten, wenn jünger als",
+			"chamberMode": "Quelle",
+			"chamberIndex": "Heizer- oder Sensornummer",
+			"chamberSensorName": "Sensorname (automatisch)",
+			"contextGlobals": "Globale Variablen, die mit jedem Job gespeichert werden",
+			"mfm": "Auswertung des Filamentmonitors durch die Maschine aufzeichnen (MFM-Globals)",
+			"timelapseEnabled": "Zeitraffer",
+			"snapshotUrl": "Snapshot-URL der Kamera"
+		}
+	},
+	"live": {
+		"recording": "Zeichnet auf",
+		"idle": "Kein Job aktiv",
+		"layer": "Lage {layer}",
+		"load": "Heizlast Heizer {heater}",
+		"monitor": "Filamentmonitor",
+		"lastEvent": "Letztes Ereignis",
+		"states": {
+			"connecting": "verbindet",
+			"open": "live",
+			"polling": "fragt ab",
+			"closed": "offline"
+		}
 	}
 }

@@ -208,9 +208,11 @@ def handle_settings_post(ctx, request):
     except ValueError:
         raise ApiError(400, "body is not JSON")
     settings, errors = ctx.settings.update(given)
+    # Always 200: DWC's REST connector drops the body of a 4xx answer ("bad status code 422"),
+    # so the errors would never reach the settings form (@duet3d/connectors RestConnector.request)
     if errors:
-        return json_response({"errors": errors}, 422)
-    return json_response({"settings": settings, "errors": []})
+        return json_response({"saved": False, "settings": ctx.settings.current(), "errors": errors})
+    return json_response({"saved": True, "settings": settings, "errors": []})
 
 
 def handle_jobs(ctx, request):

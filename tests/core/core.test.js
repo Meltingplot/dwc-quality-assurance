@@ -1,0 +1,172 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { QaApi, statusOf } from "../../src/core/api";
+import { histogramConfig, layerChartConfig, markerPlugin, timeSeriesConfig, trendConfig } from "../../src/core/charts";
+import { eventDetail, fileName, formatBytes, formatClock, formatDuration, formatPercent, resultColor } from "../../src/core/format";
+import { LiveClient } from "../../src/core/ws";
+
+describe("QaApi", () => {
+	function host() {
+		const calls = [];
+		return {
+			calls,
+			request: (method, path, params, responseType, body) => {
+				calls.push({ method, path, params, responseType, body });
+				return Promise.resolve({ ok: true });
+			}
+		};
+	}
+
+	it("builds the endpoint paths and parameters", async () => {
+		const h = host();
+		const api = new QaApi(h);
+		await api.jobs({ limit: 25, offset: 0, result: "finished", material: "" });
+		await api.samples("j1", ["a", "b"], { resolution: "fine", from: 5 });
+		await api.events("j1", "pause,resume");
+		await api.trends("heater_load_mean", { limit: 10 });
+		await api.saveSettings({ sampleIntervalS: 5 });
+		await api.exportBlob("j1");
+		expect(h.calls[0]).toMatchObject({ method: "GET", path: "machine/QualityAssurance/jobs", params: { limit: 25, offset: 0, result: "finished" } });
+		expect(h.calls[1].params).toEqual({ id: "j1", channels: "a,b", resolution: "fine", from: 5 });
+		expect(h.calls[2].params).toEqual({ id: "j1", type: "pause,resume" });
+		expect(h.calls[3].params).toEqual({ metric: "heater_load_mean", limit: 10 });
+		expect(h.calls[4]).toMatchObject({ method: "POST", path: "machine/QualityAssurance/settings", body: "{\"sampleIntervalS\":5}" });
+		expect(h.calls[5].responseType).toBe("blob");
+	});
+
+	it("reads the status of a failed request", () => {
+		expect(statusOf(new Error("bad status code 409"))).toBe(409);
+		expect(statusOf(Object.assign(new Error("x"), { name: "FileNotFoundError" }))).toBe(404);
+		expect(statusOf(new Error("boom"))).toBeNull();
+	});
+});
+
+describe("format", () => {
+	it("formats durations and clocks", () => {
+		expect(formatDuration(3725)).toBe("1h 02m");
+		expect(formatDuration(65)).toBe("1m 05s");
+		expect(formatDuration(null)).toBe("—");
+		expect(formatClock(3725)).toBe("1:02:05");
+		expect(formatClock(65)).toBe("1:05");
+	});
+
+	it("formats values", () => {
+		expect(formatPercent(0.456)).toBe("46 %");
+		expect(formatBytes(1536)).toBe("1.5 KiB");
+		expect(fileName("0:/gcodes/sub/a.gcode")).toBe("a.gcode");
+		expect(resultColor("finished")).toBe("success");
+		expect(resultColor("aborted")).toBe("error");
+	});
+
+	it("summarises event payloads", () => {
+		expect(eventDetail({ type: "setpoint_change", subtype: "stepsPerMm", payload: { from: 790, to: 812.5, cause: "mfm_flow_bias" } }))
+			.toBe("790 → 812.5 (mfm_flow_bias)");
+		expect(eventDetail({ type: "heater_load", subtype: "high", payload: { peakMean: 0.86, setpoint: 220, durationS: 125 } }))
+			.toBe("86 % @ 220 °C, 2m 05s");
+		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
+	});
+});
+
+describe("charts", () => {
+	it("puts time series on seconds since the job start", () => {
+		const config = timeSeriesConfig([{ label: "T", unit: "°C", points: [[1000, 20], [6000, 25]] },
+			{ label: "load", points: [[1000, 0.5]], secondary: true }], 1000, { markers: [{ ts: 3000, label: "pause" }] });
+		expect(config.data.datasets[0].data).toEqual([{ x: 0, y: 20 }, { x: 5, y: 25 }]);
+		expect(config.data.datasets[0].label).toBe("T (°C)");
+		expect(config.data.datasets[1].yAxisID).toBe("y2");
+		expect(config.options.scales.y2).toBeDefined();
+		expect(config.options.plugins.qaMarkers.markers[0].x).toBe(2);
+		expect(config.options.scales.x.ticks.callback(125)).toBe("2:05");
+	});
+
+	it("builds layer, histogram and trend configs", () => {
+		const layers = layerChartConfig([1, 2], [{ label: "d", values: [10, null] }], { yMin: 0, yMax: 100 });
+		expect(layers.data.labels).toEqual(["1", "2"]);
+		expect(layers.options.scales.y.max).toBe(100);
+		const hist = histogramConfig("x", [{ from: 98, to: 100, s: 5 }]);
+		expect(hist.data.labels).toEqual(["98–100"]);
+		const trend = trendConfig([{ label: "a", points: [{ ts: 0, value: 1, jobId: "j" }] }], 86_400_000);
+		expect(trend.data.datasets[0].data[0]).toMatchObject({ x: -1, y: 1, jobId: "j" });
+	});
+
+	it("draws markers inside the chart area only", () => {
+		const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), setLineDash: vi.fn() };
+		const chart = { ctx, chartArea: { left: 0, right: 100, top: 0, bottom: 50 }, scales: { x: { getPixelForValue: (v) => v * 10 } } };
+		markerPlugin.afterDatasetsDraw(chart, {}, { markers: [{ x: 5, label: "a" }, { x: 50, label: "outside" }] });
+		expect(ctx.stroke).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("LiveClient", () => {
+	let sockets;
+
+	class FakeSocket {
+		constructor(url) {
+			this.url = url;
+			this.closed = false;
+			sockets.push(this);
+		}
+		close() {
+			this.closed = true;
+		}
+	}
+
+	beforeEach(() => {
+		sockets = [];
+		vi.useFakeTimers();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("delivers frames and reconnects with backoff while polling", async () => {
+		const frames = [];
+		const states = [];
+		const poll = vi.fn(() => Promise.resolve());
+		const client = new LiveClient({
+			url: () => "ws://h/machine/QualityAssurance/live",
+			onFrame: (f) => frames.push(f),
+			onState: (s) => states.push(s),
+			poll,
+			createSocket: (url) => new FakeSocket(url),
+			minDelayMs: 100,
+			pollIntervalMs: 1000
+		});
+		client.start();
+		sockets[0].onopen();
+		sockets[0].onmessage({ data: "{\"type\":\"hello\",\"ts\":1}" });
+		sockets[0].onmessage({ data: "not json" });
+		expect(frames).toEqual([{ type: "hello", ts: 1 }]);
+		expect(client.state).toBe("open");
+
+		sockets[0].onclose();
+		expect(client.state).toBe("polling");
+		expect(poll).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(100);
+		expect(sockets).toHaveLength(2);
+		sockets[1].onclose();
+		vi.advanceTimersByTime(150);
+		expect(sockets).toHaveLength(2);  // the delay doubled to 200 ms
+		vi.advanceTimersByTime(60);
+		expect(sockets).toHaveLength(3);
+		vi.advanceTimersByTime(1000);
+		expect(poll.mock.calls.length).toBeGreaterThanOrEqual(2);
+		sockets[2].onopen();
+		const polled = poll.mock.calls.length;
+		vi.advanceTimersByTime(5000);
+		expect(poll.mock.calls.length).toBe(polled);  // polling stops once the socket is back
+
+		client.stop();
+		expect(sockets[2].closed).toBe(true);
+		expect(states[states.length - 1]).toBe("closed");
+	});
+
+	it("only polls without a socket URL", () => {
+		const poll = vi.fn(() => Promise.resolve());
+		const client = new LiveClient({ url: () => null, onFrame: () => {}, poll, createSocket: (u) => new FakeSocket(u), minDelayMs: 100 });
+		client.start();
+		expect(client.state).toBe("polling");
+		expect(sockets).toHaveLength(0);
+		client.stop();
+	});
+});
