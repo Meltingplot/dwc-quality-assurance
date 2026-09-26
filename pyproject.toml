@@ -1,0 +1,19 @@
+[project]
+name = "dwc-quality-assurance"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+# The daemon runs against dsf-python 3.7.0b1 on the CHX 350 image; the tests use the same
+# library for real (object model deserialization and the patches), not a mock
+test = ["pytest>=8.0", "pytest-cov>=5.0", "dsf-python==3.7.0b1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["dsf"]
+
+[tool.coverage.run]
+source = ["dsf"]
+
+[tool.coverage.report]
+show_missing = true

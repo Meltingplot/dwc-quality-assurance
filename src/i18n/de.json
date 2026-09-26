@@ -1,0 +1,10 @@
+{
+	"menuCaption": "Qualitätssicherung",
+	"title": "Qualitätssicherung",
+	"backend": {
+		"stopped": "Das Backend der Qualitätssicherung läuft nicht, es wird nichts aufgezeichnet.",
+		"start": "Backend starten",
+		"starting": "Startet…",
+		"startFailed": "Das Backend konnte nicht gestartet werden: {error}"
+	}
+}

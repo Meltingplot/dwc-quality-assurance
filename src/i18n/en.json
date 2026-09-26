@@ -1,0 +1,10 @@
+{
+	"menuCaption": "Quality Assurance",
+	"title": "Quality Assurance",
+	"backend": {
+		"stopped": "The Quality Assurance backend is not running, nothing is being recorded.",
+		"start": "Start backend",
+		"starting": "Starting…",
+		"startFailed": "The backend could not be started: {error}"
+	}
+}
