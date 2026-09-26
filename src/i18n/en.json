@@ -50,7 +50,8 @@
 		"tabEvents": "Events",
 		"tabSummary": "Summary",
 		"tabContext": "Context",
-		"distribution": "Filament monitor reading, time per 2 % class (s)"
+		"distribution": "Filament monitor reading, time per 2 % class (s)",
+		"tabReplay": "Replay"
 	},
 	"layers": {
 		"none": "No layers recorded for this job.",
@@ -189,5 +190,17 @@
 			"polling": "polling",
 			"closed": "offline"
 		}
+	},
+	"replay": {
+		"layerOf": "Layer {layer} of {total}",
+		"speed": "Speed",
+		"travel": "Travel moves",
+		"legend": "Colour: commanded volumetric flow from the G-code; dots: measured extrusion rate (same scale); rings: events. Wheel zooms, drag pans, double click fits.",
+		"objects": "Objects",
+		"events": "Events of the layer",
+		"curves": "Temperature and heater load of the layer",
+		"building": "The daemon is still indexing the G-code file…",
+		"fileGone": "The job file is no longer on the printer, or it was changed after the job.",
+		"noLayer": "The G-code file has no such layer."
 	}
 }

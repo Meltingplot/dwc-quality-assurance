@@ -50,7 +50,8 @@
 		"tabEvents": "Ereignisse",
 		"tabSummary": "Zusammenfassung",
 		"tabContext": "Kontext",
-		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)"
+		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)",
+		"tabReplay": "Replay"
 	},
 	"layers": {
 		"none": "Für diesen Job sind keine Lagen aufgezeichnet.",
@@ -189,5 +190,17 @@
 			"polling": "fragt ab",
 			"closed": "offline"
 		}
+	},
+	"replay": {
+		"layerOf": "Lage {layer} von {total}",
+		"speed": "Tempo",
+		"travel": "Leerfahrten",
+		"legend": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: gemessene Extrusionsrate (gleiche Skala); Ringe: Ereignisse. Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein.",
+		"objects": "Objekte",
+		"events": "Ereignisse der Lage",
+		"curves": "Temperatur und Heizlast der Lage",
+		"building": "Der Daemon indiziert die G-Code-Datei noch…",
+		"fileGone": "Die Jobdatei ist nicht mehr auf dem Drucker oder wurde nach dem Job geändert.",
+		"noLayer": "Die G-Code-Datei hat diese Lage nicht."
 	}
 }
