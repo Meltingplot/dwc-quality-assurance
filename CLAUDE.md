@@ -31,10 +31,20 @@ src/                        DWC 3.7 frontend, TypeScript + Vue 3.5 + Vuetify 4
   core/                     framework-neutral (no store imports): backend, api, charts, …
   components/, i18n/
 dsf/                        Python daemon (copied verbatim into the package, minus tests)
-  qa-daemon.py              entry point
+  qa-daemon.py              entry point: subscription loop, heartbeat, retention, plugin data
   qa_patches.py             dsf-python patches (§ Object model)
   qa_log.py                 errors → stderr, warnings → write_message
-  qa_api.py                 HTTP endpoint registry
+  qa_api.py                 HTTP endpoint registry, ApiContext, LiveHub (WebSocket fan-out)
+  qa_settings.py            settings.json with defaults and validation
+  qa_db.py                  SQLite: schema, writer thread, quarantine/restore, backup, retention
+  qa_collector.py           jobs, ring buffer, blocks, events, layers (the main-thread logic)
+  qa_channels.py            channel extraction, heater roles, positions
+  qa_heaterload.py          heater load, same definition as the CHX UI banner
+  qa_machine.py             MFM globals of chx350-config, context globals
+  qa_context.py             job context snapshot, CRC32
+  qa_summary.py             layer aggregates, job summary (time-weighted)
+  qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
+  qa_gcode.py               layer index (as job.layer counts) and toolpath
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
 docs/                       image.md (work order for the image build), …
@@ -74,6 +84,23 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   commandExecution, objectModelReadWrite, registerHttpEndpoints, fileSystemAccess, readGCodes,
   networkAccess (camera), launchProcesses (ffmpeg). `readSystem`/`writeSystem` come with the
   accelerometer phase (postponed). `sbcPackageDependencies: ["ffmpeg"]`.
+
+## Recording decisions (details in the module docstrings)
+- Timestamps are epoch ms (wall clock); jobs have a text id for the API and an integer key for
+  the sample tables. Samples: coarse every `sampleIntervalS`; fine rows only for changed values
+  inside a block (ring buffer + `postTriggerS`).
+- Layers follow `job.layer`. The G-code index counts layers the way DSF forwards comments and RRF
+  parses them (`qa_gcode.py`), so index and `job.layer` agree. A layer's `z` is the Z of its last
+  extruding sample; `height`/`fractionPrinted` come from `job.layers[]` when DSF has the layer.
+- Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
+  disappearing, its values are channels (they change continuously).
+- Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger
+  than `retention.days`, then the size cap removes the oldest.
+- Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
+  `temperatureK` of the value before inside `phantomReturnS`.
+- Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
+  boards that report status; RRF's event text in `messages[]` for the others (only printed when
+  no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`).
 
 ## Build, test, release
 ```bash
