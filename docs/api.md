@@ -39,7 +39,7 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/events` | `id`, `type` (comma list) | `{jobId, events: [Event]}` |
 | GET | `job/samples` | `id`, `channels` (comma list, ≤ 50), `from`, `to` (epoch ms), `resolution` (`coarse`, `fine`, `auto`) | `{jobId, from, to, resolution, downsampled, channels: {name: [[ts_ms, value]]}}` |
 | GET | `job/blocks` | `id` | `{jobId, blocks: [{id, start_ms, end_ms, triggers}]}` |
-| GET | `job/spectra` | `id` | `{jobId, spectra: []}` (accelerometer phase postponed) |
+| GET | `job/spectra` | `id` | `{jobId, spectra: [Spectrum]}`, see "Spectra" |
 | GET | `job/toolpath` | `id`, `layer` | segments of the layer; 202 while the index is built; 409 when the file is gone or changed |
 | GET | `job/export` | `id` | the job as one JSON file (`application/octet-stream`) |
 | GET | `job/timelapse/meta` | `id` | status and layer → frame index, see "Timelapse" |
@@ -47,7 +47,8 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/timelapse/frame` | `id`, `layer` | JPEG of the layer's frame (`application/octet-stream`); 404 when the layer has none |
 | GET | `trends` | `metric`, `limit` (100), `material` | `{metric, points: [...]}` newest first |
 | GET | `channels` | – | `{channels: [...], derived: [...]}` |
-| GET/POST | `spectra/reference` | POST body `{axis, spectrumId}` or `{axis, mode: "auto"}` | `{references: [...]}` |
+| GET/POST | `spectra/reference` | POST body `{axis, spectrumId}` or `{axis, mode: "auto"}` | `{references: [Reference], autoCount}`, see "Spectra" |
+| GET | `spectra/latest` | `axis` (`X`/`Y`/`Z`), `limit` (5, ≤ 50) | `{axis, spectra: [Spectrum]}`: the newest spectrum of each of the last jobs, newest first |
 | WebSocket | `live` | – | frames, see below |
 
 Errors: `{"error": "..."}` with 400 (bad parameter), 404 (unknown job/layer), 409, 500. Through DWC's REST connector a
@@ -125,7 +126,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `voltage_dip` | – | `board`, `vIn`, `median90s`; end: `recoveredTo` |
 | `phantom_reading` | `heater` / `sensor` | `channel`, `before`, `peak`, `durationMs` |
 | `timelapse_failed` | `snapshot` (first failed snapshot of a job; later ones only in the index), `encode`, `empty` (no frame at all) | `error`, `snapshot` also `layer`; written by the timelapse threads, so no position, tool or object |
-| `accelerometer_failed` | | later phase |
+| `accelerometer_failed` | `start` (M956 answered with an error), `timeout` (`runs` did not advance), `run` (RRF's reason, e.g. `Received bad data`, or `points` 0), `overflow` (samples lost), `error` | `error`; `code`, `points` or `overflows` where known; no position (written by the recorder thread) |
 
 ## Channels
 
@@ -180,7 +181,27 @@ jobId, queued}, lastError}`.
 
 `metric`: `heater_load_mean` (per nozzle heater and setpoint, with `nozzleDiameter`), `fm_avg_percentage`,
 `filament_ratio`, `mm_per_rev` (per monitor), `esteps_suggested`, `heat_up_s` (per heater), `duration_s`,
-`events` (count without start/end, `byType`). Each point carries `jobId`, `ts`, `result`, `material`, `value`.
+`events` (count without start/end, `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
+of the job's recordings, from `summary.mechanics`, with `spectra`). Each point carries `jobId`, `ts`,
+`result`, `material`, `value`.
+
+## Spectra
+
+Every `accelerometer.intervalMin` minutes while a job prints (status `processing`, from layer 2 on)
+QA records `accelerometer.samples` samples with M956 on the SBC channel and stores one spectrum per
+axis. Spectrum: `{id, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs, amplitudes, peak_hz,
+rms, source, job_key}` — `freqs` in Hz (k × rate/N up to Nyquist), `amplitudes` in g exactly as DWC's
+input-shaping plugin computes them (@duet3d/motionanalysis `analyzeAccelerometerData`, wide band,
+Hann window), `peak_hz` the largest amplitude from 5 Hz on, `rms` in g without the mean (gravity),
+`sampling_rate` the rate RRF measured, `source` the accelerometer's port (`60.i2c.lis`).
+
+Reference per axis: `{axis, mode, setAt, spectrumIds, jobIds, complete, freqs, amplitudes, peakHz, rms}`.
+`auto`: element-wise median of the first `referenceAutoCount` spectra of the axis, on the frequency grid
+of the first (the others interpolated); `complete` false while there are fewer. `manual`: one chosen
+spectrum. The job summary's `mechanics` holds per axis `{spectra, peakHzMean, peakHzMax, rmsMean}`.
+
+`status.accelerometer`: `{enabled, reason, accelerometer: {index, port, board, samplingRate, resolution},
+intervalMin, pending, lastRecording, lastError}`; `index` is the M955/M956 P number.
 
 ## live (WebSocket)
 

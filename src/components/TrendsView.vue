@@ -12,6 +12,7 @@
 		<v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-2">{{ error }}</v-alert>
 		<chart-canvas :config="config" :height="320" />
 		<div class="text-caption text-medium-emphasis mt-1">{{ $t(`plugins.QualityAssurance.trends.hint.${metric}`) }}</div>
+		<spectrum-compare v-if="metric.startsWith('spectrum_')" :api="api" class="mt-4" />
 	</div>
 </template>
 
@@ -21,9 +22,10 @@ import { defineComponent, type PropType } from "vue";
 import type { QaApi, TrendMetric, TrendPoint } from "../core/api";
 import { trendConfig, type TrendSeries } from "../core/charts";
 import ChartCanvas from "./ChartCanvas.vue";
+import SpectrumCompare from "./SpectrumCompare.vue";
 
 const METRICS: Array<TrendMetric> = ["heater_load_mean", "fm_avg_percentage", "filament_ratio", "mm_per_rev",
-	"esteps_suggested", "heat_up_s", "duration_s", "events"];
+	"esteps_suggested", "heat_up_s", "duration_s", "events", "spectrum_peak_hz", "spectrum_rms"];
 
 /** Key a point belongs to: the plan groups the heater load by heater, setpoint and nozzle (§5.4.1) */
 function groupKey(metric: TrendMetric, p: TrendPoint): string {
@@ -36,13 +38,16 @@ function groupKey(metric: TrendMetric, p: TrendPoint): string {
 			return `#${p.monitor}`;
 		case "heat_up_s":
 			return `H${p.heater} ${p.setpoint} °C`;
+		case "spectrum_peak_hz":
+		case "spectrum_rms":
+			return String(p.axis);
 		default:
 			return "";
 	}
 }
 
 export default defineComponent({
-	components: { ChartCanvas },
+	components: { ChartCanvas, SpectrumCompare },
 	props: {
 		api: { type: Object as PropType<QaApi>, required: true }
 	},
@@ -69,7 +74,11 @@ export default defineComponent({
 				}
 				groups.get(key)!.points.push({ ts: new Date(p.ts).getTime(), value: Math.round(p.value * scale * 1e4) / 1e4, jobId: p.jobId });
 			}
-			return trendConfig([...groups.values()], Date.now(), this.$t(`plugins.QualityAssurance.trends.units.${this.metric}`));
+			const series = [...groups.values()];
+			if (this.metric.startsWith("spectrum_")) {
+				series.sort((a, b) => a.label.localeCompare(b.label));  // X, Y, Z
+			}
+			return trendConfig(series, Date.now(), this.$t(`plugins.QualityAssurance.trends.units.${this.metric}`));
 		}
 	},
 	watch: {

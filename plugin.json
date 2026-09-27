@@ -19,7 +19,9 @@
     "fileSystemAccess",
     "readGCodes",
     "networkAccess",
-    "launchProcesses"
+    "launchProcesses",
+    "readSystem",
+    "writeSystem"
   ],
   "sbcPythonDependencies": ["dsf-python"],
   "sbcPackageDependencies": ["ffmpeg"],

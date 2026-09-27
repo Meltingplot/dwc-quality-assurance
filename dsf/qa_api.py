@@ -132,6 +132,7 @@ class ApiContext:
     resolve_path: object = None
     collector: object = None
     timelapse: object = None
+    accel: object = None
     live: LiveHub = field(default_factory=LiveHub)
 
 
@@ -204,7 +205,7 @@ def handle_status(ctx, _request):
         "liveClients": ctx.live.count(),
         "timelapse": timelapse.status() if timelapse is not None else {
             "enabled": False, "reason": "not available in this version"},
-        "accelerometer": {"enabled": False, "reason": "postponed (no board reports an accelerometer)"},
+        "accelerometer": ctx.accel.status() if ctx.accel is not None else {"enabled": False, "reason": "not available"},
     })
 
 
@@ -287,8 +288,20 @@ def handle_trends(ctx, request):
         raise ApiError(400, str(exc))
 
 
+def _auto_count(ctx):
+    return ctx.settings.current()["accelerometer"]["referenceAutoCount"] if ctx.settings is not None else 5
+
+
 def handle_reference_get(ctx, _request):
-    return json_response(qa_queries.references(_con(ctx)))
+    return json_response(qa_queries.references(_con(ctx), _auto_count(ctx)))
+
+
+def handle_spectra_latest(ctx, request):
+    """The newest spectrum of each of the last ``limit`` jobs for one axis (spectrum comparison)."""
+    axis = query(request, "axis")
+    if axis not in ("X", "Y", "Z"):
+        raise ApiError(400, "axis must be X, Y or Z")
+    return json_response(qa_queries.spectra_latest(_con(ctx), axis, _int(request, "limit", 5, 1, 50)))
 
 
 def handle_reference_post(ctx, request):
@@ -308,7 +321,7 @@ def handle_reference_post(ctx, request):
             raise ApiError(404, "spectrum not found")
     else:
         raise ApiError(400, "give spectrumId or mode 'auto'")
-    return json_response(qa_queries.references(_con(ctx)))
+    return json_response(qa_queries.references(_con(ctx), _auto_count(ctx)))
 
 
 class _CrcCache:
@@ -465,6 +478,7 @@ ENDPOINTS = {
     ("GET", "trends"): handle_trends,
     ("GET", "spectra/reference"): handle_reference_get,
     ("POST", "spectra/reference"): handle_reference_post,
+    ("GET", "spectra/latest"): handle_spectra_latest,
     ("GET", "channels"): handle_channels,
 }
 

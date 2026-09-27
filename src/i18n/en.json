@@ -52,7 +52,8 @@
 		"tabContext": "Context",
 		"distribution": "Filament monitor reading, time per 2 % class (s)",
 		"tabReplay": "Replay",
-		"tabTimelapse": "Timelapse"
+		"tabTimelapse": "Timelapse",
+		"tabSpectra": "Spectra"
 	},
 	"layers": {
 		"none": "No layers recorded for this job.",
@@ -120,7 +121,9 @@
 			"esteps_suggested": "E-steps suggested by the MFM",
 			"heat_up_s": "Heat-up time",
 			"duration_s": "Job duration",
-			"events": "Events per job"
+			"events": "Events per job",
+			"spectrum_peak_hz": "Vibration: peak frequency",
+			"spectrum_rms": "Vibration: RMS"
 		},
 		"units": {
 			"heater_load_mean": "%",
@@ -130,7 +133,9 @@
 			"esteps_suggested": "steps/mm",
 			"heat_up_s": "s",
 			"duration_s": "s",
-			"events": ""
+			"events": "",
+			"spectrum_peak_hz": "Hz",
+			"spectrum_rms": "g"
 		},
 		"hint": {
 			"heater_load_mean": "Mean load of each nozzle heater at its setpoint, per setpoint and nozzle. A rising load at the same setpoint, material and nozzle points at a weakening heater or a starting blockage.",
@@ -140,7 +145,9 @@
 			"esteps_suggested": "The correction the machine's flow-bias detector suggested.",
 			"heat_up_s": "Time from a new setpoint to reaching it, first time in each job.",
 			"duration_s": "Job duration as RRF reports it.",
-			"events": "Events of a job without start and end."
+			"events": "Events of a job without start and end.",
+			"spectrum_peak_hz": "Mean peak frequency of a job's accelerometer spectra per axis (from 5 Hz on). A shift points at belt tension, bearings or loose parts.",
+			"spectrum_rms": "Mean vibration RMS of a job's accelerometer recordings per axis, without gravity."
 		}
 	},
 	"settings": {
@@ -179,7 +186,17 @@
 			"minIntervalS": "Timelapse: minimum time between frames",
 			"fps": "Timelapse: video frame rate",
 			"encoderThreads": "Timelapse: encoder threads (empty = automatic)",
-			"keepFramesOnFailure": "Keep the frames when encoding fails"
+			"keepFramesOnFailure": "Keep the frames when encoding fails",
+			"accelEnabled": "Vibration spectra",
+			"accelBoard": "Board CAN address (empty = first)",
+			"accelIntervalMin": "Every",
+			"accelSamples": "Samples per recording"
+		},
+		"accelerometer": "Accelerometer",
+		"accelModes": {
+			"auto": "Automatic (when configured)",
+			"on": "On",
+			"off": "Off"
 		}
 	},
 	"live": {
@@ -229,5 +246,21 @@
 		"frameOfEarlier": "Camera after layer {layer} (no frame of its own for this layer)",
 		"noFrame": "No camera frame for this layer.",
 		"loading": "Loading the timelapse…"
+	},
+	"spectra": {
+		"none": "No vibration spectra for this job (accelerometer off or not configured, or the job printed shorter than the first recording).",
+		"noneYet": "No spectra recorded yet.",
+		"recording": "Recording",
+		"time": "Time",
+		"layer": "Layer",
+		"peakRms": "{axis}: peak · RMS",
+		"reference": "Reference",
+		"referenceNone": "No reference spectrum yet.",
+		"referenceAuto": "Reference: median of the first {count} spectra of this axis.",
+		"referenceAutoPartial": "Reference: median of the first {count} of {total} spectra (still collecting).",
+		"referenceManual": "Reference: chosen spectrum (job {jobs}).",
+		"useAsReference": "Use as {axis} reference",
+		"autoReference": "Automatic reference",
+		"compare": "Spectra of the last jobs against the reference"
 	}
 }

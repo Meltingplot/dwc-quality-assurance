@@ -44,6 +44,22 @@ def test_patch_updates_agc_and_clears_calibration():
     assert fm.calibrated is None
 
 
+def test_sensor_accelerometers():
+    """As on the CHX 350 (2026-09-27): the SZP's accelerometer at CAN address 60."""
+    om = model_from({"sensors": {"accelerometers": [{"orientation": 25, "points": 0, "port": "60.i2c.lis",
+                                                     "resolution": 14, "runs": 0, "samplingRate": 800}]}})
+    acc = om.sensors.accelerometers[0]
+    assert (acc.orientation, acc.points, acc.port, acc.resolution, acc.runs, acc.sampling_rate) == \
+        (25, 0, "60.i2c.lis", 14, 0, 800)
+    om.update_from_json({"sensors": {"accelerometers": [{"runs": 1, "points": 1000, "samplingRate": 798}]}})
+    acc = om.sensors.accelerometers[0]
+    assert (acc.runs, acc.points, acc.sampling_rate, acc.port) == (1, 1000, 798, "60.i2c.lis")
+    om.update_from_json({"sensors": {"accelerometers": [None, {"port": "121.i2c.lis"}]}})
+    assert om.sensors.accelerometers[0] is None
+    assert om.sensors.accelerometers[1].port == "121.i2c.lis"
+    assert len(model_from({}).sensors.accelerometers) == 0  # not shared between models
+
+
 def test_pressure_advance_k0_k1_survive():
     om = model_from({"move": {"extruders": [{"pressAdv": {"k0": 0.05, "k1": 0.01, "d": 0.02}}]}})
     pa = om.move.extruders[0].press_adv

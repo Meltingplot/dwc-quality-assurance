@@ -18,8 +18,8 @@ QualityAssurance <version> sha256:<hex> https://github.com/Meltingplot/dwc-quali
 What `mp-dsf-plugins` checks and QA satisfies:
 - `id`/`version` as pinned; `dwcVersion`/`sbcDsfVersion` = the image's DSF (the builder writes
   `3.7`), an `sbcExecutable` (`qa-daemon.py`).
-- `sbcPythonDependencies`: `dsf-python` only. (numpy comes only with the postponed
-  accelerometer phase; that will need the build to install Python packages into the plugin venv.)
+- `sbcPythonDependencies`: `dsf-python` only. The accelerometer spectra are computed in plain
+  Python (no numpy), so the build never has to install further Python packages for QA.
 - `sbcPackageDependencies`: `ffmpeg`, already in the package list of `mp-dsf.yaml`
   (added with "install plugin package dependencies from the layer, add ffmpeg", 4767c0f).
 - No `rrfFiles`, no `sd/` files.
@@ -47,7 +47,14 @@ Files, following the Vigil block:
     # its HTTP endpoints (one of them is the WebSocket `live`)
     /run/dsf/QualityAssurance/{,**/} r,
     /run/dsf/QualityAssurance/** rw,
+    # accelerometer: read and delete the CSVs of its own M956 recordings (qa-*.csv); RRF writes
+    # them through DSF, so the plugin never creates files there
+    /opt/dsf/sd/sys/accelerometer/ r,
+    /opt/dsf/sd/sys/accelerometer/qa-*.csv rw,
 ```
+
+`sbcPermissions` now also names `readSystem` and `writeSystem` (the CSVs are in `0:/sys`);
+`fileSystemAccess` covers them already in DSF's own check.
 
 ### What the timelapse needs beyond that (decision for the image build)
 

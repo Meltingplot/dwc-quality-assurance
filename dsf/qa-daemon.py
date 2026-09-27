@@ -9,7 +9,8 @@ plugin. It records only; it never judges.
 Threads (PLAN.md §5.3): the main thread runs the object-model subscription and the collector;
 the database writer has its own thread; dsf-python serves every HTTP endpoint from its own
 thread and asyncio loop; the G-code layer index is built in a background thread; the timelapse
-has a capture thread and an encoder thread (qa_timelapse).
+has a capture thread and an encoder thread (qa_timelapse); accelerometer recordings run in their
+own thread (qa_accel).
 
 Targets DSF 3.7 / dsf-python 3.7.0b1 on Python >= 3.11.
 """
@@ -32,6 +33,7 @@ qa_patches.apply()
 
 from dsf.connections import CommandConnection, SubscribeConnection, SubscriptionMode  # noqa: E402
 
+import qa_accel  # noqa: E402
 import qa_api  # noqa: E402
 import qa_collector  # noqa: E402
 import qa_db  # noqa: E402
@@ -150,13 +152,24 @@ def main():
         return real if isinstance(real, str) else None
 
     ctx.resolve_path = resolve_path
+
+    def send_code(code):
+        # SBC channel: runs alongside the print's file channel (qa_accel docstring)
+        with ctx.cmd_lock:
+            return cmd.perform_simple_code(code)
+
+    accel = qa_accel.Recorder(writer, settings, send_code, resolve_path)
+    ctx.accel = accel
     plugin_data = PluginData(cmd, ctx.cmd_lock)
     collector = qa_collector.Collector(writer, settings, resolve_path=resolve_path, broadcast=ctx.live.publish,
-                                       plugin_version=ctx.version, index_cache=ctx.index_cache, timelapse=timelapse)
+                                       plugin_version=ctx.version, index_cache=ctx.index_cache, timelapse=timelapse,
+                                       accel=accel)
     ctx.collector = collector
     collector.init_ids()
     timelapse.on_event = collector.external_event
     timelapse.start()
+    accel.on_event = collector.external_event
+    accel.start()
 
     endpoints = []
     sub = None
@@ -215,6 +228,7 @@ def main():
         except Exception as exc:  # noqa: BLE001
             logger.error("collector shutdown failed: %s", exc)
         timelapse.stop()
+        accel.stop()
         writer.stop()
         ctx.live.close()
         for endpoint in endpoints:

@@ -520,6 +520,16 @@ class Writer:
             "SELECT t.job_key, t.status, t.frames, t.size_bytes, j.id AS job_id, j.started_at "
             "FROM timelapse t JOIN jobs j ON j.key = t.job_key")]
 
+    def op_spectra_insert(self, rows):
+        """One row per axis of an accelerometer recording (qa_accel.analyse)."""
+        for row in rows:
+            self._con.execute(
+                "INSERT INTO spectra (job_key, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs, amplitudes, "
+                "peak_hz, rms, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (row["job_key"], row["ts_ms"], row.get("layer"), row.get("board"), row["axis"], row["sampling_rate"],
+                 row["n_samples"], dumps(row["freqs"]), dumps(row["amplitudes"]), row.get("peak_hz"), row.get("rms"),
+                 row.get("source")))
+
     def op_next_ids(self):
         """Highest event and block ids, so the collector can hand out new ones."""
         event = self._con.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]

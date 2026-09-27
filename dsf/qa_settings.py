@@ -53,6 +53,8 @@ DEFAULTS = {
                   "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None, "encoderThreads": 2,
                   "keepFramesOnFailure": True,
                   "retention": {"jobs": 50, "maxBytes": 10 * 1024 ** 3}},
+    # accelerometer.board: CAN address of the board carrying the accelerometer (the CHX 350's SZP is
+    # 60), None = the first one configured with M955; enabled "auto" = when one is configured
     "accelerometer": {"enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ",
                       "board": None, "referenceAutoCount": 5},
     "retention": {"jobs": 50, "days": 90, "maxDbBytes": 2 * 1024 ** 3},
@@ -93,6 +95,9 @@ BOUNDS = {
     "timelapse.retention.maxBytes": (int, 0, None),
     "accelerometer.enabled": ((bool, str), None, None),
     "accelerometer.board": ((int, type(None)), 0, 1000),
+    "accelerometer.intervalMin": (_NUMBER, 1, 1440),
+    "accelerometer.samples": (int, 100, 20000),
+    "accelerometer.referenceAutoCount": (int, 1, 100),
     "retention.jobs": (int, 1, 1000000),
     "retention.days": (_NUMBER, 1, 100000),
     "retention.maxDbBytes": (int, 1024 * 1024, None),
@@ -121,6 +126,8 @@ def _check(path, value, default):
             return f"must be <= {high}"
     if path == "contextGlobals" and not all(isinstance(v, str) and v for v in value):
         return "must be a list of global variable names"
+    if path == "accelerometer.axes" and (not value or any(c not in "XYZ" for c in value)):
+        return "must be letters of XYZ"
     if path == "timelapse.snapshotUrl" and isinstance(value, str) and value and \
             not value.startswith(("http://", "https://")):
         return "must be an http:// or https:// URL"

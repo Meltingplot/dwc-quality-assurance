@@ -29,7 +29,7 @@ eine eigene Auswertung des Filamentmonitors.
 | 9 | Kammer | `heat.chamberHeaterMapping` | Fallback auf den Analogsensor „SZP coil“ wie in der CHX-UI | die CHX 350 hat keinen Kammerheizer |
 | 10 | Materialcharge | `global.filamentBatch` | gibt es auf der CHX nicht; stattdessen konfigurierbare Liste von Globals im Kontext (§5.9) | Globals der Maschine |
 | 11 | Slicer-Kontext | Felder aus `job.file` | zusätzlich OrcaSlicer-`CONFIG_BLOCK` vom Dateiende (Parser aus dem CHX350-Backend) | DSF liest `;customInfo` nur im Dateikopf |
-| 12 | Accelerometer | Phase 4 | bedingt und als letzte Phase: auf der CHX 350 meldet kein Board einen konfigurierten Sensor; numpy nur mit dieser Phase | Objektmodell 2026-09-26 |
+| 12 | Accelerometer | Phase 4 | Phase 6 mit dem Accelerometer des SZP (CAN 60, `sensors.accelerometers[0]`, Port `60.i2c.lis`, 800 Hz); Spektren in reinem Python statt numpy (keine Python-Pakete im Image-Build nötig) | Tim 2026-09-27; Objektmodell im Screenshot vom 2026-09-27 |
 | 13 | Daemon-Threads | ein HTTP/WS-Thread | dsf-python bedient jeden Endpunkt in einem eigenen Thread mit eigenem Event-Loop (§5.3) | CHX350-Backend, dsf-python 3.7.0b1 |
 | 14 | Backend-Erkennung | Banner nach Fehler | Plugin-pid im Objektmodell; `sbcAutoRestart: true` | DSF lässt Endpunkte nach einem Absturz registriert |
 | 16 | CRC32 | via M38 | `zlib.crc32` über die aufgelöste Datei; M38 nicht nötig (DSF berechnet M38 selbst und leert vorher die Code-Queue des Kanals) | DSF `MCodeHandler.cs` |
@@ -119,7 +119,7 @@ SBC-CPU/RAM, freier Speicher.
 | Kammer | konfigurierbar: auto aus `heat.chamberHeaterMapping`, sonst Analogsensor mit Namen „SZP coil“ (wie `useJobAnalysis.chamberChannel` der CHX-UI), überschreibbar durch Heizer- oder `sensors.analog`-Index |
 | Job-Kontext | `job.file` (Name, Slicer, Lagenhöhe, Lagenzahl, Zeit, Filament, Größe, Datum, **CRC32** mit `zlib.crc32`); **Slicer-Einstellungen aus dem `CONFIG_BLOCK` am Dateiende** (§5.7); Extruder (`stepsPerMm, pressAdv, nonlinear, filament, filamentDiameter`), Werkzeug; Filamentmonitor `configured`+`calibrated`; Heizermodelle (PID, heatingRate, maxPwm); `move.shaping`; Firmware/DSF/Plugin-Version, Boardnamen; **Maschinen-Globals** aus einer konfigurierbaren Liste (§5.9), Schnappschuss bei Start und Ende |
 | Job-Zusammenfassung | Filament: Verhältnis gemessen/befohlen, `avgPercentage` und `calibrated.mmPerRev` am Jobende, Prozentwert-Verteilung (2 %-Klassen), Kennlinie Fluss vs. Prozent (gebinnt); Thermik: Aufheizzeit je Heizer, **Heizlast je Düsenheizer** (§5.4.1), Kammer min/max/mean; MFM der Maschine: tolerierte Fehler, Recoveries mit Ergebnis, vorgeschlagene/angewandte E-Steps; Ereignisse: Anzahl je Typ, erste/letzte Lage, Abbruchursache; Spulenverbrauch (g) aus `spool_remaining` Start − Ende; Mechanik: Peak-Frequenz und RMS je Achse je Spektrum, Job-Mittel |
-| Accelerometer | **bedingt**: nur wenn ein Board `accelerometer != null` meldet (2026-09-26 auf der CHX 350 bei keinem der 7 Boards). Dann: **alle 15 min** im Zustand `processing` `M956 P<M955-Nummer> S1000 A0 F"qa-<job>-<ts>.csv"` (RRF 3.7: P ist die logische Nummer aus M955 ohne Boardadresse, rc.1 kann nur P0; nur ein Sensor gleichzeitig), bei Pause angehalten; CSV aus `0:/sys/accelerometer/` lesen, letzte Zeile (Datenrate, Overflows) prüfen und bei Overflows > 0 verwerfen, **numpy**-FFT, Spektrum in DB, CSV löschen. Referenz: automatisch (Median der ersten N) mit manueller Übersteuerung |
+| Accelerometer | **bedingt**: nur wenn ein Board `accelerometer != null` meldet (2026-09-26 auf der CHX 350 bei keinem der 7 Boards). Dann: **alle 15 min** im Zustand `processing` `M956 P<M955-Nummer> S1000 A0 F"qa-<job>-<ts>.csv"` (RRF 3.7: P ist die logische Nummer aus M955 ohne Boardadresse, rc.1 kann nur P0; nur ein Sensor gleichzeitig), bei Pause angehalten; CSV aus `0:/sys/accelerometer/` lesen, letzte Zeile (Datenrate, Overflows) prüfen und bei Overflows > 0 verwerfen, FFT in reinem Python wie @duet3d/motionanalysis (seit 2026-09-27, vorher numpy), Spektrum in DB, CSV löschen. Referenz: automatisch (Median der ersten N) mit manueller Übersteuerung |
 | Histogramm | je Lage: gemessen vs. befohlen je Extruder |
 | Replay | Lage für Lage: Toolpath aus der G-Code-Datei (**on demand im Daemon geparst, nichts gespeichert**, CRC32-Prüfung), Bahn eingefärbt nach befohlener Volumenflussrate (E-Delta × Querschnitt / Segmentdauer), gemessene `extrusionRate`-Samples als Marker darüber, Events als Marker, `currentObject` je Segment/Event, Temperatur- und Heizlastkurven der Lage, Zeitraffer-Frame der Lage. Slicer: PrusaSlicer/Orca/SuperSlicer, Cura, Simplify3D, Z-Heuristik als Fallback |
 | Zeitraffer | Snapshot von einer konfigurierbaren Kamera-URL je Lagenwechsel, nach Jobende als AV1-Video (nur AV1, SVT-AV1 über ffmpeg); Frame je Lage in Analyse/Replay, Video als Download (§5.11) |
@@ -179,7 +179,7 @@ dsf/
   qa_summary.py                  Lagenaggregate, Job-Zusammenfassung
   qa_db.py                       SQLite: Schema, Migrationen, Writer-Thread, Durability, Backup/Restore, Retention
   qa_timelapse.py                Snapshot bei Lagenwechsel, Frame-Index, Encoder-Worker, Frame-Extraktion (§5.11)
-  qa_accel.py                    M956-Scheduler, CSV-Reader, FFT (numpy), Referenzspektrum (bedingt)
+  qa_accel.py                    M956-Scheduler, CSV-Reader, FFT (reines Python), Referenzspektrum
   qa_gcode.py                    G-Code-Parser: Lagenindex, Segmente, Fluss, Objekte
   qa_api.py                      HTTP-Handler-Registry + WebSocket-Broadcaster
   qa_settings.py                 settings.json laden/speichern/validieren, Defaults
@@ -211,7 +211,7 @@ CLAUDE.md, README.md
 und Löschen der M956-CSV unter `0:/sys/accelerometer/` (nur mit Accelerometer); `networkAccess`
 für den Kamera-Snapshot; `launchProcesses` für ffmpeg (Zeitraffer). `ffmpeg` ist als apt-Paket
 deklariert und wird vom Image-Build mitinstalliert (Entscheidung Tim 2026-09-26; der Build muss das
-noch lernen, §5.12). `numpy` kommt erst mit der Accelerometer-Phase in `sbcPythonDependencies`. `sbcAutoRestart`: DSF startet den Daemon 2 s nach
+noch lernen, §5.12). Kein numpy: die Spektren rechnet QA in reinem Python (2026-09-27). `sbcAutoRestart`: DSF startet den Daemon 2 s nach
 einem unerwarteten Ende neu; ein gewolltes Stoppen setzt vorher pid 0 und löst keinen Neustart aus
 (DSF `SetPluginProcess.cs`, `StopPlugin.cs`). `sbcData` wird nicht verwendet. Die Permissions
 allein genügen auf dem Image nicht, maßgeblich ist der AppArmor-Block (§5.12).
@@ -232,8 +232,9 @@ allein genügen auf dem Image nicht, maßgeblich ist der AppArmor-Block (§5.12)
    - `read_request` liest höchstens 32 KiB: POST-Bodies (Settings, Referenz) klein halten.
 4. **Timelapse-Worker**: holt den Snapshot beim Lagenwechsel (Signal vom Collector), schreibt Frame + Index;
    nach Jobende Encoding (§5.11).
-5. **Accel-Worker** (bedingt): sendet M956 über eine eigene `CommandConnection`, wartet auf
-   `boards[i].accelerometer.runs`-Inkrement (vom Collector signalisiert), liest CSV, FFT, schreibt Spektrum, löscht CSV.
+5. **Accel-Worker**: sendet M956 über die gemeinsame `CommandConnection` (hinter dem Lock, SBC-Kanal), wartet auf
+   das `sensors.accelerometers[n].runs`-Inkrement (vom Collector signalisiert; DSF 3.7 hat das Accelerometer
+   von `boards[]` nach `sensors.accelerometers` verschoben), liest CSV, FFT, schreibt Spektrum, löscht CSV.
 
 Monkey-Patches aus `dwc-vigil/dsf/vigil-daemon.py` übernehmen, aber nur die mit Tag
 `[both]` oder `[3.7 only]`: `BoardState`/`Axis.letter`-Setter, `_connect`-Greeting-Read
@@ -520,8 +521,8 @@ Deshalb:
 - **Image-Build erweitern:** `meltingplot/layer/mp-dsf.d/bin/mp-dsf-plugins` lehnt heute jedes Plugin
   ab, das mehr als dsf-python braucht (`sbcPackageDependencies` und weitere `sbcPythonDependencies`
   sind dort ein Abbruchgrund, Stand rpi-image-gen 78825f4). Für QA muss der Build die deklarierten
-  apt-Pakete (ffmpeg) aus den trixie-Quellen ins Image installieren und, ab Phase 6, weitere
-  Python-Pakete (numpy) ins Plugin-venv. Das ist Arbeit in rpi-image-gen, Auftrag über Tim.
+  apt-Pakete (ffmpeg) aus den trixie-Quellen ins Image installieren (weitere Python-Pakete braucht
+  QA nicht mehr, 2026-09-27). Das ist Arbeit in rpi-image-gen, Auftrag über Tim.
 - AppArmor-Block `QualityAssurance` (Muster: Vigil-Block): `r` auf `/opt/dsf/plugins/QualityAssurance.json`,
   `mr` auf `/opt/dsf/plugins/QualityAssurance/**` und `__pycache__`, `rwk` auf
   `/opt/dsf/sd/QualityAssurance/**` (SQLite braucht Locks, WAL- und SHM-Dateien), `r` auf
@@ -555,7 +556,7 @@ Deshalb:
 5. **Zeitraffer** — Snapshot bei Lagenwechsel, Frame-Index, Encoder-Worker (AV1),
    `job/timelapse*`, TimelapseViewer, Frame in Analyse und Replay, Retention.
 6. **Accelerometer (bedingt)** — nur wenn ein Board einen Sensor meldet: Scheduler, M956, CSV,
-   numpy-FFT, Spektren, Referenz (auto/manuell), Trends-Tab, Spektrenvergleich.
+   FFT, Spektren, Referenz (auto/manuell), Trends-Tab, Spektrenvergleich.
 7. **Abschluss** — `docs/api.md`, `docs/schema.md`, `docs/vigil-candidates.md`, `docs/image.md`,
    CI grün, DWC-3.7-Build mit Manifestprüfung, Release-Workflow, Pin für den Image-Build.
 
@@ -607,7 +608,7 @@ Offen:
   `avg_percentage`, `Layer.filament_usage`, `Extruder.press_adv`, `Board.v_in/v12/mcu_temp`,
   `Driver.status`, `Move.shaping`, `ObjectModel.global`, `Heater.model.max_pwm`.
 - Ob Chart.js vom DWC-Builder gebündelt wird (Vigil: ja).
-- numpy im Plugin-venv (nur Phase 6).
+- ~~numpy im Plugin-venv~~: entfällt, FFT in reinem Python (2026-09-27).
 
 ## 8. Explizit nicht enthalten / bewusst so entschieden
 

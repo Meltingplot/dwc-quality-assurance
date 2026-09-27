@@ -52,7 +52,8 @@
 		"tabContext": "Kontext",
 		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)",
 		"tabReplay": "Replay",
-		"tabTimelapse": "Zeitraffer"
+		"tabTimelapse": "Zeitraffer",
+		"tabSpectra": "Spektren"
 	},
 	"layers": {
 		"none": "Für diesen Job sind keine Lagen aufgezeichnet.",
@@ -120,7 +121,9 @@
 			"esteps_suggested": "Vom MFM vorgeschlagene E-Steps",
 			"heat_up_s": "Aufheizzeit",
 			"duration_s": "Jobdauer",
-			"events": "Ereignisse je Job"
+			"events": "Ereignisse je Job",
+			"spectrum_peak_hz": "Schwingung: Spitzenfrequenz",
+			"spectrum_rms": "Schwingung: RMS"
 		},
 		"units": {
 			"heater_load_mean": "%",
@@ -130,7 +133,9 @@
 			"esteps_suggested": "Schritte/mm",
 			"heat_up_s": "s",
 			"duration_s": "s",
-			"events": ""
+			"events": "",
+			"spectrum_peak_hz": "Hz",
+			"spectrum_rms": "g"
 		},
 		"hint": {
 			"heater_load_mean": "Mittlere Last jedes Düsenheizers bei seinem Sollwert, je Sollwert und Düse. Steigt die Last bei gleichem Sollwert, Material und Düse, deutet das auf einen schwächer werdenden Heizer oder eine beginnende Verstopfung.",
@@ -140,7 +145,9 @@
 			"esteps_suggested": "Die Korrektur, die der Flow-Bias-Detektor der Maschine vorgeschlagen hat.",
 			"heat_up_s": "Zeit von einem neuen Sollwert bis zum Erreichen, jeweils das erste Mal im Job.",
 			"duration_s": "Jobdauer, wie RRF sie meldet.",
-			"events": "Ereignisse eines Jobs ohne Start und Ende."
+			"events": "Ereignisse eines Jobs ohne Start und Ende.",
+			"spectrum_peak_hz": "Mittlere Spitzenfrequenz der Accelerometer-Spektren eines Jobs je Achse (ab 5 Hz). Eine Verschiebung deutet auf Riemenspannung, Lager oder lose Teile.",
+			"spectrum_rms": "Mittlerer Schwingungs-RMS der Accelerometer-Aufnahmen eines Jobs je Achse, ohne Schwerkraft."
 		}
 	},
 	"settings": {
@@ -179,7 +186,17 @@
 			"minIntervalS": "Zeitraffer: Mindestabstand der Bilder",
 			"fps": "Zeitraffer: Bildrate des Videos",
 			"encoderThreads": "Zeitraffer: Encoder-Threads (leer = automatisch)",
-			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt"
+			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt",
+			"accelEnabled": "Schwingungsspektren",
+			"accelBoard": "CAN-Adresse des Boards (leer = erstes)",
+			"accelIntervalMin": "Alle",
+			"accelSamples": "Samples je Aufnahme"
+		},
+		"accelerometer": "Accelerometer",
+		"accelModes": {
+			"auto": "Automatisch (wenn konfiguriert)",
+			"on": "Ein",
+			"off": "Aus"
 		}
 	},
 	"live": {
@@ -229,5 +246,21 @@
 		"frameOfEarlier": "Kamera nach Lage {layer} (für diese Lage gibt es kein eigenes Bild)",
 		"noFrame": "Kein Kamerabild für diese Lage.",
 		"loading": "Zeitraffer wird geladen…"
+	},
+	"spectra": {
+		"none": "Für diesen Job gibt es keine Schwingungsspektren (Accelerometer aus oder nicht konfiguriert, oder der Job war kürzer als die erste Aufnahme).",
+		"noneYet": "Noch keine Spektren aufgenommen.",
+		"recording": "Aufnahme",
+		"time": "Zeit",
+		"layer": "Lage",
+		"peakRms": "{axis}: Spitze · RMS",
+		"reference": "Referenz",
+		"referenceNone": "Noch kein Referenzspektrum.",
+		"referenceAuto": "Referenz: Median der ersten {count} Spektren dieser Achse.",
+		"referenceAutoPartial": "Referenz: Median der ersten {count} von {total} Spektren (wird noch gesammelt).",
+		"referenceManual": "Referenz: gewähltes Spektrum (Job {jobs}).",
+		"useAsReference": "Als {axis}-Referenz verwenden",
+		"autoReference": "Automatische Referenz",
+		"compare": "Spektren der letzten Jobs gegen die Referenz"
 	}
 }
