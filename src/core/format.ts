@@ -106,7 +106,8 @@ const EVENT_COLORS: Record<string, string> = {
 	job_start: "success",
 	job_end: "success",
 	daemon_started_mid_job: "grey",
-	timelapse_failed: "warning"
+	timelapse_failed: "warning",
+	accelerometer_failed: "warning"
 };
 
 export function eventColor(type: string): string {
@@ -137,6 +138,7 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 		case "babystep":
 			return `${p.from ?? "—"} → ${p.to ?? "—"} mm`;
 		case "timelapse_failed":
+		case "accelerometer_failed":
 			return p.error ?? "";
 		default:
 			return "";

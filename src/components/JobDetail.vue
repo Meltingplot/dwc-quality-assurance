@@ -31,6 +31,7 @@
 				<v-tab value="layers">{{ $t("plugins.QualityAssurance.job.tabLayers") }}</v-tab>
 				<v-tab value="replay">{{ $t("plugins.QualityAssurance.job.tabReplay") }}</v-tab>
 				<v-tab value="timelapse">{{ $t("plugins.QualityAssurance.job.tabTimelapse") }}</v-tab>
+				<v-tab value="spectra">{{ $t("plugins.QualityAssurance.job.tabSpectra") }}</v-tab>
 				<v-tab value="channels">{{ $t("plugins.QualityAssurance.job.tabChannels") }}</v-tab>
 				<v-tab value="events">{{ $t("plugins.QualityAssurance.job.tabEvents") }} ({{ events.length }})</v-tab>
 				<v-tab value="summary">{{ $t("plugins.QualityAssurance.job.tabSummary") }}</v-tab>
@@ -49,6 +50,9 @@
 				</v-window-item>
 				<v-window-item value="timelapse">
 					<timelapse-viewer v-if="tab === 'timelapse'" :api="api" :job="job" />
+				</v-window-item>
+				<v-window-item value="spectra">
+					<spectrum-view v-if="tab === 'spectra'" :api="api" :job="job" />
 				</v-window-item>
 				<v-window-item value="channels">
 					<channel-chart v-if="tab === 'channels'" :api="api" :job-id="job.id" :start-ms="startMs" :events="events"
@@ -80,12 +84,13 @@ import ContextTable from "./ContextTable.vue";
 import EventList from "./EventList.vue";
 import LayerCharts from "./LayerCharts.vue";
 import ReplayView from "./ReplayView.vue";
+import SpectrumView from "./SpectrumView.vue";
 import TimelapseViewer from "./TimelapseViewer.vue";
 
 const QUIET_EVENTS = new Set(["job_start", "job_end", "setpoint_change", "pause", "resume", "babystep", "daemon_started_mid_job"]);
 
 export default defineComponent({
-	components: { ChannelChart, ChartCanvas, ContextTable, EventList, LayerCharts, ReplayView, TimelapseViewer },
+	components: { ChannelChart, ChartCanvas, ContextTable, EventList, LayerCharts, ReplayView, SpectrumView, TimelapseViewer },
 	props: {
 		api: { type: Object as PropType<QaApi>, required: true },
 		jobId: { type: String, required: true },

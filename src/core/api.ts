@@ -130,7 +130,57 @@ export interface TrendPoint {
 }
 
 export type TrendMetric = "heater_load_mean" | "fm_avg_percentage" | "filament_ratio" | "esteps_suggested"
-	| "mm_per_rev" | "heat_up_s" | "duration_s" | "events";
+	| "mm_per_rev" | "heat_up_s" | "duration_s" | "events" | "spectrum_peak_hz" | "spectrum_rms";
+
+export type Axis = "X" | "Y" | "Z";
+
+/** One axis of an accelerometer recording (docs/api.md "Spectra") */
+export interface Spectrum {
+	id: number;
+	ts_ms: number;
+	layer: number | null;
+	/** CAN address of the board carrying the accelerometer */
+	board: number | null;
+	axis: Axis;
+	/** Measured rate of the run (Hz) */
+	sampling_rate: number;
+	n_samples: number;
+	/** Hz, ascending */
+	freqs: Array<number>;
+	/** g, like DWC's input-shaping plugin (Hann window, 4/N) */
+	amplitudes: Array<number>;
+	peak_hz: number | null;
+	/** g, without the mean */
+	rms: number;
+	/** Accelerometer port, e.g. 60.i2c.lis */
+	source: string | null;
+	job_id?: string;
+	ts?: string;
+}
+
+export interface ReferenceSpectrum {
+	axis: Axis;
+	mode: "auto" | "manual";
+	setAt: string | null;
+	spectrumIds: Array<number>;
+	jobIds: Array<string>;
+	/** auto: false while fewer than ``autoCount`` spectra exist */
+	complete: boolean;
+	freqs: Array<number>;
+	amplitudes: Array<number>;
+	peakHz: number | null;
+	rms: number | null;
+}
+
+export interface AccelerometerStatus {
+	enabled: boolean;
+	reason?: string | null;
+	accelerometer?: { index: number; port: string; board: number; samplingRate: number; resolution: number } | null;
+	intervalMin?: number;
+	pending?: boolean;
+	lastRecording?: number | null;
+	lastError?: string | null;
+}
 
 export interface StatusAnswer {
 	version: string;
@@ -140,7 +190,7 @@ export interface StatusAnswer {
 	settingsErrors: Array<string>;
 	liveClients: number;
 	timelapse: Record<string, any>;
-	accelerometer: { enabled: boolean; reason?: string };
+	accelerometer: AccelerometerStatus;
 }
 
 export interface ToolpathAnswer {
@@ -285,6 +335,25 @@ export class QaApi {
 	/** The export as a Blob (DSF sends it as a file) */
 	exportBlob(id: string) {
 		return this.get<Blob>("job/export", { id }, "blob");
+	}
+
+	spectra(id: string) {
+		return this.get<{ jobId: string; spectra: Array<Spectrum> }>("job/spectra", { id });
+	}
+
+	references() {
+		return this.get<{ references: Array<ReferenceSpectrum>; autoCount: number }>("spectra/reference");
+	}
+
+	/** A spectrum as the axis' reference, or back to the automatic one with ``null`` */
+	setReference(axis: Axis, spectrumId: number | null) {
+		return this.post<{ references: Array<ReferenceSpectrum>; autoCount: number }>("spectra/reference",
+			spectrumId === null ? { axis, mode: "auto" } : { axis, spectrumId });
+	}
+
+	/** The newest spectrum of each of the last ``limit`` jobs, newest first */
+	latestSpectra(axis: Axis, limit = 5) {
+		return this.get<{ axis: Axis; spectra: Array<Spectrum> }>("spectra/latest", { axis, limit });
 	}
 
 	timelapseMeta(id: string) {

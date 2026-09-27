@@ -46,6 +46,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts) and toolpath
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
+  qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
 docs/                       image.md (work order for the image build), …
@@ -65,6 +66,7 @@ the real library. Verified 2026-09-26 against dsf-python 3.7.0b1 and DSF v3.7-de
 | `camel_to_snake("k0") == "k_0"`: `pressAdv.k0/k1`, `build.m486Names/m486Numbers` never written (stay default) | alias property under the split name |
 | `RotatingMagnetFilamentMonitor.agc`, `calibrated.mmPerRev`, `FilamentMonitor.filamentPresent` missing | added as `model_prop`s |
 | `BuildObject.cancelled` spelled `canceled` | alias |
+| `sensors.accelerometers` missing (DuetAPI moved it from `Board`, 524fdc4c), no `port`/`resolution`/`samplingRate` | collection of the library's `Accelerometer` + the three props (verified 2026-09-27) |
 
 `messages[]` is read from the raw patch dict, not from the typed model (the typed collection
 is overwritten index by index by every patch). DSF sends only new messages in a patch
@@ -88,8 +90,12 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - DSF keeps a crashed daemon's endpoints registered: "running" is `plugins.QualityAssurance.pid > 0`.
 - Manifest: `sbcAutoRestart` restarts 2 s after an unexpected exit; permissions used:
   commandExecution, objectModelReadWrite, registerHttpEndpoints, fileSystemAccess, readGCodes,
-  networkAccess (camera), launchProcesses (ffmpeg). `readSystem`/`writeSystem` come with the
-  accelerometer phase (postponed). `sbcPackageDependencies: ["ffmpeg"]`.
+  networkAccess (camera), launchProcesses (ffmpeg), readSystem/writeSystem (accelerometer CSVs
+  in `0:/sys/accelerometer`). `sbcPackageDependencies: ["ffmpeg"]`, no Python packages beyond dsf-python.
+- Accelerometers are `sensors.accelerometers[]`, the index is the M955/M956 P number; `runs` counts
+  every finished run (`points` 0 = failed). M956 on the SBC channel starts at once without a
+  movement lock (RRF 3.7-dev @ 3638836 `Accelerometers.cpp`); in SBC mode `runs` advances before the
+  CSV's last line is written.
 
 ## Recording decisions (details in the module docstrings)
 - Timestamps are epoch ms (wall clock); jobs have a text id for the API and an integer key for
@@ -109,6 +115,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
   frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).
+- Accelerometer: every `intervalMin` while `processing`, from layer 2 on, one recording at a time;
+  spectra exactly as DWC's input-shaping plugin (@duet3d/motionanalysis, checked number for number in
+  `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event.
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
   boards that report status; RRF's event text in `messages[]` for the others (only printed when
   no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`).

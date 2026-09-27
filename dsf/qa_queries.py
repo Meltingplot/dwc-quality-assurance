@@ -270,8 +270,56 @@ def spectra(con, job_id):
     return {"jobId": job_id, "spectra": out}
 
 
-def references(con):
-    return {"references": [dict(r) for r in con.execute("SELECT * FROM reference_spectra ORDER BY axis")]}
+def _spectra_rows(con, where, args):
+    rows = con.execute(f"SELECT s.*, j.id AS job_id FROM spectra s JOIN jobs j ON j.key = s.job_key WHERE {where}",
+                       args).fetchall()
+    return [_loads(r, "freqs", "amplitudes") for r in rows]
+
+
+def references(con, auto_count=5):
+    """The reference spectrum of each axis. ``manual``: the chosen spectrum. ``auto``: the
+    element-wise median of the first ``auto_count`` spectra of the axis (interpolated onto the grid
+    of the first, qa_accel.median_spectrum); ``complete`` false while there are fewer."""
+    import qa_accel
+
+    settings = {r["axis"]: dict(r) for r in con.execute("SELECT * FROM reference_spectra")}
+    out = []
+    for axis in ("X", "Y", "Z"):
+        setting = settings.get(axis) or {"mode": "auto", "spectrum_id": None, "set_at": None}
+        if setting["mode"] == "manual":
+            spectra = _spectra_rows(con, "s.id=?", (setting["spectrum_id"],))
+        else:
+            spectra = _spectra_rows(con, "s.axis=? AND s.freqs IS NOT NULL ORDER BY s.ts_ms, s.id LIMIT ?",
+                                    (axis, auto_count))
+        entry = {"axis": axis, "mode": setting["mode"], "setAt": iso(setting["set_at"]),
+                 "spectrumIds": [s["id"] for s in spectra], "jobIds": sorted({s["job_id"] for s in spectra}),
+                 "complete": setting["mode"] == "manual" or len(spectra) >= auto_count,
+                 "freqs": [], "amplitudes": [], "peakHz": None, "rms": None}
+        usable = [s for s in spectra if s.get("freqs")]
+        if usable:
+            freqs, amplitudes = qa_accel.median_spectrum(usable)
+            peaks = [(a, f) for f, a in zip(freqs, amplitudes) if f >= qa_accel.PEAK_MIN_HZ]
+            rms = sorted(s["rms"] for s in usable if s.get("rms") is not None)
+            entry.update({"freqs": freqs, "amplitudes": amplitudes, "peakHz": max(peaks)[1] if peaks else None,
+                          "rms": rms[len(rms) // 2] if rms else None})
+        out.append(entry)
+    return {"references": out, "autoCount": auto_count}
+
+
+def spectra_latest(con, axis, limit=5):
+    """The newest spectrum of each of the last ``limit`` jobs that have one for ``axis``."""
+    rows = con.execute(
+        "SELECT MAX(s.id) AS id FROM spectra s JOIN jobs j ON j.key = s.job_key WHERE s.axis=? AND s.freqs IS NOT NULL "
+        "GROUP BY s.job_key ORDER BY MAX(j.started_at) DESC LIMIT ?", (axis, limit)).fetchall()
+    ids = [r["id"] for r in rows]
+    if not ids:
+        return {"axis": axis, "spectra": []}
+    spectra = _spectra_rows(con, f"s.id IN ({','.join('?' * len(ids))})", ids)
+    order = {sid: i for i, sid in enumerate(ids)}
+    for s in spectra:
+        s.pop("job_key", None)
+        s["ts"] = iso(s["ts_ms"])
+    return {"axis": axis, "spectra": sorted(spectra, key=lambda s: order[s["id"]])}
 
 
 def export(con, job_id):
@@ -317,7 +365,7 @@ def _nozzle_diameter(context, tool):
 
 
 TREND_METRICS = ("heater_load_mean", "fm_avg_percentage", "filament_ratio", "esteps_suggested", "mm_per_rev",
-                 "heat_up_s", "duration_s", "events")
+                 "heat_up_s", "duration_s", "events", "spectrum_peak_hz", "spectrum_rms")
 
 
 def trends(con, metric, limit=100, material=None):
@@ -361,6 +409,11 @@ def trends(con, metric, limit=100, material=None):
         elif metric == "duration_s":
             if row["duration_s"] is not None:
                 points.append({**base, "value": row["duration_s"]})
+        elif metric in ("spectrum_peak_hz", "spectrum_rms"):
+            field = "peakHzMean" if metric == "spectrum_peak_hz" else "rmsMean"
+            for axis, stats in (summary.get("mechanics") or {}).items():
+                if stats.get(field) is not None:
+                    points.append({**base, "axis": axis, "value": stats[field], "spectra": stats.get("spectra")})
         elif metric == "events":
             counts = {k: v.get("count") for k, v in (summary.get("events") or {}).items()}
             points.append({**base, "value": sum(c for t, c in counts.items() if t not in ("job_start", "job_end")),

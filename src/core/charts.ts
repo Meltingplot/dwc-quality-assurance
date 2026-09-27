@@ -177,6 +177,43 @@ export function trendConfig(series: Array<TrendSeries>, nowMs: number, yLabel = 
 	};
 }
 
+export interface SpectrumSeries {
+	label: string;
+	freqs: Array<number>;
+	amplitudes: Array<number>;
+	/** the reference: dashed */
+	dashed?: boolean;
+	/** drawn faint (context, e.g. the other recordings of a job) */
+	faint?: boolean;
+}
+
+/** Amplitude (g) over frequency (Hz) */
+export function spectrumConfig(series: Array<SpectrumSeries>, yLabel = "g") {
+	return {
+		type: "line" as const,
+		data: {
+			datasets: series.map((s, i) => ({
+				label: s.label,
+				data: s.freqs.map((f, k) => ({ x: f, y: s.amplitudes[k] })),
+				borderColor: s.dashed ? "#9E9E9E" : color(i),
+				backgroundColor: s.dashed ? "#9E9E9E" : color(i),
+				borderWidth: s.faint ? 0.75 : 1.5,
+				borderDash: s.dashed ? [6, 4] : undefined,
+				pointRadius: 0
+			}))
+		},
+		options: {
+			...STATIC,
+			interaction: { mode: "nearest" as const, axis: "x" as const, intersect: false },
+			scales: {
+				x: { type: "linear" as const, ...SUBTLE_GRID, min: 0, title: { display: true, text: "Hz" } },
+				y: { type: "linear" as const, ...SUBTLE_GRID, min: 0, title: { display: !!yLabel, text: yLabel } }
+			},
+			plugins: { legend: { position: "bottom" as const, labels: { boxWidth: 12 } } }
+		}
+	};
+}
+
 /** Draws the ``plugins.qaMarkers.markers`` of a chart as vertical lines */
 export const markerPlugin = {
 	id: "qaMarkers",

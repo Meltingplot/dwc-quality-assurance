@@ -63,6 +63,19 @@
 				</v-col>
 			</v-row>
 
+			<div class="text-subtitle-2 mb-1 mt-2">{{ $t("plugins.QualityAssurance.settings.accelerometer") }}</div>
+			<v-row density="compact">
+				<v-col cols="12" sm="3">
+					<v-select :model-value="get('accelerometer.enabled')" :items="accelModes" density="compact" variant="outlined"
+						:label="$t('plugins.QualityAssurance.settings.fields.accelEnabled')" @update:model-value="set('accelerometer.enabled', $event)" />
+				</v-col>
+				<v-col v-for="field in accelFields" :key="field.path" cols="12" sm="3">
+					<v-text-field :model-value="get(field.path)" type="number" density="compact" variant="outlined"
+						:label="$t(`plugins.QualityAssurance.settings.fields.${field.key}`)" :suffix="field.unit"
+						@update:model-value="set(field.path, field.nullable ? toIndex($event) : toNumber($event))" />
+				</v-col>
+			</v-row>
+
 			<div class="d-flex ga-2 mt-2">
 				<v-btn color="primary" :loading="saving" @click="save">{{ $t("plugins.QualityAssurance.settings.save") }}</v-btn>
 				<v-btn variant="text" @click="load">{{ $t("plugins.QualityAssurance.settings.reset") }}</v-btn>
@@ -97,6 +110,12 @@ const TIMELAPSE_FIELDS = [
 	{ key: "encoderThreads", path: "timelapse.encoderThreads", unit: "", nullable: true }
 ];
 
+const ACCEL_FIELDS = [
+	{ key: "accelBoard", path: "accelerometer.board", unit: "", nullable: true },
+	{ key: "accelIntervalMin", path: "accelerometer.intervalMin", unit: "min", nullable: false },
+	{ key: "accelSamples", path: "accelerometer.samples", unit: "", nullable: false }
+];
+
 /** The settings QA exposes in the UI; everything else stays as stored (the daemon validates) */
 export default defineComponent({
 	props: {
@@ -109,10 +128,15 @@ export default defineComponent({
 			saving: false,
 			saved: false,
 			numberFields: NUMBER_FIELDS,
-			timelapseFields: TIMELAPSE_FIELDS
+			timelapseFields: TIMELAPSE_FIELDS,
+			accelFields: ACCEL_FIELDS
 		};
 	},
 	computed: {
+		accelModes(): Array<{ title: string; value: string | boolean }> {
+			return [["auto", "auto"], [true, "on"], [false, "off"]].map(([value, key]) => ({
+				title: this.$t(`plugins.QualityAssurance.settings.accelModes.${key}`), value: value as string | boolean }));
+		},
 		chamberModes(): Array<{ title: string; value: string }> {
 			return ["auto", "heater", "sensor"].map((value) => ({ title: this.$t(`plugins.QualityAssurance.settings.chamberModes.${value}`), value }));
 		}

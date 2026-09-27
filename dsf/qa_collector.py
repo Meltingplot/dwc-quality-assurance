@@ -19,6 +19,7 @@ import threading
 import time
 import zlib
 
+import qa_accel
 import qa_channels
 import qa_context
 import qa_db
@@ -91,11 +92,12 @@ class _Job:
         self.last_pause = None
         self.last_duration = None
         self.layers_written = 0
+        self.last_accel_ms = None   # last M956 request
 
 
 class Collector:
     def __init__(self, writer, settings, resolve_path=None, broadcast=None, plugin_version="unknown",
-                 index_cache=None, timelapse=None, on_status=None):
+                 index_cache=None, timelapse=None, accel=None, on_status=None):
         self.writer = writer
         self.settings = settings
         self.resolve_path = resolve_path or (lambda _virtual: None)
@@ -103,6 +105,7 @@ class Collector:
         self.plugin_version = plugin_version
         self.index_cache = index_cache
         self.timelapse = timelapse
+        self.accel = accel
         self.on_status = on_status or (lambda _status: None)
 
         cfg = settings.current()
@@ -192,8 +195,11 @@ class Collector:
             self._ring.popleft()
 
         self._lifecycle(model, status, now_ms)
+        if self.accel is not None:
+            self.accel.observe(qa_accel.from_model(model))
         if self.job is not None and not self._simulating:
             self._track_layer(model, snapshot, now_ms)
+            self._accelerometer(status, now_ms)
             if self.job.job_acc is not None:
                 self.job.job_acc.heater_setpoints(snapshot, now_ms)
             self._detect(model, patch, snapshot, status, now_ms)
@@ -217,6 +223,7 @@ class Collector:
             self._heater_load(self.model, status, now_ms)
             self._fm_window_check(self.model, now_ms)
             self._close_block_if_due(now_ms)
+            self._accelerometer(status, now_ms)
             self._write_coarse(self._prev_snapshot, now_ms)
             self._live(self._prev_snapshot, now_ms)
         elif now_ms - self._last_live_ms >= LIVE_HEARTBEAT_MS:
@@ -457,8 +464,24 @@ class Collector:
             "mfm": qa_summary.mfm_summary(job.events, globals_end),
             "events": qa_summary.event_summary(job.events),
             "spoolUsageG": qa_summary.spool_usage(job.context.get("globalsStart"), globals_end),
-            "mechanics": None,
+            "mechanics": self.accel.job_summary(job.key) if self.accel is not None else None,
         }
+
+    def _accelerometer(self, status, now_ms):
+        """A spectrum every ``accelerometer.intervalMin`` while the job prints (not paused), from
+        layer 2 on, one recording at a time (qa_accel)."""
+        job = self.job
+        if self.accel is None or status != "processing" or (job.layer or 0) < 2:
+            return
+        interval_ms = self.cfg()["accelerometer"]["intervalMin"] * 60_000
+        if job.last_accel_ms is not None and now_ms - job.last_accel_ms < interval_ms:
+            return
+        choice = self.accel.choice()
+        if choice is None or self.accel.busy():
+            return
+        job.last_accel_ms = now_ms
+        index, entry = choice
+        self.accel.request(job.key, job.id, job.layer, index, entry["runs"], now_ms)
 
     def _pause_resume(self, model, status, now_ms):
         prev = self._prev_status

@@ -356,6 +356,30 @@ def _patch_missing_properties():
     return added
 
 
+def _patch_sensor_accelerometers():
+    """[new] ``sensors.accelerometers``: DuetAPI moved the accelerometer from ``Board`` to
+    ``Sensors.Accelerometers`` (the index is the M955/M956 P number) and gave it ``Port``,
+    ``Resolution`` and ``SamplingRate`` (DuetSoftwareFramework v3.7-dev @ cd3ae65f, commit 524fdc4c,
+    DuetAPI/ObjectModel/Sensors/Accelerometer.cs + Sensors.cs). dsf-python 3.7.0b1 still has only
+    ``Board.accelerometer`` (orientation, points, runs), so update_from_json() skipped the list.
+    Compared 2026-09-27. The existing class gets the three properties and becomes the item type."""
+    from typing import Optional
+
+    from dsf.object_model.boards.accelerometer import Accelerometer
+    from dsf.object_model.model_collection import ModelCollection
+    from dsf.object_model.sensors.sensors import Sensors
+    from dsf.object_model.utils import model_prop
+
+    if isinstance(getattr(Sensors, "accelerometers", None), property):
+        return False  # upstream has it by now
+    for prop, prop_type, default in (("port", str, ""), ("resolution", int, 0), ("sampling_rate", int, 0)):
+        if not isinstance(getattr(Accelerometer, prop, None), property):
+            setattr(Accelerometer, prop, model_prop(prop, prop_type, default))
+    Sensors.accelerometers = model_prop("accelerometers", ModelCollection[Optional[Accelerometer]],
+                                        ModelCollection(Optional[Accelerometer]))
+    return True
+
+
 PATCHES = (
     ("greeting", _patch_greeting),
     ("set_model_prop_none", _patch_set_model_prop_none),
@@ -363,6 +387,7 @@ PATCHES = (
     ("axis_letter", _patch_axis_letter),
     ("enum_missing", _patch_enum_missing),
     ("missing_properties", _patch_missing_properties),
+    ("sensor_accelerometers", _patch_sensor_accelerometers),
     # after missing_properties, so an added property with a digit gets its alias too
     ("digit_property_names", _patch_digit_property_names),
 )
