@@ -9,6 +9,16 @@ concurrently with each other and with the collector. Anything they share needs a
 the command connection is guarded by ``ApiContext.cmd_lock`` (lesson from the CHX350
 backend, 2026-09-26), SQLite reads use one connection per thread.
 ``read_request`` reads at most 32 KiB, so POST bodies stay small.
+
+DSF does not authorize plugin endpoints: its own ``/machine/*`` routes require a session, but
+plugin requests reach ``CustomEndpointMiddleware`` only when no route matched, so authorization
+never runs. The middleware looks the session up (``X-Session-Key`` header; for WebSockets the
+``sessionKey`` query) and forwards its id, -1 for an anonymous request, without rejecting anything
+(DuetSoftwareFramework v3.7-dev @ cd3ae65f ``Program.cs``, ``Endpoints/MachineEndpoints.cs``,
+``Middleware/CustomEndpointMiddleware.cs``, ``DuetAPI/Commands/HttpEndpoints/ReceivedHttpRequest.cs``,
+2026-09-27). So every handler here refuses ``session_id == -1``. DWC's REST connector sends the
+header on every request (@duet3d/connectors 3.7.0-rc.2 ``RestConnector.request``). It protects
+only a machine with a password: without one ``/machine/connect`` gives every caller a key.
 """
 
 import asyncio
@@ -402,8 +412,18 @@ ENDPOINTS = {
 }
 
 
+ANONYMOUS = -1  # ReceivedHttpRequest.SessionId of a request without a valid session key
+
+
+def authorized(request):
+    return getattr(request, "session_id", ANONYMOUS) != ANONYMOUS
+
+
 def call(ctx, func, request):
-    """Run a handler; API errors become their status, anything else 500."""
+    """Run a handler; API errors become their status, anything else 500. A request without a
+    session gets 401 (DSF does not check, see the module docstring)."""
+    if not authorized(request):
+        return error_response("a DWC session is required", 401)
     try:
         return func(ctx, request)
     except ApiError as exc:
@@ -434,15 +454,43 @@ def _make_handler(ctx, func):
 
 
 LIVE_PING_S = 25  # below the 30 s the plan asks for; the HMI's haproxy tunnel times out after 1 h
+LIVE_AUTH_TIMEOUT_S = 10
+# WebSocket close code DSF passes on when a response carries a status >= 1000 (PolicyViolation)
+CLOSE_POLICY_VIOLATION = 1008
+
+
+async def _live_session(http_conn):
+    """The session of a ``live`` client, from its first message. DSF sends nothing to the plugin
+    on connect; it looks the session up once from the ``sessionKey`` query and hands it over with
+    every text frame of the client as ``ReceivedHttpRequest`` (CustomEndpointMiddleware
+    ``ReadFromWebSocket``, DSF v3.7-dev @ cd3ae65f, 2026-09-27). None when the client sends
+    nothing in time or goes away."""
+    try:
+        request = await asyncio.wait_for(http_conn.read_request(), LIVE_AUTH_TIMEOUT_S)
+    except (asyncio.TimeoutError, ValueError, ConnectionError, OSError):
+        return None
+    return request
 
 
 def make_live_handler(ctx):
     """WebSocket ``live``: DSF opens one connection per browser client and forwards every
-    ``send_response`` as a text frame; nothing is read on connect (CustomEndpointMiddleware,
-    DSF v3.7-dev @ cd3ae65f). Frames: hello, sample, event, layer, job, status, ping."""
+    ``send_response`` as a text frame; a response with a status >= 1000 closes the socket with that
+    code (CustomEndpointMiddleware, DSF v3.7-dev @ cd3ae65f, 2026-09-27). The client connects with
+    ``?sessionKey=`` and sends one text frame; without a session the socket is closed with 1008.
+    Frames: hello, sample, event, layer, job, status, ping."""
     from dsf.http import HttpResponseType
 
     async def _handler(http_conn):
+        request = await _live_session(http_conn)
+        if request is None or not authorized(request):
+            try:
+                await http_conn.send_response(CLOSE_POLICY_VIOLATION, "a DWC session is required",
+                                              HttpResponseType.PlainText)
+            except (ConnectionError, OSError):
+                pass  # the client is gone already
+            finally:
+                http_conn.close()
+            return
         loop = asyncio.get_running_loop()
         cid, queue = ctx.live.register(loop)
         reader = asyncio.ensure_future(http_conn.reader.read(65536))

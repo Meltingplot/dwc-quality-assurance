@@ -6,6 +6,24 @@ fields are epoch milliseconds; `…At`/`timestamp`/`ts` fields are ISO 8601 UTC.
 
 Contract tests: `tests/test_api.py` (Python side), including the fields the CHX UI uses.
 
+## Authentication
+
+Every endpoint needs a DWC session: requests without one get **401**
+`{"error": "a DWC session is required"}`, the `live` socket is closed with **1008**. DSF does not
+check sessions on plugin endpoints itself; it only looks the key up and passes the session id
+(−1 for none) to the daemon, which refuses −1 (`qa_api.call`, `make_live_handler`; DSF v3.7-dev
+@ cd3ae65f `CustomEndpointMiddleware.cs`, 2026-09-27).
+
+- HTTP: the `X-Session-Key` header. DWC's REST connector sends it on every request, so go through
+  `useMachineStore().request(...)`, not `fetch()`. Files (export, later the timelapse) are
+  requested with `responseType: "blob"`; a bare `<a href>`/`<img src>`/`<video src>` has no key.
+- WebSocket: `?sessionKey=<key>` in the URL, then one text frame from the client (DSF hands the
+  daemon the session only with client frames). `hello` comes only after that.
+- A server-side caller (a later Quality Control daemon) needs a session too: `GET
+  /machine/connect?password=…` returns `sessionKey`.
+- Only a machine with a password (M551) is protected by this: without one, `/machine/connect`
+  gives every caller a key.
+
 Every request other than `live` goes through the HMI's haproxy backend that gives a busy DSF
 10 s (PLAN.md §5.6): every endpoint answers from indexed data; the G-code layer index is built in
 the background at job start (`job/toolpath` answers 202 until it is ready).
@@ -139,11 +157,13 @@ rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without ex
 
 ## live (WebSocket)
 
-`ws(s)://<host>/machine/QualityAssurance/live`. Frames (JSON text):
+`ws(s)://<host>/machine/QualityAssurance/live?sessionKey=<key>`. The client sends one text frame
+after connecting (any text; DSF passes the session along with it). Without a session the socket is
+closed with 1008, also when no frame arrives within 10 s. Frames (JSON text):
 
 | type | |
 |---|---|
-| `hello` | on connect: `version`, `status` |
+| `hello` | after the client's first frame: `version`, `status` |
 | `sample` | at most once a second while a job records: `values` (all channels plus `heater.<n>.load` of nozzle heaters), `heaterLoad` per heater `{mean, level}` |
 | `event` | every event as stored |
 | `layer` | a layer started (`layer`) or finished (`finished`, `durationS`) |
@@ -151,4 +171,4 @@ rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without ex
 | `status` | while idle, every 25 s |
 | `ping` | when nothing else was sent for 25 s (the HMI's haproxy keeps WebSocket tunnels 1 h) |
 
-Messages from the client are ignored. A client that falls 500 frames behind loses the oldest.
+Messages after the first are ignored. A client that falls 500 frames behind loses the oldest.

@@ -2,6 +2,11 @@
  * Client of the daemon's `live` WebSocket (docs/api.md): reconnects with a growing delay and,
  * while the socket is down, polls `status` every 5 s so the page still shows whether a job
  * records (PLAN.md §5.8).
+ *
+ * DSF hands the daemon the client's session only with a text frame from the client, so the
+ * client sends one on open and the daemon answers with `hello` only when there is a session
+ * (otherwise it closes with 1008). The socket counts as open, and the delay starts over, with
+ * that first answer: a refused client keeps backing off.
  */
 
 export interface LiveFrame {
@@ -82,12 +87,21 @@ export class LiveClient {
 			return;
 		}
 		this.socket = socket;
+		let accepted = false;
 		socket.onopen = () => {
-			this.delay = this.options.minDelayMs ?? 1000;
-			this.stopPolling();
-			this.setState("open");
+			try {
+				socket.send(JSON.stringify({ type: "hello" }));
+			} catch {
+				// onclose follows
+			}
 		};
 		socket.onmessage = (event: MessageEvent) => {
+			if (!accepted) {
+				accepted = true;
+				this.delay = this.options.minDelayMs ?? 1000;
+				this.stopPolling();
+				this.setState("open");
+			}
 			try {
 				this.options.onFrame(JSON.parse(String(event.data)) as LiveFrame);
 			} catch {

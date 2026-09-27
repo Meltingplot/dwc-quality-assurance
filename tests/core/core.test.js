@@ -104,7 +104,11 @@ describe("LiveClient", () => {
 		constructor(url) {
 			this.url = url;
 			this.closed = false;
+			this.sent = [];
 			sockets.push(this);
+		}
+		send(text) {
+			this.sent.push(text);
 		}
 		close() {
 			this.closed = true;
@@ -134,6 +138,9 @@ describe("LiveClient", () => {
 		});
 		client.start();
 		sockets[0].onopen();
+		// the first frame carries the session to the daemon (DSF forwards it with client frames only)
+		expect(sockets[0].sent).toEqual(["{\"type\":\"hello\"}"]);
+		expect(client.state).toBe("connecting");
 		sockets[0].onmessage({ data: "{\"type\":\"hello\",\"ts\":1}" });
 		sockets[0].onmessage({ data: "not json" });
 		expect(frames).toEqual([{ type: "hello", ts: 1 }]);
@@ -152,6 +159,7 @@ describe("LiveClient", () => {
 		vi.advanceTimersByTime(1000);
 		expect(poll.mock.calls.length).toBeGreaterThanOrEqual(2);
 		sockets[2].onopen();
+		sockets[2].onmessage({ data: "{\"type\":\"hello\",\"ts\":2}" });
 		const polled = poll.mock.calls.length;
 		vi.advanceTimersByTime(5000);
 		expect(poll.mock.calls.length).toBe(polled);  // polling stops once the socket is back
@@ -159,6 +167,22 @@ describe("LiveClient", () => {
 		client.stop();
 		expect(sockets[2].closed).toBe(true);
 		expect(states[states.length - 1]).toBe("closed");
+	});
+
+	it("keeps backing off while the daemon refuses the socket (no session)", () => {
+		const client = new LiveClient({ url: () => "ws://h/live", onFrame: () => {}, createSocket: (u) => new FakeSocket(u), minDelayMs: 100 });
+		client.start();
+		for (const wait of [100, 200, 400]) {
+			const socket = sockets[sockets.length - 1];
+			socket.onopen();
+			socket.onclose({ code: 1008 });  // refused before any frame
+			const count = sockets.length;
+			vi.advanceTimersByTime(wait - 1);
+			expect(sockets).toHaveLength(count);
+			vi.advanceTimersByTime(1);
+			expect(sockets).toHaveLength(count + 1);
+		}
+		client.stop();
 	});
 
 	it("only polls without a socket URL", () => {

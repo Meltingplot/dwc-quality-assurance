@@ -46,7 +46,8 @@ export function useMachineStore() {
 		get isConnected() { return dwc.connected; },
 		get isSbcMode() { return dwc.connected; },
 		get connector() {
-			return dwc.connected ? { hostname: "printer.local", settings: { protocol: "http:", baseURL: "/" } } : null;
+			// sessionKey: a private field of @duet3d/connectors' RestConnector, DSF issues it as a GUID in "N" format
+			return dwc.connected ? { hostname: "printer.local", settings: { protocol: "http:", baseURL: "/" }, sessionKey: "0f3c9a7e5b2d4e81a6c0d9b7e4f21a35" } : null;
 		},
 		async startSbcPlugin(plugin) {
 			if (startFailure) {

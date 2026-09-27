@@ -15,9 +15,12 @@ import qa_gcode
 
 
 class Req:
-    def __init__(self, body="", **queries):
+    """A request as dsf-python hands it over; ``session_id`` -1 is an anonymous one."""
+
+    def __init__(self, body="", session_id=7, **queries):
         self.queries = {k: str(v) for k, v in queries.items()}
         self.body = body
+        self.session_id = session_id
 
 
 @pytest.fixture
@@ -271,6 +274,12 @@ class FakeWriter:
         return out
 
 
+def ws_message(session_id, body="hello"):
+    """A client text frame as DSF forwards it (ReceivedHttpRequest, camelCase JSON)."""
+    return json.dumps({"sessionId": session_id, "remoteIPAddress": None, "remotePort": 0, "queries": {},
+                       "headers": {}, "contentType": "", "body": body}).encode()
+
+
 def test_live_websocket(ctx, monkeypatch):
     from dsf.http import HttpEndpointConnection
 
@@ -281,6 +290,10 @@ def test_live_websocket(ctx, monkeypatch):
         writer = FakeWriter()
         conn = HttpEndpointConnection(reader, writer, True)
         task = asyncio.ensure_future(qa_api.make_live_handler(ctx)(conn))
+        await asyncio.sleep(0.05)
+        assert ctx.live.count() == 0  # nothing before the client's first frame shows its session
+        assert writer.data == b""
+        reader.feed_data(ws_message(3))
         await asyncio.sleep(0.05)
         assert ctx.live.count() == 1
         # published from another thread, as the collector does
@@ -298,6 +311,39 @@ def test_live_websocket(ctx, monkeypatch):
     assert {"type": "sample", "values": {"a": 1}} in frames
     assert any(f["type"] == "ping" for f in frames)
     assert writer.closed and ctx.live.count() == 0
+
+
+@pytest.mark.parametrize("first", [ws_message(-1), None])
+def test_live_websocket_without_session_is_closed(ctx, monkeypatch, first):
+    """An anonymous client, or one that sends nothing, gets close code 1008 and no frames."""
+    from dsf.http import HttpEndpointConnection
+
+    monkeypatch.setattr(qa_api, "LIVE_AUTH_TIMEOUT_S", 0.1)
+
+    async def scenario():
+        reader = asyncio.StreamReader()
+        writer = FakeWriter()
+        conn = HttpEndpointConnection(reader, writer, True)
+        task = asyncio.ensure_future(qa_api.make_live_handler(ctx)(conn))
+        if first is not None:
+            reader.feed_data(first)
+        ctx.live.publish({"type": "sample"})
+        await asyncio.wait_for(task, 2)
+        return writer
+
+    writer = asyncio.run(scenario())
+    sent = json.loads(writer.data.decode())
+    assert sent["statusCode"] == 1008
+    assert writer.closed and ctx.live.count() == 0
+
+
+def test_every_endpoint_refuses_anonymous_requests(ctx):
+    for (method, path), func in qa_api.ENDPOINTS.items():
+        response = qa_api.call(ctx, func, Req(session_id=-1, id="x", layer=1, metric="duration_s", channels="a"))
+        assert response.status == 401, (method, path)
+        assert response.body == {"error": "a DWC session is required"}
+    # a request object without the attribute counts as anonymous too
+    assert qa_api.call(ctx, qa_api.ENDPOINTS[("GET", "status")], object()).status == 401
 
 
 def test_live_hub_drops_oldest_when_a_client_lags():

@@ -15,6 +15,8 @@ export const qaAvailable = computed(() => (useMachineStore().model.plugins.get("
 ```
 
 Requests like the existing `get<T>()` in `api.ts`: `useMachineStore().request("GET", "machine/QualityAssurance/<path>", params, "json", null, 15000, …)`.
+Only through the connector: QA answers 401 to a request without a DWC session (docs/api.md
+"Authentication"), so no `fetch()` and no bare `<img>`/`<video src>`; files as `responseType: "blob"`.
 
 ## 2. History (`composables/useJobHistory.ts`, "the seam")
 

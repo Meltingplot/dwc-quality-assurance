@@ -20,11 +20,13 @@ export function createHost(): HostAdapter {
 			if (!machine().isSbcMode || !connector) {
 				return null;
 			}
-			// Same composition as the REST connector's own object-model socket
-			// (@duet3d/connectors RestConnector.connect). DSF does not require a session key on
-			// custom WebSocket endpoints (CustomEndpointMiddleware only looks one up)
+			// Same composition as the REST connector's own object-model socket, session key in the
+			// query (@duet3d/connectors 3.7.0-rc.2 RestConnector.connect; `sessionKey` is a private
+			// field there). DSF looks the key up for custom WebSocket endpoints but does not check
+			// it; the daemon refuses a socket without a session (qa_api.make_live_handler)
 			const protocol = connector.settings?.protocol === "https:" ? "wss:" : "ws:";
-			return `${protocol}//${connector.hostname}${connector.settings?.baseURL ?? "/"}${path}`;
+			const key = connector.sessionKey ? `?sessionKey=${encodeURIComponent(connector.sessionKey)}` : "";
+			return `${protocol}//${connector.hostname}${connector.settings?.baseURL ?? "/"}${path}${key}`;
 		}
 	};
 }
