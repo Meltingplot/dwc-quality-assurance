@@ -129,6 +129,7 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 npm ci && npm run lint && npm test              # vitest, real Vuetify 4, [Vue warn] = failure
 scripts/ci-local.sh python                      # pytest in .ci-local/venv with dsf-python 3.7.0b1
 scripts/ci-local.sh build                       # package against Meltingplot/DuetWebControl v3.7-dev
+scripts/sideload.sh [status|remove]             # onto a CHX 350 through its HMI, no image build (docs/sideload.md)
 ```
 - DWC's builder type-checks every `*.ts` in the plugin dir against DWC's sources, which is
   why tests are `.js`. It externalises `@/stores/*`, `@/plugins`, `@/i18n`, `@/utils/*`, `vue`,

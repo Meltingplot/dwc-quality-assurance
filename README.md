@@ -16,7 +16,8 @@ G-code, a timelapse video (one frame per layer, AV1) and vibration spectra from 
 - HTTP API (also the contract for the CHX 350 UI and Quality Control): [docs/api.md](docs/api.md)
 - Storage, database and retention: [docs/schema.md](docs/schema.md)
 - CHX 350 UI integration: [docs/chx-integration.md](docs/chx-integration.md)
-- Bundling with the CHX 350 image: [docs/image.md](docs/image.md)
+- Bundling with the CHX 350 image: [docs/image.md](docs/image.md); testing on a machine without an
+  image build: [docs/sideload.md](docs/sideload.md)
 - Proposals for dwc-vigil: [docs/vigil-candidates.md](docs/vigil-candidates.md)
 - Design and decisions: [PLAN.md](PLAN.md); developer guide: [CLAUDE.md](CLAUDE.md)
 

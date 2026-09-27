@@ -37,29 +37,13 @@ directory, e.g. for a test.)
 
 ## 2. AppArmor block (`customize.overlay/etc/apparmor.d/opt.dsf.bin.DuetPluginService`, profile `dsf_plugin_py`)
 
-Files, following the Vigil block:
-
-```
-    # QualityAssurance, process data of every print job
-    /opt/dsf/plugins/QualityAssurance.json r,
-    /opt/dsf/plugins/QualityAssurance/** mr,
-    owner /opt/dsf/plugins/QualityAssurance/dsf/__pycache__/ w,
-    owner /opt/dsf/plugins/QualityAssurance/dsf/__pycache__/* rw,
-    # SQLite database with WAL/SHM files and locks, backups, settings, G-code layer
-    # index cache, timelapse frames and videos
-    /opt/dsf/sd/QualityAssurance/ rw,
-    /opt/dsf/sd/QualityAssurance/** rwk,
-    # job files: CRC32, slicer settings at the end of the file, toolpath for the replay
-    /opt/dsf/sd/gcodes/ r,
-    /opt/dsf/sd/gcodes/** r,
-    # its HTTP endpoints (one of them is the WebSocket `live`)
-    /run/dsf/QualityAssurance/{,**/} r,
-    /run/dsf/QualityAssurance/** rw,
-    # accelerometer: read and delete the CSVs of its own M956 recordings (qa-*.csv); RRF writes
-    # them through DSF, so the plugin never creates files there
-    /opt/dsf/sd/sys/accelerometer/ r,
-    /opt/dsf/sd/sys/accelerometer/qa-*.csv rw,
-```
+The rules are in [apparmor-QualityAssurance.inc](apparmor-QualityAssurance.inc), indented to be
+pasted into `dsf_plugin_py` after the CHX350 block: QA's code and manifest, its data directory
+`/opt/dsf/sd/QualityAssurance/`, the job files (read), its endpoint sockets under
+`/run/dsf/QualityAssurance/`, its own accelerometer CSVs, and for the timelapse the camera and
+ffmpeg (below). `scripts/sideload.sh` loads this same file on a test machine (docs/sideload.md);
+on the lab machine (image 0.1.0-rc.46) QA started and ran idle with it in enforce mode without a
+denial (2026-09-27); a print job with camera and accelerometer is still to run.
 
 `sbcPermissions` now also names `readSystem` and `writeSystem` (the CSVs are in `0:/sys`);
 `fileSystemAccess` covers them already in DSF's own check.
