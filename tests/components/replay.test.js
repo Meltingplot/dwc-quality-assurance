@@ -18,6 +18,7 @@ vi.mock("../../src/core/charts", async (importOriginal) => {
 
 const ReplayView = (await import("../../src/components/ReplayView.vue")).default;
 const ReplayCanvas = (await import("../../src/components/ReplayCanvas.vue")).default;
+const TimelapseFrame = (await import("../../src/components/TimelapseFrame.vue")).default;
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -56,9 +57,11 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-function api(toolpath) {
+function api(toolpath, timelapse = { jobId: "j1", status: "none", reason: "no snapshotUrl set", video: false, layers: [] }) {
 	return {
 		toolpath: vi.fn(toolpath),
+		timelapseMeta: vi.fn(async () => timelapse),
+		timelapseFrame: vi.fn(async () => new Blob(["jpeg"])),
 		// positions only in the coarse row before the layer, a rate sample before it that is not the layer's
 		samples: vi.fn(async (id) => ({ jobId: id, from: 0, to: 1, resolution: "auto", downsampled: false,
 			channels: { "axis.X.machinePosition": [[T1 - 3000, 2]], "axis.Y.machinePosition": [[T1 - 3000, 0]],
@@ -88,6 +91,27 @@ describe("ReplayView", () => {
 		expect(config.data.datasets.map((d) => d.label)).toEqual(["T0 (°C)", "plugins.QualityAssurance.layers.loadMean T0 (0..1)"]);
 		expect(config.data.datasets[0].data).toEqual([{ x: 1, y: 220 }]);
 		expect(config.options.plugins.qaMarkers.markers).toMatchObject([{ x: 2, label: "heater_load" }]);
+		expectNoVueWarnings(warn);
+	});
+
+	it("shows the camera frame of the layer when there is a timelapse", async () => {
+		vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:frame");
+		vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+		const plain = mountInDwc(ReplayView, { props: { api: api(async () => TOOLPATH), job: JOB, layers: LAYERS, events: [] } });
+		await flush();
+		expect(plain.findComponent(TimelapseFrame).exists()).toBe(false);
+		const timelapse = { jobId: "j1", status: "capturing", fps: 30, video: false,
+			layers: [{ layer: 1, frame: 0, ts: 1 }, { layer: 2, frame: 1, ts: 2 }] };
+		const a = api(async () => TOOLPATH, timelapse);
+		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: [] } });
+		await flush();
+		await flush();
+		expect(wrapper.findComponent(TimelapseFrame).props("layer")).toBe(1);
+		expect(a.timelapseFrame).toHaveBeenCalledWith("j1", 1);
+		wrapper.vm.step(1);
+		await flush();
+		await flush();
+		expect(a.timelapseFrame).toHaveBeenLastCalledWith("j1", 2);
 		expectNoVueWarnings(warn);
 	});
 

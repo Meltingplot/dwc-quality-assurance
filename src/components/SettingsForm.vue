@@ -51,6 +51,16 @@
 						placeholder="http://10.42.0.1/snapshot" :label="$t('plugins.QualityAssurance.settings.fields.snapshotUrl')"
 						@update:model-value="set('timelapse.snapshotUrl', $event ? $event : null)" />
 				</v-col>
+				<v-col v-for="field in timelapseFields" :key="field.path" cols="12" sm="4">
+					<v-text-field :model-value="get(field.path)" type="number" density="compact" variant="outlined"
+						:label="$t(`plugins.QualityAssurance.settings.fields.${field.key}`)" :suffix="field.unit"
+						@update:model-value="set(field.path, field.nullable ? toIndex($event) : toNumber($event))" />
+				</v-col>
+				<v-col cols="12">
+					<v-switch :model-value="get('timelapse.keepFramesOnFailure')" color="primary" density="compact" hide-details
+						:label="$t('plugins.QualityAssurance.settings.fields.keepFramesOnFailure')"
+						@update:model-value="set('timelapse.keepFramesOnFailure', !!$event)" />
+				</v-col>
 			</v-row>
 
 			<div class="d-flex ga-2 mt-2">
@@ -81,6 +91,12 @@ const NUMBER_FIELDS = [
 	{ key: "retentionDays", path: "retention.days", unit: "d" }
 ];
 
+const TIMELAPSE_FIELDS = [
+	{ key: "minIntervalS", path: "timelapse.minIntervalS", unit: "s", nullable: false },
+	{ key: "fps", path: "timelapse.fps", unit: "fps", nullable: false },
+	{ key: "encoderThreads", path: "timelapse.encoderThreads", unit: "", nullable: true }
+];
+
 /** The settings QA exposes in the UI; everything else stays as stored (the daemon validates) */
 export default defineComponent({
 	props: {
@@ -92,7 +108,8 @@ export default defineComponent({
 			errors: [] as Array<string>,
 			saving: false,
 			saved: false,
-			numberFields: NUMBER_FIELDS
+			numberFields: NUMBER_FIELDS,
+			timelapseFields: TIMELAPSE_FIELDS
 		};
 	},
 	computed: {

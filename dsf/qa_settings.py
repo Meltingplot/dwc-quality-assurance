@@ -47,8 +47,10 @@ DEFAULTS = {
                        "spool_net_weight", "spool_remaining", "spool_tare", "spool_density",
                        "filament_max_flow_rate", "machine_mode"],
     "machineSignals": {"mfm": True},
+    # encoderThreads: SVT-AV1 "lp"; a paused encoder keeps its memory through a print, about
+    # 0.57 GB with 2 at 1984×1080 against 0.95 GB with 4 (qa_timelapse docstring); None = SVT decides
     "timelapse": {"enabled": True, "snapshotUrl": None, "trigger": "layer", "minIntervalS": 2,
-                  "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None,
+                  "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None, "encoderThreads": 2,
                   "keepFramesOnFailure": True,
                   "retention": {"jobs": 50, "maxBytes": 10 * 1024 ** 3}},
     "accelerometer": {"enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ",
@@ -86,6 +88,7 @@ BOUNDS = {
     "timelapse.keyframeInterval": (int, 1, 1000),
     "timelapse.crf": ((int, type(None)), 0, 63),
     "timelapse.preset": ((int, type(None)), -1, 13),
+    "timelapse.encoderThreads": ((int, type(None)), 1, 64),
     "timelapse.retention.jobs": (int, 1, 100000),
     "timelapse.retention.maxBytes": (int, 0, None),
     "accelerometer.enabled": ((bool, str), None, None),

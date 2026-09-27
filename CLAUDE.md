@@ -45,6 +45,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_summary.py             layer aggregates, job summary (time-weighted)
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts) and toolpath
+  qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
 docs/                       image.md (work order for the image build), …
@@ -103,6 +104,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   than `retention.days`, then the size cap removes the oldest.
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
   `temperatureK` of the value before inside `phantomReturnS`.
+- Timelapse: the snapshot at the change to layer n is layer n − 1's frame (the last one at the job
+  end); frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
+  nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
+  frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
+  (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
   boards that report status; RRF's event text in `messages[]` for the others (only printed when
   no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`).

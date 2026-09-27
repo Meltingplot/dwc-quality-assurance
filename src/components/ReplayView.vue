@@ -19,6 +19,7 @@
 				<div class="text-caption text-medium-emphasis mt-1">{{ $t("plugins.QualityAssurance.replay.legend") }}</div>
 			</v-col>
 			<v-col cols="12" md="4">
+				<timelapse-frame v-if="hasFrames" :api="api" :job-id="job.id" :meta="timelapse" :layer="layer" class="mb-3" />
 				<div v-if="objectList.length" class="mb-3">
 					<div class="text-subtitle-2">{{ $t("plugins.QualityAssurance.replay.objects") }}</div>
 					<v-checkbox v-for="obj in objectList" :key="obj.id" :model-value="!hiddenObjects.includes(obj.id)" :label="obj.name"
@@ -40,12 +41,14 @@
 <script lang="ts">
 import { defineComponent, markRaw, type PropType } from "vue";
 
-import { statusOf, type JobDetail, type LayersAnswer, type QaApi, type QaEvent, type SamplesAnswer, type ToolpathAnswer } from "../core/api";
+import { statusOf, type JobDetail, type LayersAnswer, type QaApi, type QaEvent, type SamplesAnswer, type TimelapseMeta, type ToolpathAnswer } from "../core/api";
 import { timeSeriesConfig } from "../core/charts";
 import { eventColor, eventDetail } from "../core/format";
 import { frameAt, machineToUser, measuredPoints, toolOffsets } from "../core/replay";
+import { layersWithFrames } from "../core/timelapse";
 import ChartCanvas from "./ChartCanvas.vue";
 import ReplayCanvas, { type ReplayMarker } from "./ReplayCanvas.vue";
+import TimelapseFrame from "./TimelapseFrame.vue";
 
 const MARKER_COLORS: Record<string, string> = { error: "#E53935", warning: "#FB8C00", info: "#1E88E5", primary: "#1976D2", success: "#43A047", grey: "#9E9E9E" };
 const RETRY_MS = 2000;
@@ -56,7 +59,7 @@ const SAMPLE_LEAD_MS = 10000;
 /** Layer by layer: toolpath from the G-code (parsed on demand by the daemon), measured flow and
  * events on top, temperature and heater-load curves of the layer beside it (PLAN.md §3 Replay) */
 export default defineComponent({
-	components: { ChartCanvas, ReplayCanvas },
+	components: { ChartCanvas, ReplayCanvas, TimelapseFrame },
 	props: {
 		api: { type: Object as PropType<QaApi>, required: true },
 		job: { type: Object as PropType<JobDetail>, required: true },
@@ -69,6 +72,7 @@ export default defineComponent({
 			maxLayer: 0,
 			toolpath: null as ToolpathAnswer | null,
 			samples: null as SamplesAnswer | null,
+			timelapse: null as TimelapseMeta | null,
 			message: null as string | null,
 			messageType: "info" as "info" | "warning" | "error",
 			playing: false,
@@ -111,6 +115,9 @@ export default defineComponent({
 				color: this.markerColor(e.type),
 				label: e.type
 			}));
+		},
+		hasFrames(): boolean {
+			return layersWithFrames(this.timelapse).length > 0;
 		},
 		objectList(): Array<{ id: number; name: string }> {
 			return Object.entries(this.toolpath?.objects ?? {}).map(([id, name]) => ({ id: Number(id), name }));
@@ -155,6 +162,18 @@ export default defineComponent({
 			this.maxLayer = this.layers?.layers.length ? Math.max(...this.layers.layers.map((l) => l.layer)) : (this.job.numLayers ?? 0);
 			this.layer = 1;
 			this.load();
+			this.loadTimelapse();
+		},
+		async loadTimelapse() {
+			const jobId = this.job.id;
+			try {
+				const meta = await this.api.timelapseMeta(jobId);
+				if (jobId === this.job.id) {
+					this.timelapse = meta;
+				}
+			} catch {
+				this.timelapse = null;  // the replay works without it
+			}
 		},
 		/** Machine X/Y at ``ts`` in G-code coordinates, with the workplace and tool of that time */
 		userPoint(x: number, y: number, ts: number): { x: number; y: number } {

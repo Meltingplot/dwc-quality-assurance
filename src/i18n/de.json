@@ -51,7 +51,8 @@
 		"tabSummary": "Zusammenfassung",
 		"tabContext": "Kontext",
 		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)",
-		"tabReplay": "Replay"
+		"tabReplay": "Replay",
+		"tabTimelapse": "Zeitraffer"
 	},
 	"layers": {
 		"none": "Für diesen Job sind keine Lagen aufgezeichnet.",
@@ -174,7 +175,11 @@
 			"contextGlobals": "Globale Variablen, die mit jedem Job gespeichert werden",
 			"mfm": "Auswertung des Filamentmonitors durch die Maschine aufzeichnen (MFM-Globals)",
 			"timelapseEnabled": "Zeitraffer",
-			"snapshotUrl": "Snapshot-URL der Kamera"
+			"snapshotUrl": "Snapshot-URL der Kamera",
+			"minIntervalS": "Zeitraffer: Mindestabstand der Bilder",
+			"fps": "Zeitraffer: Bildrate des Videos",
+			"encoderThreads": "Zeitraffer: Encoder-Threads (leer = automatisch)",
+			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt"
 		}
 	},
 	"live": {
@@ -202,5 +207,27 @@
 		"building": "Der Daemon indiziert die G-Code-Datei noch…",
 		"fileGone": "Die Jobdatei ist nicht mehr auf dem Drucker oder wurde nach dem Job geändert.",
 		"noLayer": "Die G-Code-Datei hat diese Lage nicht."
+	},
+	"timelapse": {
+		"states": {
+			"none": "nicht aufgenommen",
+			"capturing": "nimmt auf",
+			"queued": "wartet auf den Encoder",
+			"encoding": "wird kodiert",
+			"done": "Video bereit",
+			"failed": "fehlgeschlagen",
+			"pruned": "entfernt"
+		},
+		"detail": "{frames} Bilder · {fps} fps · AV1",
+		"download": "Video",
+		"none": "Für diesen Job wurde kein Zeitraffer aufgenommen ({reason}).",
+		"capturing": "Je fertiger Lage wird ein Bild aufgenommen; das Video folgt nach dem Job.",
+		"encoding": "Das Video wird kodiert, solange kein Job druckt; bis dahin zeigt die Ansicht die aufgenommenen Bilder.",
+		"failed": "Der Zeitraffer ist fehlgeschlagen: {error}",
+		"pruned": "Die Dateien des Zeitraffers wurden von der Zeitraffer-Aufbewahrung entfernt.",
+		"frameOf": "Kamera nach Lage {layer}",
+		"frameOfEarlier": "Kamera nach Lage {layer} (für diese Lage gibt es kein eigenes Bild)",
+		"noFrame": "Kein Kamerabild für diese Lage.",
+		"loading": "Zeitraffer wird geladen…"
 	}
 }

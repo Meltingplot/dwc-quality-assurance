@@ -61,7 +61,12 @@ Today it reads `job.layers[]` of the running/last job. For an entry from QA, rea
 
 - Part view: the replay — `GET machine/QualityAssurance/job/toolpath?id&layer` (docs/api.md "Toolpath";
   202 while QA builds the layer index, 409 when the file is gone or was changed).
-- Timelapse: `job/timelapse*` (QA phase 5).
+- Timelapse: `GET machine/QualityAssurance/job/timelapse/meta?id` for the status and the layer →
+  frame index (docs/api.md "Timelapse"). Once `video` is true, load `job/timelapse?id` once with
+  `responseType: "blob"` (long timeout, tens of MB), put it in a `<video>` as an object URL and seek
+  to `(frame + 0.5) / fps` for the chosen layer; before that `job/timelapse/frame?id&layer` as a Blob
+  for an `<img>`. A layer without its own frame shows the latest earlier one. QA's own
+  `src/core/timelapse.ts` (`frameForLayer`, `seekTime`, `videoUrl`) does exactly this.
 - Findings, inspection report: Quality Control, not QA.
 
 ## 5. Heater-load banner
