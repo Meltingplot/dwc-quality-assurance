@@ -188,8 +188,9 @@ of the job's recordings, from `summary.mechanics`, with `spectra`). Each point c
 ## Spectra
 
 Every `accelerometer.intervalMin` minutes while a job prints (status `processing`, from layer 2 on)
-QA records `accelerometer.samples` samples with M956 on the SBC channel and stores one spectrum per
-axis. Spectrum: `{id, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs, amplitudes, peak_hz,
+QA records `accelerometer.samples` samples with M956 on the SBC channel from the accelerometer on
+the board `accelerometer.board` (CAN address; `null`, the default, means no recordings) and stores
+one spectrum per axis. Spectrum: `{id, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs, amplitudes, peak_hz,
 rms, source, job_key}` — `freqs` in Hz (k × rate/N up to Nyquist), `amplitudes` in g exactly as DWC's
 input-shaping plugin computes them (@duet3d/motionanalysis `analyzeAccelerometerData`, wide band,
 Hann window), `peak_hz` the largest amplitude from 5 Hz on, `rms` in g without the mean (gravity),
@@ -201,7 +202,9 @@ of the first (the others interpolated); `complete` false while there are fewer. 
 spectrum. The job summary's `mechanics` holds per axis `{spectra, peakHzMean, peakHzMax, rmsMean}`.
 
 `status.accelerometer`: `{enabled, reason, accelerometer: {index, port, board, samplingRate, resolution},
-intervalMin, pending, lastRecording, lastError}`; `index` is the M955/M956 P number.
+available: [{index, port, board}], intervalMin, pending, lastRecording, lastError}`; `index` is the
+M955/M956 P number, `available` lists every accelerometer configured with M955, `accelerometer` the
+one `accelerometer.board` selects.
 
 ## live (WebSocket)
 

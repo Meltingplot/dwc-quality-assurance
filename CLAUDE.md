@@ -115,7 +115,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
   frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).
-- Accelerometer: every `intervalMin` while `processing`, from layer 2 on, one recording at a time;
+- Accelerometer: only the one on the board `accelerometer.board` names (CAN address; default `null`
+  = none, Tim 2026-09-27: chosen by setting, never automatically); every `intervalMin` while
+  `processing`, from layer 2 on, one recording at a time;
   spectra exactly as DWC's input-shaping plugin (@duet3d/motionanalysis, checked number for number in
   `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event.
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on

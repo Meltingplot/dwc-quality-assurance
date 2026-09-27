@@ -444,11 +444,13 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
   "timelapse": { "enabled": true, "snapshotUrl": null, "trigger": "layer", "minIntervalS": 2,
                  "fps": 30, "keyframeInterval": 30, "crf": null, "preset": null, "encoderThreads": 2,
                  "keepFramesOnFailure": true, "retention": { "jobs": 50, "maxBytes": 10737418240 } },
-  "accelerometer": { "enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ", "board": null, "referenceAutoCount": 5 },
+  "accelerometer": { "board": null, "intervalMin": 15, "samples": 1000, "axes": "XYZ", "referenceAutoCount": 5 },
   "retention": { "jobs": 50, "days": 90, "maxDbBytes": 2147483648 },
   "commitIntervalS": 30
 }
 ```
+`accelerometer.board` (CAN-Adresse, auf der CHX 350 60 = SZP) wählt das Accelerometer; `null` =
+keine Aufnahmen, keine automatische Wahl (Tim 2026-09-27, ersetzt `enabled: "auto"`).
 `contextGlobals` ersetzt `batchGlobalVariable` (`filamentBatch` gibt es auf der CHX nicht).
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung

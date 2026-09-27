@@ -176,6 +176,8 @@ export interface AccelerometerStatus {
 	enabled: boolean;
 	reason?: string | null;
 	accelerometer?: { index: number; port: string; board: number; samplingRate: number; resolution: number } | null;
+	/** every configured accelerometer (M955), to choose ``accelerometer.board`` from */
+	available?: Array<{ index: number; port: string; board: number }>;
 	intervalMin?: number;
 	pending?: boolean;
 	lastRecording?: number | null;

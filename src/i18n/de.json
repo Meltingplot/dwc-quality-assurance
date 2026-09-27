@@ -187,17 +187,14 @@
 			"fps": "Zeitraffer: Bildrate des Videos",
 			"encoderThreads": "Zeitraffer: Encoder-Threads (leer = automatisch)",
 			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt",
-			"accelEnabled": "Schwingungsspektren",
-			"accelBoard": "CAN-Adresse des Boards (leer = erstes)",
+			"accelBoard": "Accelerometer-Board (CAN-Adresse, leer = keins)",
 			"accelIntervalMin": "Alle",
 			"accelSamples": "Samples je Aufnahme"
 		},
 		"accelerometer": "Accelerometer",
-		"accelModes": {
-			"auto": "Automatisch (wenn konfiguriert)",
-			"on": "Ein",
-			"off": "Aus"
-		}
+		"accelHint": "Spektren nimmt QA nur vom Accelerometer auf diesem Board auf (CHX 350: das SZP, 60).",
+		"accelAvailable": "Konfigurierte Accelerometer (Board und Port): {list}.",
+		"accelNone": "Die Maschine hat kein Accelerometer konfiguriert (M955)."
 	},
 	"live": {
 		"recording": "Zeichnet auf",

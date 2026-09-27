@@ -78,7 +78,8 @@ const EVENTS = [
 
 function fakeApi(overrides = {}) {
 	return {
-		status: vi.fn(async () => ({ collector: { state: "idle", currentJobId: null, lastJobId: null, layer: null } })),
+		status: vi.fn(async () => ({ collector: { state: "idle", currentJobId: null, lastJobId: null, layer: null },
+			accelerometer: { enabled: false, available: [{ index: 0, port: "60.i2c.lis", board: 60 }] } })),
 		jobs: vi.fn(async () => ({ total: 1, offset: 0, jobs: [JOB] })),
 		job: vi.fn(async () => DETAIL),
 		layers: vi.fn(async () => LAYERS),
@@ -252,6 +253,7 @@ describe("SettingsForm", () => {
 		await flush();
 		expect(api.saveSettings.mock.calls[0][0].postTriggerS).toBe(45);
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.saved");
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.accelAvailable");
 		expectNoVueWarnings(warn);
 	});
 

@@ -53,10 +53,10 @@ DEFAULTS = {
                   "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None, "encoderThreads": 2,
                   "keepFramesOnFailure": True,
                   "retention": {"jobs": 50, "maxBytes": 10 * 1024 ** 3}},
-    # accelerometer.board: CAN address of the board carrying the accelerometer (the CHX 350's SZP is
-    # 60), None = the first one configured with M955; enabled "auto" = when one is configured
-    "accelerometer": {"enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ",
-                      "board": None, "referenceAutoCount": 5},
+    # accelerometer.board: CAN address of the board whose accelerometer (configured with M955) QA
+    # records, e.g. 60 for the CHX 350's SZP; None = no recordings (chosen on purpose, Tim 2026-09-27)
+    "accelerometer": {"board": None, "intervalMin": 15, "samples": 1000, "axes": "XYZ",
+                      "referenceAutoCount": 5},
     "retention": {"jobs": 50, "days": 90, "maxDbBytes": 2 * 1024 ** 3},
 }
 
@@ -93,7 +93,6 @@ BOUNDS = {
     "timelapse.encoderThreads": ((int, type(None)), 1, 64),
     "timelapse.retention.jobs": (int, 1, 100000),
     "timelapse.retention.maxBytes": (int, 0, None),
-    "accelerometer.enabled": ((bool, str), None, None),
     "accelerometer.board": ((int, type(None)), 0, 1000),
     "accelerometer.intervalMin": (_NUMBER, 1, 1440),
     "accelerometer.samples": (int, 100, 20000),
@@ -106,7 +105,6 @@ BOUNDS = {
 ENUMS = {
     "chamber.mode": ("auto", "heater", "sensor"),
     "timelapse.trigger": ("layer",),
-    "accelerometer.enabled": (True, False, "auto"),
 }
 
 

@@ -104,7 +104,8 @@ def test_board_and_choice():
     assert qa_accel.board_of("60.i2c.lis") == 60
     assert qa_accel.board_of("spi.cs1+spi.cs0") == 0
     accels = [None, {"board": 60}, {"board": 121}]
-    assert qa_accel.pick(accels, None) == (1, {"board": 60})
+    assert qa_accel.pick(accels, None) is None  # nothing selected: no recordings
+    assert qa_accel.pick(accels, 60) == (1, {"board": 60})
     assert qa_accel.pick(accels, 121) == (2, {"board": 121})
     assert qa_accel.pick(accels, 5) is None
     assert qa_accel.pick([], None) is None
@@ -160,7 +161,7 @@ def accel(rig, settings, writer, tmp_path):
     directory = tmp_path / "accelerometer"
     directory.mkdir()
     rrf = FakeRrf(str(directory))
-    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200}})
+    settings.update({"accelerometer": {"board": 60, "intervalMin": 1, "samples": 200}})
     recorder = qa_accel.Recorder(writer, settings, rrf.send_code, rrf.resolve, on_event=rig.collector.external_event,
                                  sleep=lambda _s: time.sleep(0.01))
     recorder.rrf = rrf
@@ -265,14 +266,18 @@ def test_the_trailer_may_come_late(rig, accel):
     assert wait_until(lambda: len(spectra(rig)) == 3)
 
 
-def test_board_setting_and_disabled(rig, accel, settings):
-    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "board": 121}})
-    assert accel.status()["reason"] == "no accelerometer on board 121"
+def test_only_the_board_in_the_settings_records(rig, accel, settings):
+    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200}})  # board not set
+    status = accel.status()
+    assert (status["enabled"], status["reason"]) == (False, "no accelerometer selected (accelerometer.board)")
+    assert status["available"] == [{"index": 0, "port": "60.i2c.lis", "board": 60}]
     rig.start_job()
     rig.patch({"job": {"layer": 2, "duration": 30}})
     assert not accel.rrf.sent.wait(0.2)
-    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "enabled": False}})
-    assert (accel.status()["enabled"], accel.status()["reason"]) == (False, "disabled in the settings")
+    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "board": 121}})
+    assert accel.status()["reason"] == "no accelerometer on board 121 (M955)"
+    rig.patch({"job": {"duration": 31}})
+    assert not accel.rrf.sent.wait(0.2)
     settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "board": 60}})
     status = accel.status()
     assert status["enabled"] and status["accelerometer"] == {"index": 0, "port": "60.i2c.lis", "board": 60,
@@ -283,7 +288,7 @@ def test_board_setting_and_disabled(rig, accel, settings):
 
 
 def test_axes_setting_names_the_axes(rig, accel, settings):
-    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "axes": "XY"}})
+    settings.update({"accelerometer": {"board": 60, "intervalMin": 1, "samples": 200, "axes": "XY"}})
     accel.rrf.text = csv_text(axes="XY")
     rig.start_job()
     rig.patch({"job": {"layer": 2, "duration": 30}})
@@ -311,7 +316,7 @@ def test_api_references_latest_trends_status(rig, accel, settings, writer, data_
         response = qa_api.call(ctx, qa_api.ENDPOINTS[("GET", path)], Req(**q))
         return response.status, response.body
 
-    settings.update({"accelerometer": {"intervalMin": 1, "samples": 200, "referenceAutoCount": 2}})
+    settings.update({"accelerometer": {"board": 60, "intervalMin": 1, "samples": 200, "referenceAutoCount": 2}})
     for job, amplitude in enumerate((0.2, 0.4)):
         accel.rrf.text = csv_text(amplitude=amplitude)
         accel.rrf.sent.clear()
