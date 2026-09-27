@@ -1,8 +1,9 @@
 """Accelerometer (PLAN.md §3 "Accelerometer", phase 6): a vibration spectrum every ``intervalMin``
 minutes while a job prints, from the accelerometer (configured with M955) on the board whose CAN
 address ``accelerometer.board`` names; without that setting QA records none. On the CHX 350 that is
-the SZP at CAN address 60: ``sensors.accelerometers[0]``, port ``60.i2c.lis``, 800 Hz, 14 bit
-(object model, Tim 2026-09-27).
+the SZP at CAN address 60, port ``60.i2c.lis``, 800 Hz, 14 bit; its index in
+``sensors.accelerometers`` varies (the lab machine has the tool board's at 0 and the SZP's at 1,
+object model 2026-09-27), hence the choice by board.
 
 Recording. The collector decides when (status ``processing``, from layer 2 on, every
 ``intervalMin``); the recorder thread sends ``M956 P<n> S<samples> A0 F"qa-<job>-<epoch s>.csv"`` on the

@@ -27,6 +27,14 @@ What `mp-dsf-plugins` checks and QA satisfies:
 Also: licence in `LICENSES.txt` (MIT, Meltingplot GmbH), and `QualityAssurance` in
 `skel/conf/plugins.txt` so it starts on its own.
 
+**Data directory (required):** `/opt/dsf/sd` itself is part of the read-only erofs root; only the
+subdirectories the image lists are bind mounts from `/persistent/shared` (rpi-image-gen
+`mp-dsf.d/customize.overlay/etc/rpi-image-gen/slot-shared.d/dsf.conf`, mount points in
+`mp-dsf-configure`, checked by `postbuild50-dsf-assert`; read 2026-09-27 at 5acba10). Without the
+same three entries Vigil has — `Path=/opt/dsf/sd/QualityAssurance`, its mount point and the assert —
+QA cannot create `/opt/dsf/sd/QualityAssurance` and records nothing. (`QA_DATA_DIR` overrides the
+directory, e.g. for a test.)
+
 ## 2. AppArmor block (`customize.overlay/etc/apparmor.d/opt.dsf.bin.DuetPluginService`, profile `dsf_plugin_py`)
 
 Files, following the Vigil block:
@@ -84,8 +92,11 @@ Without these two rules QA records everything else; a denied snapshot or encoder
 
 ## 3. Test
 
-Build an image with the plugin, boot with `dsf.plugin_policy=complain`, print a short job, and
-collect `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`. Every ALLOWED line for
+Build a prerelease image with the plugin and the build variable `IGconf_dsf_plugin_policy=complain`
+(`./rpi-image-gen build … -- IGconf_dsf_plugin_policy=complain`; it is a build variable, not a boot
+parameter, and the release gate refuses it for a final version — rpi-image-gen `mp-dsf.yaml`,
+`hooks/prebuild05-mp-release-gate`, 2026-09-27), deliver it by Connect OTA or tryboot into the other
+slot, print a short job, and collect `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`. Every ALLOWED line for
 `dsf_plugin_py` that names QualityAssurance is a missing rule. Then boot in enforce mode and
 check there is no DENIED line.
 
@@ -97,7 +108,7 @@ nor spectra until they are set (`status.timelapse.reason`, `status.accelerometer
 | Setting | CHX 350 |
 |---|---|
 | `timelapse.snapshotUrl` | `http://10.42.0.1/snapshot` (HMI camera through haproxy) |
-| `accelerometer.board` | `60`: CAN address of the SZP, whose accelerometer is `sensors.accelerometers[0]` (`60.i2c.lis`) |
+| `accelerometer.board` | `60`: CAN address of the SZP (`60.i2c.lis`). The list index varies: the lab machine has the tool board's accelerometer (CAN 20) at 0 and the SZP's at 1 (2026-09-27) |
 
 Either the operator sets them once on the QA page (classic DWC › Quality Assurance › Settings,
 which also lists the configured accelerometers), or the image seeds
