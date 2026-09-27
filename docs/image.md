@@ -73,12 +73,14 @@ program", and it has no `network inet` rule. The timelapse (PLAN.md §5.11) need
    `signal (send, receive) peer=DuetPluginService//&DuetPluginService//dsf_plugin_py` covers it.
    QA lowers the priority itself, without running `nice`/`ionice`: its encoder thread sets nice 19
    (`setpriority`) and I/O class idle (`ioprio_set`) for itself, and the ffmpeg it starts inherits
-   both (Linux keeps them per thread; `dsf/qa_timelapse.py`). AppArmor mediates neither call.
+   both (Linux keeps them per thread; `dsf/qa_timelapse.py`). Lowering a priority needs no
+   capability (ioprio_set(2): the idle class needs none since Linux 2.6.25), so the profile needs
+   no rule for it.
    Memory: SVT-AV1 at the camera's 1984×1080 peaks at about 0.57 GB with the default
    `timelapse.encoderThreads` 2 (0.95 GB with 4); a paused encoder keeps it during the print.
 
-Without these two rules QA records everything else; the timelapse reports itself disabled in
-`status` and a `timelapse_failed` event when a snapshot or the encoder is denied.
+Without these two rules QA records everything else; a denied snapshot or encoder shows as a
+`timelapse_failed` event and in `status.timelapse.lastError`.
 
 ## 3. Test
 
@@ -86,3 +88,18 @@ Build an image with the plugin, boot with `dsf.plugin_policy=complain`, print a 
 collect `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`. Every ALLOWED line for
 `dsf_plugin_py` that names QualityAssurance is a missing rule. Then boot in enforce mode and
 check there is no DENIED line.
+
+## 4. Settings on the CHX 350 (open)
+
+QA's default `timelapse.snapshotUrl` is `null`, because the URL depends on the machine; without it
+QA records no frames and `status.timelapse.reason` says so. On the CHX 350 it is
+`http://10.42.0.1/snapshot`. Either the operator sets it once on the QA page (classic DWC ›
+Quality Assurance › Settings), or the image seeds `/opt/dsf/sd/QualityAssurance/settings.json` on
+first boot with
+
+```json
+{ "timelapse": { "snapshotUrl": "http://10.42.0.1/snapshot" } }
+```
+
+(missing keys take their defaults; QA validates the file on start). The accelerometer needs no
+setting: QA uses the first one configured with M955, on the CHX the SZP's (CAN 60).

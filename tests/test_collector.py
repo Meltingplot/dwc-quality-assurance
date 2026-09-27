@@ -31,6 +31,17 @@ def test_job_start_records_context_and_event(rig):
     assert rig.index.get(job["file_crc32"])[0]["numLayers"] == 2
 
 
+def test_context_names_the_accelerometers(rig):
+    """DSF 3.7 lists them under sensors (qa_patches), not under boards any more."""
+    rig.patch({"sensors": {"accelerometers": [{"orientation": 25, "port": "60.i2c.lis", "resolution": 14,
+                                               "samplingRate": 800, "runs": 0, "points": 0}]}})
+    rig.start_job()
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    assert context["accelerometers"] == [{"index": 0, "port": "60.i2c.lis", "board": 60, "orientation": 25,
+                                          "samplingRate": 800, "resolution": 14}]
+    assert "accelerometer" not in context["boards"][0]
+
+
 def test_simulation_is_ignored(rig):
     rig.patch({"state": {"status": "simulating"}, "job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode"}}})
     rig.patch({"job": {"duration": 5}})
