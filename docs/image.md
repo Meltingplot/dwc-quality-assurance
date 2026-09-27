@@ -64,8 +64,11 @@ program", and it has no `network inet` rule. The timelapse (PLAN.md §5.11) need
    QA pauses and resumes the encoder with SIGSTOP/SIGCONT while a job prints; with `ix` both
    processes carry the same label and the existing
    `signal (send, receive) peer=DuetPluginService//&DuetPluginService//dsf_plugin_py` covers it.
-   QA lowers the encoder's priority itself (nice 19 and I/O class idle via the `ioprio_set`
-   syscall in the child), without running `nice`/`ionice`.
+   QA lowers the priority itself, without running `nice`/`ionice`: its encoder thread sets nice 19
+   (`setpriority`) and I/O class idle (`ioprio_set`) for itself, and the ffmpeg it starts inherits
+   both (Linux keeps them per thread; `dsf/qa_timelapse.py`). AppArmor mediates neither call.
+   Memory: SVT-AV1 at the camera's 1984×1080 peaks at about 0.57 GB with the default
+   `timelapse.encoderThreads` 2 (0.95 GB with 4); a paused encoder keeps it during the print.
 
 Without these two rules QA records everything else; the timelapse reports itself disabled in
 `status` and a `timelapse_failed` event when a snapshot or the encoder is denied.

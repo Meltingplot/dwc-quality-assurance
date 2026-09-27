@@ -15,7 +15,7 @@ check sessions on plugin endpoints itself; it only looks the key up and passes t
 @ cd3ae65f `CustomEndpointMiddleware.cs`, 2026-09-27).
 
 - HTTP: the `X-Session-Key` header. DWC's REST connector sends it on every request, so go through
-  `useMachineStore().request(...)`, not `fetch()`. Files (export, later the timelapse) are
+  `useMachineStore().request(...)`, not `fetch()`. Files (export, timelapse video and frames) are
   requested with `responseType: "blob"`; a bare `<a href>`/`<img src>`/`<video src>` has no key.
 - WebSocket: `?sessionKey=<key>` in the URL, then one text frame from the client (DSF hands the
   daemon the session only with client frames). `hello` comes only after that.
@@ -42,6 +42,9 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/spectra` | `id` | `{jobId, spectra: []}` (accelerometer phase postponed) |
 | GET | `job/toolpath` | `id`, `layer` | segments of the layer; 202 while the index is built; 409 when the file is gone or changed |
 | GET | `job/export` | `id` | the job as one JSON file (`application/octet-stream`) |
+| GET | `job/timelapse/meta` | `id` | status and layer → frame index, see "Timelapse" |
+| GET | `job/timelapse` | `id` | the AV1/MP4 video (`application/octet-stream`, no Range); 404 until it is verified |
+| GET | `job/timelapse/frame` | `id`, `layer` | JPEG of the layer's frame (`application/octet-stream`); 404 when the layer has none |
 | GET | `trends` | `metric`, `limit` (100), `material` | `{metric, points: [...]}` newest first |
 | GET | `channels` | – | `{channels: [...], derived: [...]}` |
 | GET/POST | `spectra/reference` | POST body `{axis, spectrumId}` or `{axis, mode: "auto"}` | `{references: [...]}` |
@@ -121,7 +124,8 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `driver_error` | `error` / `warning` / `stall` | `source` `status`: `board`, `canAddress`, `driver`, `status`, `previous`, `bits`; `source` `message`: `canAddress`, `driver`, `text` |
 | `voltage_dip` | – | `board`, `vIn`, `median90s`; end: `recoveredTo` |
 | `phantom_reading` | `heater` / `sensor` | `channel`, `before`, `peak`, `durationMs` |
-| `timelapse_failed`, `accelerometer_failed` | | later phases |
+| `timelapse_failed` | `snapshot` (first failed snapshot of a job; later ones only in the index), `encode`, `empty` (no frame at all) | `error`, `snapshot` also `layer`; written by the timelapse threads, so no position, tool or object |
+| `accelerometer_failed` | | later phase |
 
 ## Channels
 
@@ -148,6 +152,29 @@ stride (`downsampled: true`).
 meta: {numLayers, source (comments|z), objects, filamentDiameter}}`, columns of equal length.
 Coordinates are the G-code's (user) coordinates; `flow` in mm³/s from ΔE × cross-section / (length / feed
 rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without extrusion.
+
+## Timelapse
+
+`job/timelapse/meta`: `{jobId, status, codec, fps, frames, sizeBytes, error, video, layers: [{layer, frame, ts, reason?}]}`.
+`status`: `none` (nothing recorded; `reason` says why, e.g. `no snapshotUrl set`), `capturing`, `queued`,
+`encoding`, `done`, `failed`, `pruned` (files removed by `timelapse.retention`). `video` is true once
+`job/timelapse` has the file. `layers` is in capture order:
+
+- The snapshot taken when `job.layer` changes to n shows layer n − 1 finished and is that layer's
+  frame; the last layer's frame is taken at the job end.
+- `frame` null: skipped (`reason: "interval"`, `timelapse.minIntervalS`) or failed (`reason: "snapshot: …"`).
+  Show the latest earlier frame then. A layer taken twice (daemon restart) counts with its last frame.
+- Frame numbers ascend without gaps; frame n of the video is at `(n + 0.5) / fps` for a `<video>`.
+
+`job/timelapse/frame` answers from the captured JPEG while it exists (during the print, until the
+video is verified, or kept after a failed encoding), else extracts the frame from the video
+(dav1d, keyframe every `keyframeInterval` frames, well under a second). Load the video once as a
+Blob and seek locally rather than asking for frame after frame: DSF sends files without Range
+support, and each extraction costs the SBC CPU.
+
+Encoding runs after the job, one at a time and never while a job prints (a job that starts pauses
+it). `status.timelapse`: `{enabled, reason, capturing: [jobId], encoder: {state: idle|encoding|paused,
+jobId, queued}, lastError}`.
 
 ## Trends
 

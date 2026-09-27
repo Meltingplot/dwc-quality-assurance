@@ -504,6 +504,22 @@ class Writer:
             sets = ", ".join(f"{k}=?" for k in values)
             self._con.execute(f"UPDATE timelapse SET {sets} WHERE job_key=?", (*values.values(), job_key))
 
+    def _timelapse_row(self, row):
+        entry = dict(row)
+        entry["layer_frames"] = loads(entry.get("layer_frames")) or []
+        return entry
+
+    def op_timelapse_get(self, job_key):
+        row = self._con.execute("SELECT t.*, j.id AS job_id, j.started_at FROM timelapse t JOIN jobs j ON j.key = t.job_key "
+                                "WHERE t.job_key=?", (job_key,)).fetchone()
+        return self._timelapse_row(row) if row else None
+
+    def op_timelapse_rows(self):
+        """Every timelapse without its index, with the job's id and start (encoder, retention)."""
+        return [dict(r) for r in self._con.execute(
+            "SELECT t.job_key, t.status, t.frames, t.size_bytes, j.id AS job_id, j.started_at "
+            "FROM timelapse t JOIN jobs j ON j.key = t.job_key")]
+
     def op_next_ids(self):
         """Highest event and block ids, so the collector can hand out new ones."""
         event = self._con.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]

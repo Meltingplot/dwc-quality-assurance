@@ -440,7 +440,7 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
                      "filament_max_flow_rate", "machine_mode"],
   "machineSignals": { "mfm": true },
   "timelapse": { "enabled": true, "snapshotUrl": null, "trigger": "layer", "minIntervalS": 2,
-                 "fps": 30, "keyframeInterval": 30, "crf": null, "preset": null,
+                 "fps": 30, "keyframeInterval": 30, "crf": null, "preset": null, "encoderThreads": 2,
                  "keepFramesOnFailure": true, "retention": { "jobs": 50, "maxBytes": 10737418240 } },
   "accelerometer": { "enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ", "board": null, "referenceAutoCount": 5 },
   "retention": { "jobs": 50, "days": 90, "maxDbBytes": 2147483648 },
@@ -450,7 +450,9 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 `contextGlobals` ersetzt `batchGlobalVariable` (`filamentBatch` gibt es auf der CHX nicht).
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung
-festlegen (§7).
+festlegen (§7). `encoderThreads` (SVT-AV1 `lp`, ergänzt 2026-09-27): ein angehaltener Encoder behält
+seinen Speicher während des Drucks; bei 1984×1080 gemessen 0,57 GB mit 2, 0,95 GB mit 4 Threads
+(`dsf/qa_timelapse.py`).
 
 ### 5.10 Integration in die CHX-UI (neu)
 

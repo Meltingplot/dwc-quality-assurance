@@ -367,7 +367,22 @@ def handle_toolpath(ctx, request):
     return json_response(result)
 
 
-EXPORT_MAX_AGE_S = 3600
+TMP_MAX_AGE_S = 3600
+
+
+def _tmp_dir(ctx):
+    """``<data>/tmp`` for files DSF sends (exports, extracted frames); older ones are removed."""
+    directory = os.path.join(ctx.data_dir, "tmp")
+    os.makedirs(directory, exist_ok=True)
+    now = time.time()
+    for name in os.listdir(directory):
+        full = os.path.join(directory, name)
+        try:
+            if name.startswith(("export-", "frame-")) and now - os.path.getmtime(full) > TMP_MAX_AGE_S:
+                os.remove(full)
+        except OSError:
+            pass
+    return directory
 
 
 def handle_export(ctx, request):
@@ -375,19 +390,58 @@ def handle_export(ctx, request):
     data = qa_queries.export(_con(ctx), _job_id(request))
     if data is None:
         raise ApiError(404, "job not found")
-    directory = os.path.join(ctx.data_dir, "tmp")
-    os.makedirs(directory, exist_ok=True)
-    now = time.time()
-    for name in os.listdir(directory):
-        full = os.path.join(directory, name)
-        try:
-            if name.startswith("export-") and now - os.path.getmtime(full) > EXPORT_MAX_AGE_S:
-                os.remove(full)
-        except OSError:
-            pass
+    directory = _tmp_dir(ctx)
     path = os.path.join(directory, f"export-{data['job']['id']}.json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, separators=(",", ":"))
+    return Response(200, path, "file")
+
+
+def _timelapse(ctx, request):
+    job_id = _job_id(request)
+    if qa_queries.job_key(_con(ctx), job_id) is None:
+        raise ApiError(404, "job not found")
+    return job_id, qa_queries.timelapse(_con(ctx), job_id)
+
+
+def handle_timelapse_meta(ctx, request):
+    """Status, fps and the layer → frame index. ``status`` none|capturing|queued|encoding|done|
+    failed|pruned; ``video`` true once ``job/timelapse`` has the file."""
+    job_id, row = _timelapse(ctx, request)
+    if row is None:
+        reason = ctx.timelapse.status()["reason"] if ctx.timelapse is not None else "not available"
+        return json_response({"jobId": job_id, "status": "none", "reason": reason, "video": False, "layers": []})
+    video = row["status"] == "done" and ctx.timelapse is not None and ctx.timelapse.video_file(job_id) is not None
+    return json_response({"jobId": job_id, "status": row["status"], "codec": row["codec"], "fps": row["fps"],
+                          "frames": row["frames"], "sizeBytes": row["size_bytes"], "error": row["error"],
+                          "video": video, "layers": row["layer_frames"]})
+
+
+def handle_timelapse_video(ctx, request):
+    """The AV1/MP4 video as a file (DSF streams it as application/octet-stream, without Range)."""
+    job_id, row = _timelapse(ctx, request)
+    path = ctx.timelapse.video_file(job_id) if ctx.timelapse is not None and row and row["status"] == "done" else None
+    if path is None:
+        raise ApiError(404, f"no video (timelapse {row['status'] if row else 'none'})")
+    return Response(200, path, "file")
+
+
+def handle_timelapse_frame(ctx, request):
+    """JPEG of a layer's frame: the captured file while it exists (during the print, before the
+    video is verified, or kept after a failure), else extracted from the video."""
+    job_id, row = _timelapse(ctx, request)
+    layer = _int(request, "layer", None)
+    if layer is None:
+        raise ApiError(400, "missing 'layer'")
+    frame = qa_queries.layer_frame(row["layer_frames"], layer) if row else None
+    if frame is None or ctx.timelapse is None:
+        raise ApiError(404, "no frame for this layer")
+    path = ctx.timelapse.frame_file(job_id, frame)
+    if path is None and row["status"] == "done":
+        _tmp_dir(ctx)
+        path = ctx.timelapse.extract_frame(job_id, frame, row["fps"])
+    if path is None:
+        raise ApiError(404, "the frame is gone")
     return Response(200, path, "file")
 
 
@@ -405,6 +459,9 @@ ENDPOINTS = {
     ("GET", "job/spectra"): handle_spectra,
     ("GET", "job/toolpath"): handle_toolpath,
     ("GET", "job/export"): handle_export,
+    ("GET", "job/timelapse"): handle_timelapse_video,
+    ("GET", "job/timelapse/meta"): handle_timelapse_meta,
+    ("GET", "job/timelapse/frame"): handle_timelapse_frame,
     ("GET", "trends"): handle_trends,
     ("GET", "spectra/reference"): handle_reference_get,
     ("POST", "spectra/reference"): handle_reference_post,

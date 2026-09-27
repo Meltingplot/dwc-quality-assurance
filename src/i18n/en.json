@@ -51,7 +51,8 @@
 		"tabSummary": "Summary",
 		"tabContext": "Context",
 		"distribution": "Filament monitor reading, time per 2 % class (s)",
-		"tabReplay": "Replay"
+		"tabReplay": "Replay",
+		"tabTimelapse": "Timelapse"
 	},
 	"layers": {
 		"none": "No layers recorded for this job.",
@@ -174,7 +175,11 @@
 			"contextGlobals": "Global variables stored with each job",
 			"mfm": "Record the machine's filament monitor evaluation (MFM globals)",
 			"timelapseEnabled": "Timelapse",
-			"snapshotUrl": "Camera snapshot URL"
+			"snapshotUrl": "Camera snapshot URL",
+			"minIntervalS": "Timelapse: minimum time between frames",
+			"fps": "Timelapse: video frame rate",
+			"encoderThreads": "Timelapse: encoder threads (empty = automatic)",
+			"keepFramesOnFailure": "Keep the frames when encoding fails"
 		}
 	},
 	"live": {
@@ -202,5 +207,27 @@
 		"building": "The daemon is still indexing the G-code file…",
 		"fileGone": "The job file is no longer on the printer, or it was changed after the job.",
 		"noLayer": "The G-code file has no such layer."
+	},
+	"timelapse": {
+		"states": {
+			"none": "not recorded",
+			"capturing": "recording",
+			"queued": "waiting for the encoder",
+			"encoding": "encoding",
+			"done": "video ready",
+			"failed": "failed",
+			"pruned": "removed"
+		},
+		"detail": "{frames} frames · {fps} fps · AV1",
+		"download": "Video",
+		"none": "No timelapse was recorded for this job ({reason}).",
+		"capturing": "One frame is taken per finished layer; the video follows after the job.",
+		"encoding": "The video is encoded while no job prints; meanwhile the captured frames are shown.",
+		"failed": "The timelapse failed: {error}",
+		"pruned": "The timelapse files were removed by the timelapse retention.",
+		"frameOf": "Camera after layer {layer}",
+		"frameOfEarlier": "Camera after layer {layer} (no frame of its own for this layer)",
+		"noFrame": "No camera frame for this layer.",
+		"loading": "Loading the timelapse…"
 	}
 }

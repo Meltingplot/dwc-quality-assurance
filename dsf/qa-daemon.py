@@ -8,7 +8,8 @@ plugin. It records only; it never judges.
 
 Threads (PLAN.md §5.3): the main thread runs the object-model subscription and the collector;
 the database writer has its own thread; dsf-python serves every HTTP endpoint from its own
-thread and asyncio loop; the G-code layer index is built in a background thread.
+thread and asyncio loop; the G-code layer index is built in a background thread; the timelapse
+has a capture thread and an encoder thread (qa_timelapse).
 
 Targets DSF 3.7 / dsf-python 3.7.0b1 on Python >= 3.11.
 """
@@ -36,6 +37,7 @@ import qa_collector  # noqa: E402
 import qa_db  # noqa: E402
 import qa_gcode  # noqa: E402
 import qa_settings  # noqa: E402
+import qa_timelapse  # noqa: E402
 
 PLUGIN_ID = qa_log.PLUGIN_ID
 
@@ -135,9 +137,11 @@ def main():
         return
     qa_log.deferred_warnings.send_to(cmd)
 
+    timelapse = qa_timelapse.Timelapse(writer, settings, data_dir)
     ctx = qa_api.ApiContext(version=read_version(), started=time.monotonic(), settings=settings,
                             writer=writer, readers=qa_db.Readers(data_dir), data_dir=data_dir,
-                            index_cache=qa_gcode.IndexCache(data_dir), prepare_result=prepared)
+                            index_cache=qa_gcode.IndexCache(data_dir), prepare_result=prepared,
+                            timelapse=timelapse)
 
     def resolve_path(virtual):
         with ctx.cmd_lock:
@@ -148,9 +152,11 @@ def main():
     ctx.resolve_path = resolve_path
     plugin_data = PluginData(cmd, ctx.cmd_lock)
     collector = qa_collector.Collector(writer, settings, resolve_path=resolve_path, broadcast=ctx.live.publish,
-                                       plugin_version=ctx.version, index_cache=ctx.index_cache)
+                                       plugin_version=ctx.version, index_cache=ctx.index_cache, timelapse=timelapse)
     ctx.collector = collector
     collector.init_ids()
+    timelapse.on_event = collector.external_event
+    timelapse.start()
 
     endpoints = []
     sub = None
@@ -191,6 +197,7 @@ def main():
                 retention = settings.current()["retention"]
                 writer.submit("retention", retention["jobs"], retention["days"], retention["maxDbBytes"])
                 writer.submit("checkpoint")
+                timelapse.request_retention()
             if mono - last_data >= PLUGIN_DATA_INTERVAL_S:
                 last_data = mono
                 status = collector.status()
@@ -207,6 +214,7 @@ def main():
             collector.shutdown(now_ms())
         except Exception as exc:  # noqa: BLE001
             logger.error("collector shutdown failed: %s", exc)
+        timelapse.stop()
         writer.stop()
         ctx.live.close()
         for endpoint in endpoints:

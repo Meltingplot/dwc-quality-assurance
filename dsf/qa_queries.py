@@ -240,6 +240,23 @@ def samples(con, job_id, names, start=None, end=None, resolution="auto"):
             "channels": result}
 
 
+def timelapse(con, job_id):
+    """The job's timelapse row with its layer index, None when none was recorded."""
+    row = con.execute("SELECT t.*, j.id AS job_id FROM timelapse t JOIN jobs j ON j.key = t.job_key WHERE j.id=?",
+                      (job_id,)).fetchone()
+    if row is None:
+        return None
+    entry = _loads(row, "layer_frames")
+    entry["layer_frames"] = entry.get("layer_frames") or []
+    return entry
+
+
+def layer_frame(entries, layer):
+    """Frame number of ``layer`` in a timelapse index (the latest one if it was taken twice)."""
+    frames = [e["frame"] for e in entries if e.get("layer") == layer and e.get("frame") is not None]
+    return frames[-1] if frames else None
+
+
 def spectra(con, job_id):
     key = job_key(con, job_id)
     if key is None:

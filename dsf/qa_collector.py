@@ -15,6 +15,7 @@ import collections
 import logging
 import re
 import statistics
+import threading
 import time
 import zlib
 
@@ -129,6 +130,7 @@ class Collector:
 
         self._next_event_id = 1
         self._next_block_id = 1
+        self._id_lock = threading.Lock()
         self._ongoing = {}          # key -> event dict (ongoing events that get an end)
         self._setpoints = None
         self._heater_states = {}
@@ -147,9 +149,10 @@ class Collector:
         return self.settings.current()
 
     def _alloc_event_id(self):
-        eid = self._next_event_id
-        self._next_event_id += 1
-        return eid
+        with self._id_lock:  # the timelapse threads write events too (external_event)
+            eid = self._next_event_id
+            self._next_event_id += 1
+            return eid
 
     def _alloc_block_id(self):
         bid = self._next_block_id
@@ -301,6 +304,8 @@ class Collector:
                 self.last_job_id = self.job.id
                 self._event(model, now_ms, "daemon_started_mid_job", "resumed",
                             payload={"resumed": True, "lastRecordMs": gap})
+                if self.timelapse is not None:
+                    self.timelapse.job_started(self.job)
                 self.on_status(self.status())
             else:
                 self._start_job(model, now_ms, partial=True)
@@ -310,6 +315,8 @@ class Collector:
             if current is None or row["key"] != current["key"]:
                 last = self.writer.call("last_sample_ms", row["key"])
                 self.writer.submit("job_update", row["key"], {"result": "unknown", "ended_at": last}, urgent=True)
+        if self.timelapse is not None:
+            self.timelapse.recover(self.job.key if self.job is not None else None)
 
     def _load_context(self, job_key):
         try:
@@ -561,6 +568,20 @@ class Collector:
         job.events.append({"id": eid, "type": type_, "subtype": subtype, "layer": job.layer, "ts_ms": ts_ms,
                            "payload": payload})
         self.broadcast({"type": "event", "ts": ts_ms, "jobId": job.id, "event": {
+            k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device", "payload")}})
+        return eid
+
+    def external_event(self, job_key, ts_ms, type_, subtype=None, payload=None):
+        """An event another thread reports (timelapse), possibly after its job ended: no model
+        access, so no position, tool or object."""
+        eid = self._alloc_event_id()
+        job = self.job if self.job is not None and self.job.key == job_key else None
+        layer = job.layer if job is not None else None
+        event = {"id": eid, "job_key": job_key, "ts_ms": ts_ms, "type": type_, "subtype": subtype, "layer": layer,
+                 "x": None, "y": None, "z": None, "positions": None, "workplace": None, "offsets": None,
+                 "tool": None, "object_id": None, "device": None, "payload": payload, "block_id": None}
+        self.writer.submit("event_insert", event, urgent=True)
+        self.broadcast({"type": "event", "ts": ts_ms, "jobId": job.id if job is not None else None, "event": {
             k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device", "payload")}})
         return eid
 

@@ -154,7 +154,35 @@ export interface ToolpathAnswer {
 	meta: { numLayers: number; source: "comments" | "z"; objects: Record<string, string>; filamentDiameter: number };
 }
 
+export type TimelapseStatus = "none" | "capturing" | "queued" | "encoding" | "done" | "failed" | "pruned";
+
+/** One snapshot: the frame that shows ``layer`` finished; ``frame`` null when it was skipped or failed */
+export interface TimelapseEntry {
+	layer: number;
+	frame: number | null;
+	ts: number;
+	reason?: string;
+}
+
+export interface TimelapseMeta {
+	jobId: string;
+	status: TimelapseStatus;
+	/** Why nothing was recorded (status none) */
+	reason?: string | null;
+	codec?: string | null;
+	fps?: number | null;
+	frames?: number | null;
+	sizeBytes?: number | null;
+	error?: string | null;
+	/** ``job/timelapse`` has the video */
+	video: boolean;
+	/** In capture order, so frame numbers ascend */
+	layers: Array<TimelapseEntry>;
+}
+
 const TIMEOUT_MS = 15000;
+/** A video of a long job is tens of MB */
+const VIDEO_TIMEOUT_MS = 180000;
 
 /**
  * HTTP status of a failed request. DWC's REST connector (@duet3d/connectors RestConnector.request)
@@ -176,8 +204,9 @@ export function statusOf(error: unknown): number | null {
 export class QaApi {
 	constructor(private readonly host: HostAdapter) {}
 
-	private get<T>(path: string, params: Record<string, string | number | boolean> | null = null, responseType: XMLHttpRequestResponseType = "json"): Promise<T> {
-		return this.host.request("GET", `machine/${PLUGIN_ID}/${path}`, params, responseType, null, TIMEOUT_MS) as Promise<T>;
+	private get<T>(path: string, params: Record<string, string | number | boolean> | null = null, responseType: XMLHttpRequestResponseType = "json",
+		timeout = TIMEOUT_MS): Promise<T> {
+		return this.host.request("GET", `machine/${PLUGIN_ID}/${path}`, params, responseType, null, timeout) as Promise<T>;
 	}
 
 	private post<T>(path: string, body: unknown): Promise<T> {
@@ -256,5 +285,23 @@ export class QaApi {
 	/** The export as a Blob (DSF sends it as a file) */
 	exportBlob(id: string) {
 		return this.get<Blob>("job/export", { id }, "blob");
+	}
+
+	timelapseMeta(id: string) {
+		return this.get<TimelapseMeta>("job/timelapse/meta", { id });
+	}
+
+	/**
+	 * The AV1/MP4 video as a Blob. DSF sends files as application/octet-stream without Range
+	 * support, so a `<video>` seeks reliably only in an object URL; a bare URL would also lack
+	 * the session key (docs/api.md "Authentication")
+	 */
+	timelapseVideo(id: string) {
+		return this.get<Blob>("job/timelapse", { id }, "blob", VIDEO_TIMEOUT_MS);
+	}
+
+	/** JPEG of a layer's frame as a Blob */
+	timelapseFrame(id: string, layer: number) {
+		return this.get<Blob>("job/timelapse/frame", { id, layer }, "blob");
 	}
 }
