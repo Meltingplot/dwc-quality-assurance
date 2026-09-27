@@ -27,6 +27,9 @@ export interface HostAdapter {
 	 */
 	request(method: string, path: string, params?: Record<string, string | number | boolean> | null,
 		responseType?: XMLHttpRequestResponseType, body?: unknown, timeout?: number): Promise<any>;
-	/** Absolute ws:// or wss:// URL for a path relative to the web root, null when not connected in SBC mode */
+	/**
+	 * Absolute ws:// or wss:// URL for a path relative to the web root, with the session key as
+	 * `sessionKey` query; null when not connected in SBC mode
+	 */
 	webSocketUrl(path: string): string | null;
 }

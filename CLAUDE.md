@@ -75,9 +75,14 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   patch: wait for them to change, or 10 s (dwc-vigil `VigilTracker`, same DSF source).
 - dsf-python serves each endpoint in its own thread + asyncio loop; `read_request` reads
   ≤ 32 KiB. The shared `CommandConnection` is used only under `ApiContext.cmd_lock`.
+- ⚠️ DSF does **not** authorize plugin endpoints (`/machine/*` routes require a session, plugin
+  requests reach `CustomEndpointMiddleware` only when no route matched). It looks the session up
+  (`X-Session-Key`; WebSocket: `?sessionKey=`) and passes `request.session_id`, −1 = anonymous.
+  QA refuses −1 everywhere (`qa_api.call`, `make_live_handler`): 401, WebSocket close 1008.
+  Frontend requests only through the connector (`host.request`), files as Blobs.
 - Custom WebSocket endpoints: DSF opens one Unix-socket connection per browser client and
-  forwards every `send_response` as a text frame; no request is sent on connect. A session key
-  is looked up from the query but not required (`CustomEndpointMiddleware.cs`).
+  forwards every `send_response` as a text frame (status ≥ 1000 closes with that code); nothing
+  is sent on connect, the session comes with each client text frame (`CustomEndpointMiddleware.cs`).
 - `HttpResponseType.File`: DSF streams the file as `application/octet-stream`, no Range support.
 - DSF keeps a crashed daemon's endpoints registered: "running" is `plugins.QualityAssurance.pid > 0`.
 - Manifest: `sbcAutoRestart` restarts 2 s after an unexpected exit; permissions used:
@@ -121,6 +126,7 @@ scripts/ci-local.sh build                       # package against Meltingplot/Du
 1. Interface read, not guessed (Rule 1); facts dated (Rule 2).
 2. New `set_plugin_data` key → `plugin.json#data` and `PLUGIN_DATA_KEYS`.
 3. New dsf-python patch → `qa_patches.py` + a case in `tests/test_patches.py` (real library).
-4. Persistent data only under `/opt/dsf/sd/QualityAssurance/`.
+4. Persistent data only under `/opt/dsf/sd/QualityAssurance/`. A new endpoint goes into
+   `ENDPOINTS` (so `qa_api.call` refuses requests without a session), never around it.
 5. Components mount against real Vuetify 4 without warnings; i18n keys in en **and** de.
 6. `npm run lint`, `npm test`, `pytest` green; `ci-local.sh build` when build or manifest changed.
