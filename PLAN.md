@@ -6,9 +6,10 @@ Pi-Image, HMI, Maschine) und Tims Antworten vom selben Tag. Die Änderungen gege
 
 ## 0. Revision 2026-09-26
 
-**Umsetzungsstand QA:** nichts umgesetzt. `/home/tim/dwc/dwc-quality-assurance` enthält nur einen
-Initial-Commit mit leerer README, ohne Remote; `Meltingplot/dwc-quality-assurance` gibt es auf GitHub
-noch nicht.
+**Umsetzungsstand QA (2026-09-27):** Phasen 0–6 umgesetzt und auf `main` (PRs #1–#8 in
+`Meltingplot/dwc-quality-assurance`), dazu die Sitzungsprüfung aller Endpunkte (#5). Phase 7
+(Abschluss) läuft. Noch nicht auf der Maschine erprobt: Zeitraffer mit der echten Kamera, M956
+während eines Drucks, AppArmor-Regeln des Image-Builds. (Bis 2026-09-26 war nichts umgesetzt.)
 
 **Seit dem Plan entstanden** (Meltingplot-Fork von DWC, Branch `v3.7-dev`): das eingebaute
 Layout-Plugin `src/plugins/CHX350/` (Bedienoberfläche der Maschine, übernimmt das Layout), sein
@@ -600,14 +601,15 @@ Erledigt am 2026-09-26:
 
 Offen:
 - Wer auf der CHX 350 `snapshotUrl` setzt: einmal in den Einstellungen oder als vorbelegte
-  `settings.json` aus dem Image (Default im Plugin bleibt `null`, weil die URL maschinenabhängig ist).
+  `settings.json` aus dem Image (Default im Plugin bleibt `null`, weil die URL maschinenabhängig ist;
+  docs/image.md §4 fragt das beim Image-Build an).
 - Image-Build: Installation von `sbcPackageDependencies` (apt) und später weiterer Python-Pakete (§5.12).
 - Encodezeit und Videogröße für einen 1000-Lagen-Job mit SVT-AV1 auf dem Pi 5 messen, danach
   `preset`/`crf` festlegen.
 - dsf-python-Modelklassen in 3.7.0b1: `RotatingMagnetFilamentMonitor.calibrated` nullable,
   `avg_percentage`, `Layer.filament_usage`, `Extruder.press_adv`, `Board.v_in/v12/mcu_temp`,
   `Driver.status`, `Move.shaping`, `ObjectModel.global`, `Heater.model.max_pwm`.
-- Ob Chart.js vom DWC-Builder gebündelt wird (Vigil: ja).
+- ✓ Chart.js wird vom DWC-Builder aus den `node_modules` des Plugins gebündelt (CLAUDE.md, Build seit Phase 3).
 - ~~numpy im Plugin-venv~~: entfällt, FFT in reinem Python (2026-09-27).
 
 ## 8. Explizit nicht enthalten / bewusst so entschieden

@@ -8,14 +8,23 @@ its own DWC page, to the CHX 350 operator interface and to a later Quality Contr
 
 It records; it does not judge.
 
-- Design and decisions: [PLAN.md](PLAN.md)
-- Developer guide: [CLAUDE.md](CLAUDE.md)
+What it keeps per job: context (file, slicer settings, machine configuration), time series with
+full-resolution blocks around anything unusual, layer aggregates (temperatures, heater load,
+filament measured vs. commanded, flow), events with position, a replay of each layer from the
+G-code, a timelapse video (one frame per layer, AV1) and vibration spectra from the accelerometer.
+
+- HTTP API (also the contract for the CHX 350 UI and Quality Control): [docs/api.md](docs/api.md)
+- Storage, database and retention: [docs/schema.md](docs/schema.md)
+- CHX 350 UI integration: [docs/chx-integration.md](docs/chx-integration.md)
 - Bundling with the CHX 350 image: [docs/image.md](docs/image.md)
+- Proposals for dwc-vigil: [docs/vigil-candidates.md](docs/vigil-candidates.md)
+- Design and decisions: [PLAN.md](PLAN.md); developer guide: [CLAUDE.md](CLAUDE.md)
 
 ## Requirements
 
-DSF and DWC 3.7 in SBC mode, Python 3.11 or newer with dsf-python 3.7, `ffmpeg` for the
-timelapse. On the CHX 350 the plugin comes with the image; it is not installed from
+DSF and DWC 3.7 in SBC mode, Python 3.11 or newer with dsf-python 3.7, `ffmpeg` with SVT-AV1 for
+the timelapse (Debian trixie's package has it). Every endpoint needs a DWC session (docs/api.md
+"Authentication"). On the CHX 350 the plugin comes with the image; it is not installed from
 Settings › Plugins.
 
 ## Development

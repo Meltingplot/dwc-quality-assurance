@@ -5,6 +5,7 @@ after the file, the profile or the machine configuration changed.
 
 import zlib
 
+import qa_accel
 import qa_channels
 import qa_machine
 import qa_slicer
@@ -207,8 +208,16 @@ def boards(model):
         "canAddress": getattr(b, "can_address", None),
         "firmwareVersion": getattr(b, "firmware_version", None),
         "firmwareDate": getattr(b, "firmware_date", None),
-        "accelerometer": getattr(b, "accelerometer", None) is not None,
     } for i, b in qa_channels.items(getattr(model, "boards", None))]
+
+
+def accelerometers(model):
+    """``sensors.accelerometers`` (DSF 3.7 moved them there from ``boards[]``; qa_patches), the
+    list index being the M955/M956 P number: what the job's spectra were recorded with."""
+    return [{"index": i, "port": getattr(a, "port", None), "board": qa_accel.board_of(getattr(a, "port", None)),
+             "orientation": getattr(a, "orientation", None), "samplingRate": getattr(a, "sampling_rate", None),
+             "resolution": getattr(a, "resolution", None)}
+            for i, a in qa_channels.items(getattr(getattr(model, "sensors", None), "accelerometers", None))]
 
 
 def axes(model):
@@ -248,6 +257,7 @@ def snapshot(model, settings, plugin_version, file_path=None, crc=None):
         "shaping": shaping(model),
         "axes": axes(model),
         "boards": boards(model),
+        "accelerometers": accelerometers(model),
         "versions": {
             "firmware": (boards(model) or [{}])[0].get("firmwareVersion"),
             "dsf": getattr(dsf, "version", None) if dsf is not None else None,
