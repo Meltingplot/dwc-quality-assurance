@@ -92,7 +92,7 @@ Each layer (`job.layer` numbering, i.e. RRF's):
 | `z` | machine Z of the last extruding sample of the layer (cumulative height) |
 | `fractionPrinted` | |
 | `filament` | per extruder/monitor `{commandedMm, measuredMm, extruderMm, ratio}`: commanded = Δ monitor `totalExtrusion`, measured = Δ `calibrated.totalDistance`, extruder = Δ `move.extruders[].position` |
-| `flow` | per extruder, mm³/s: commanded filament × cross-section / layer duration |
+| `flow` | per extruder, mm³/s: `extruderMm` × cross-section / layer duration (not the monitor's total, which advances one check segment at a time and left small layers at 0) |
 | `temps` | `heaters` per heater index `{min, max, mean, std, setpoint}`, `sensors` per analog sensor index `{…, name}` (not compact, unlike `job.layers[].temperatures`), `chamber` `{min, max, mean, std}` |
 | `fmStats` | per monitor: `lastPercentage` `{min, max, mean, std}`, `avgPercentage`, `mmPerRev` at layer end |
 | `pwmStats` | per heater at a constant, reached setpoint: `avgPwmMean`, `avgPwmStd`, `currentStd` |

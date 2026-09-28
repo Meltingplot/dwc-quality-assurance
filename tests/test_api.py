@@ -42,7 +42,8 @@ def run_job(rig, cancel=False):
     for layer in (1, 2, 3):
         rig.patch({"job": {"layer": layer, "duration": layer * 20},
                    "heat": {"heaters": [{"current": 60}, {"current": 220, "avgPwm": 0.6}]},
-                   "move": {"currentMove": {"extrusionRate": 1.0}, "axes": [{}, {}, {"machinePosition": 0.2 * layer}]},
+                   "move": {"currentMove": {"extrusionRate": 1.0}, "axes": [{}, {}, {"machinePosition": 0.2 * layer}],
+                            "extruders": [{"position": 10.0 * layer}]},
                    "sensors": {"filamentMonitors": [{"lastPercentage": 99, "avgPercentage": 98,
                                                      "totalExtrusion": 10.0 * layer,
                                                      "calibrated": {"mmPerRev": 25.0, "totalDistance": 10.0 * layer}}]}})
