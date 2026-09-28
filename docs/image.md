@@ -6,6 +6,13 @@ Settings › Plugins cannot even read its own files (AppArmor profile `dsf_plugi
 reaches the machine only through the image. Read against rpi-image-gen `a35b0c0`
 (2026-09-26); line references are to that commit.
 
+**Status:** done in image 0.1.0-rc.49 (rpi-image-gen PR #56 @ 4a7f80b, 2026-09-28): QA 0.1.0-rc.1
+pinned, `/opt/dsf/sd/QualityAssurance` slot-shared, the AppArmor block with the timelapse rules,
+the settings of §4 seeded. The steps below stay as the reference for the next pin. A test machine
+that ran a sideload before rc.49 keeps that sideload's data in
+`/opt/dsf/plugins/QualityAssurance-data`; the bundled QA starts empty until the data is moved
+(docs/sideload.md, "Data directory").
+
 ## 1. Pin the release (`meltingplot/layer/mp-dsf.d/plugins.list`)
 
 Every QA release (`.github/workflows/release.yml`) publishes `QualityAssurance-<ver>.zip` and a
@@ -33,7 +40,7 @@ subdirectories the image lists are bind mounts from `/persistent/shared` (rpi-im
 `mp-dsf-configure`, checked by `postbuild50-dsf-assert`; read 2026-09-27 at 5acba10). Without the
 same three entries Vigil has — `Path=/opt/dsf/sd/QualityAssurance`, its mount point and the assert —
 QA cannot create `/opt/dsf/sd/QualityAssurance` and records nothing. (`QA_DATA_DIR` overrides the
-directory, e.g. for a test.)
+directory, e.g. for a test.) In the image since rc.49 (1d2fdee).
 
 ## 2. AppArmor block (`customize.overlay/etc/apparmor.d/opt.dsf.bin.DuetPluginService`, profile `dsf_plugin_py`)
 
@@ -89,7 +96,7 @@ slot, print a short job, and collect `journalctl -b --grep 'apparmor="(ALLOWED|D
 `dsf_plugin_py` that names QualityAssurance is a missing rule. Then boot in enforce mode and
 check there is no DENIED line.
 
-## 4. Settings on the CHX 350 (open)
+## 4. Settings on the CHX 350 (seeded by the image since rc.49)
 
 Two settings depend on the machine, so their defaults are `null` and QA records neither timelapse
 nor spectra until they are set (`status.timelapse.reason`, `status.accelerometer.reason` say so):
@@ -107,4 +114,6 @@ which also lists the configured accelerometers), or the image seeds
 { "timelapse": { "snapshotUrl": "http://10.42.0.1/snapshot" }, "accelerometer": { "board": 60 } }
 ```
 
-(missing keys take their defaults; QA validates the file on start).
+(missing keys take their defaults; QA validates the file on start). The image does the latter since
+rc.49 (rpi-image-gen c0d3cd2): mp-dsf-seed copies the file without overwriting, once, and waits for
+the mount of `/opt/dsf/sd/QualityAssurance` first.

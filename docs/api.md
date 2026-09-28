@@ -20,7 +20,11 @@ check sessions on plugin endpoints itself; it only looks the key up and passes t
 - WebSocket: `?sessionKey=<key>` in the URL, then one text frame from the client (DSF hands the
   daemon the session only with client frames). `hello` comes only after that.
 - A server-side caller (a later Quality Control daemon) needs a session too: `GET
-  /machine/connect?password=…` returns `sessionKey`.
+  /machine/connect?password=…` returns `sessionKey`. DSF drops a session after 8 s without a
+  request unless a WebSocket of it is open (`SessionTimeout`, default 8000 ms;
+  `SessionStorage.MaintainSessions`; DSF v3.7-dev @ cd3ae65f, 2026-09-28). A dropped key is looked
+  up as −1, so QA answers 401. Every request with the key keeps it alive, plugin endpoints
+  included (`GetSessionId` refreshes it); after a pause, `GET /machine/noop` or connect again.
 - Only a machine with a password (M551) is protected by this: without one, `/machine/connect`
   gives every caller a key.
 
