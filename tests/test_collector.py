@@ -181,6 +181,17 @@ def test_heater_fault_monitor_and_setpoints(rig):
     assert fault["device"] == 1 and fault["tool"] == 0 and fault["layer"] is None
 
 
+def test_heater_monitor_only_while_the_heater_regulates(rig):
+    """The job end on a CHX 350: heaters off, then the CE default mode caps them (M143 S50 A2) while still hot"""
+    rig.start_job()
+    rig.patch({"heat": {"heaters": [{"state": "off", "active": 0}, {"state": "off", "active": 0, "current": 203.9}]}})
+    rig.patch({"heat": {"heaters": [{"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]},
+                                    {"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]}]}})
+    assert rig.events("heater_monitor") == []
+    rig.patch({"heat": {"heaters": [{}, {"state": "active", "active": 60}]}})  # switched on above its cap
+    assert [(e["device"], e["payload"]["limit"]) for e in rig.events("heater_monitor")] == [(1, 50)]
+
+
 def test_driver_status_bits_and_messages(rig):
     rig.start_job()
     rig.patch({"boards": [{"drivers": [{"status": 65536 | 2}, {}]}, {}]})     # over temperature shutdown

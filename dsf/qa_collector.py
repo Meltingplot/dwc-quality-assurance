@@ -664,7 +664,10 @@ class Collector:
                     reading = getattr(analog[sensor], "last_reading", None)
                 elif sensor in (None, -1):
                     reading = getattr(heater, "current", None)
-                violated = (limit is not None and reading is not None and
+                # RRF checks monitors only while the heater regulates (LocalHeater.cpp:459-570, RRF
+                # 3.7-dev @ 3638836, 2026-09-28); an off heater above a cap such as the CE default
+                # mode's M143 S50 A2 (chx350-config operating-mode/default.g) is no violation
+                violated = (state in ("active", "standby") and limit is not None and reading is not None and
                             ((condition == "tooHigh" and reading > limit) or (condition == "tooLow" and reading < limit)))
                 key = (i, m)
                 if violated and key not in self._monitor_violations:
