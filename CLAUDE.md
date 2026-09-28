@@ -67,6 +67,8 @@ the real library. Verified 2026-09-26 against dsf-python 3.7.0b1 and DSF v3.7-de
 | `RotatingMagnetFilamentMonitor.agc`, `calibrated.mmPerRev`, `FilamentMonitor.filamentPresent` missing | added as `model_prop`s |
 | `BuildObject.cancelled` spelled `canceled` | alias |
 | `sensors.accelerometers` missing (DuetAPI moved it from `Board`, 524fdc4c), no `port`/`resolution`/`samplingRate` | collection of the library's `Accelerometer` + the three props (verified 2026-09-27) |
+| `receive_json` counts braces inside strings, decodes each 4 KiB `recv` alone (split `°` → UnicodeDecodeError), spins on EOF | string-aware `json_object_end`, incremental UTF-8 decoder, `ConnectionError` on EOF (2026-09-28) |
+| `HttpEndpointUnixSocket.close` calls `loop.stop()` from another thread: loops stay in epoll, Python joins them at exit → DSF SIGKILLs after 4 s | stop via `call_soon_threadsafe`; SIGTERM also shuts the subscription socket (2026-09-28, CHX 350: stop 126 ms) |
 
 `messages[]` is read from the raw patch dict, not from the typed model (the typed collection
 is overwritten index by index by every patch). DSF sends only new messages in a patch

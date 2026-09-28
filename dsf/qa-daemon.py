@@ -18,6 +18,7 @@ Targets DSF 3.7 / dsf-python 3.7.0b1 on Python >= 3.11.
 import json
 import os
 import signal
+import socket
 import sys
 import threading
 import time
@@ -56,10 +57,18 @@ RETENTION_INTERVAL_S = 600
 PLUGIN_DATA_INTERVAL_S = 5
 
 _shutdown = threading.Event()
+# Closes the subscription socket, so a SIGTERM ends the main loop at once instead of after the
+# subscription's 3 s timeout: DSF kills a plugin 4 s after SIGTERM (StopPlugin.cs:63-75)
+_wake_main = []
 
 
 def _signal_handler(_signum, _frame):
     _shutdown.set()
+    for wake in list(_wake_main):
+        try:
+            wake()
+        except Exception:  # noqa: BLE001 - a signal handler must not raise
+            pass
 
 
 def read_version():
@@ -178,6 +187,7 @@ def main():
         sub = SubscribeConnection(SubscriptionMode.PATCH)
         if not connect_with_retry(sub, "SubscribeConnection"):
             return
+        _wake_main.append(lambda: sub.socket.shutdown(socket.SHUT_RDWR))  # receive_json: ConnectionError
         model = sub.get_object_model()
         collector.update(model, None, now_ms())
         qa_log.deferred_warnings.send_to(cmd, ctx.cmd_lock)

@@ -13,8 +13,10 @@ says which. Verified against dsf-python 3.7.0b1 (PyPI; git 3.7.0-beta.1 + b1af5b
 DuetSoftwareFramework v3.7-dev @ cd3ae65f on 2026-09-26.
 """
 
+import codecs
 import json
 import logging
+import os
 import socket
 import sys
 import time
@@ -116,6 +118,88 @@ def _patch_greeting():
             setattr(BaseConnection, name, _patched_connect)
             patched = True
     return patched
+
+
+# --- Reading JSON messages ---------------------------------------------------------------------
+
+def _patch_receive_json():
+    """[new] Every dsf-python connection (subscription, commands, interception) frames DSF's
+    messages in ``BaseConnection.receive_json``, which (dsf-python 3.7.0b1 base_connection.py:106-176,
+    read 2026-09-28):
+
+    - counts braces without looking at strings: a ``}`` in a message, a filament name or a G-code
+      comment cuts the JSON short, the rest is read as the next message;
+    - decodes each 4 KiB ``recv`` on its own: a multi-byte character (``°``) split at the block
+      boundary raises UnicodeDecodeError;
+    - loops on ``recv`` returning ``b""`` once DSF closed the socket, until its timeout, and then
+      over and over (the subscription's TimeoutError is QA's heartbeat).
+
+    Replaced by the string-aware ``json_object_end``, an incremental UTF-8 decoder per connection
+    and ConnectionError on end of stream. Same contract otherwise: a str, leftovers in ``self.input``,
+    TimeoutError after ``self.timeout`` seconds without a complete object."""
+    from dsf.connections.base_connection import BaseConnection
+
+    def _receive_json(self):
+        if not self.socket:
+            raise RuntimeError("socket is closed or missing")
+        decoder = self.__dict__.get("_qa_decoder")
+        if decoder is None:
+            decoder = self._qa_decoder = codecs.getincrementaldecoder("utf-8")()
+        start = time.monotonic()
+        while True:
+            end = json_object_end(self.input)
+            if end > 0:
+                json_string, self.input = self.input[:end], self.input[end:]
+                return json_string
+            if self.timeout > 0 and time.monotonic() - start > self.timeout:
+                raise TimeoutError("Timeout while waiting for JSON response")
+            try:
+                chunk = self.socket.recv(4096)
+            except TimeoutError:     # socket.timeout; the deadline above decides
+                continue
+            if not chunk:
+                raise ConnectionError("DSF closed the connection")
+            self.input += decoder.decode(chunk)
+
+    BaseConnection.receive_json = _receive_json
+    BaseConnection.get_json_object_end_index = staticmethod(json_object_end)  # has_data_available
+    return True
+
+
+# --- Closing custom HTTP endpoints ------------------------------------------------------------
+
+def _patch_endpoint_close():
+    """[new] ``HttpEndpointUnixSocket.close`` stops the endpoint's asyncio loop with ``loop.stop()``
+    from the calling thread (dsf-python 3.7.0b1 http.py:152-165), which is not thread-safe: the loop
+    sleeps in epoll and does not notice. Its thread is a ThreadPoolExecutor worker, and Python joins
+    those at exit, so the daemon never ended after SIGTERM and DSF killed it after its 4 s
+    (DuetPluginService StopPlugin.cs:63-75, StopTimeout 4000; DSF v3.7-dev @ cd3ae65f). Seen on the
+    CHX 350 on 2026-09-28: 20 of 25 endpoint loops still in epoll_wait, the main thread joining them.
+    The stop now runs inside the loop (``call_soon_threadsafe``)."""
+    from dsf.http import HttpEndpointUnixSocket
+
+    def _close(self):
+        loop, server = self._loop, self._server
+
+        def stop():
+            if server is not None:
+                server.close()
+            loop.stop()
+
+        if loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(stop)
+            except RuntimeError:     # closed in between
+                pass
+        self.event_loop.cancel()
+        self.executor.shutdown(wait=False)
+        try:
+            os.remove(self.socket_file)
+        except FileNotFoundError:
+            pass
+
+    HttpEndpointUnixSocket.close = _close
+    return True
 
 
 # --- Nulls for dictionaries and collections ---------------------------------------------------
@@ -382,6 +466,8 @@ def _patch_sensor_accelerometers():
 
 PATCHES = (
     ("greeting", _patch_greeting),
+    ("receive_json", _patch_receive_json),
+    ("endpoint_close", _patch_endpoint_close),
     ("set_model_prop_none", _patch_set_model_prop_none),
     ("board_state", _patch_board_state),
     ("axis_letter", _patch_axis_letter),
