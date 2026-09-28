@@ -87,7 +87,9 @@
 		"type": "Event",
 		"detail": "Detail",
 		"position": "Position (machine)",
-		"none": "No events"
+		"none": "No events",
+		"unconfirmed": "unconfirmed",
+		"unconfirmedHint": "Cleared within 500 ms: the board itself reports open load only after 500 ms"
 	},
 	"eventTypes": {
 		"filament_status": "Filament monitor",

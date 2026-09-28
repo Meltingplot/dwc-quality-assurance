@@ -121,6 +121,12 @@ def test_event_and_mfm_summary():
     ]
     summary = qa_summary.event_summary(events)
     assert summary["mfm_error_tolerated"] == {"count": 2, "firstLayer": 4, "lastLayer": 9}
+    drivers = qa_summary.event_summary([
+        {"type": "driver_error", "subtype": "warning", "layer": 4, "payload": {"confirmed": False}},
+        {"type": "driver_error", "subtype": "warning", "layer": 7, "payload": {"confirmed": True}},
+        {"type": "driver_error", "subtype": "error", "layer": 8, "payload": {"bits": ["over temperature shutdown"]}},
+    ])
+    assert drivers["driver_error"] == {"count": 3, "firstLayer": 4, "lastLayer": 8, "unconfirmed": 1}
     mfm = qa_summary.mfm_summary(events, {})
     assert mfm == {"toleratedErrors": 2, "recoveries": [{"layer": 9, "result": 0, "subtype": "false_positive"}],
                    "flowBiasDetected": True, "estepsSuggested": 810.0, "estepsApplied": [810.0]}

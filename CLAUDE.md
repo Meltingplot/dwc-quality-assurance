@@ -124,7 +124,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event.
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
   boards that report status; RRF's event text in `messages[]` for the others (only printed when
-  no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`).
+  no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`). `boards[].drivers[].status` is raw,
+  the boards raise open load (bits 6/7) only after 500 ms (Duet3Expansion 3.7-dev @ 806ef34
+  `Move.cpp:389-410`, CANlib `OpenLoadTimeout`; 2026-09-28): QA records every open-load episode as
+  one event, `confirmed: false` until it lasted 500 ms (then a fine block), with its duration — so
+  boards with many transients show (Tim 2026-09-28).
 
 ## Build, test, release
 ```bash

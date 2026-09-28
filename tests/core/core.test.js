@@ -63,6 +63,12 @@ describe("format", () => {
 			.toBe("790 → 812.5 (mfm_flow_bias)");
 		expect(eventDetail({ type: "heater_load", subtype: "high", payload: { peakMean: 0.86, setpoint: 220, durationS: 125 } }))
 			.toBe("86 % @ 220 °C, 2m 05s");
+		expect(eventDetail({ type: "driver_error", subtype: "warning", payload: { source: "status", board: 1, canAddress: 20, driver: 0,
+			bits: ["phase B may be disconnected"] } })).toBe("20.0: phase B may be disconnected");
+		expect(eventDetail({ type: "driver_error", subtype: "warning", payload: { canAddress: 20, driver: 0, bits: ["phase A may be disconnected"],
+			confirmed: false, durationS: 0.3 } })).toBe("20.0: phase A may be disconnected, 0.3 s");
+		expect(eventDetail({ type: "driver_error", subtype: "warning", payload: { source: "message", canAddress: 20, driver: 0,
+			text: "Driver 20.0 warning: phase A may be disconnected" } })).toBe("Driver 20.0 warning: phase A may be disconnected");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });

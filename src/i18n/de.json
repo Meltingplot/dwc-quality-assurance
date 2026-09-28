@@ -87,7 +87,9 @@
 		"type": "Ereignis",
 		"detail": "Detail",
 		"position": "Position (Maschine)",
-		"none": "Keine Ereignisse"
+		"none": "Keine Ereignisse",
+		"unconfirmed": "unbestätigt",
+		"unconfirmedHint": "Nach weniger als 500 ms verschwunden: das Board selbst meldet Open Load erst nach 500 ms"
 	},
 	"eventTypes": {
 		"filament_status": "Filamentmonitor",

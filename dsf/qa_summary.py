@@ -339,11 +339,14 @@ class JobAccumulator:
 
 
 def event_summary(events):
-    """``events``: list of dicts with type, layer, subtype, payload. Count per type, first/last layer."""
+    """``events``: list of dicts with type, layer, subtype, payload. Count per type, first/last layer, and
+    how many stayed unconfirmed (a driver's open load that cleared within 500 ms, qa_collector)."""
     result = {}
     for event in events:
         entry = result.setdefault(event["type"], {"count": 0, "firstLayer": None, "lastLayer": None})
         entry["count"] += 1
+        if (event.get("payload") or {}).get("confirmed") is False:
+            entry["unconfirmed"] = entry.get("unconfirmed", 0) + 1
         layer = event.get("layer")
         if layer is not None:
             entry["firstLayer"] = layer if entry["firstLayer"] is None else min(entry["firstLayer"], layer)

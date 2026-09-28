@@ -129,8 +129,9 @@ export default defineComponent({
 			const summary = (this.job?.summary ?? {}) as Record<string, any>;
 			const filament = Object.values(summary.filament ?? {})[0] as Record<string, any> | undefined;
 			const loads = Object.values(summary.thermal?.heaterLoad ?? {}).filter((l: any) => l?.nozzle) as Array<Record<string, any>>;
+			// unconfirmed: a driver's open load that cleared within 500 ms (listed, not counted here)
 			const events = Object.entries(summary.events ?? {}).filter(([type]) => !QUIET_EVENTS.has(type))
-				.reduce((sum, [, e]) => sum + ((e as { count: number }).count ?? 0), 0);
+				.reduce((sum, [, e]) => sum + (((e as { count: number }).count ?? 0) - ((e as { unconfirmed?: number }).unconfirmed ?? 0)), 0);
 			return [
 				{ key: "duration", value: formatDuration(this.job?.durationS) },
 				{ key: "layers", value: String(this.layers?.layers.length ?? "—") },

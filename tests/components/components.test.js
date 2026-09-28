@@ -181,6 +181,20 @@ describe("EventList", () => {
 		expect(wrapper.findAll("tbody tr").length).toBe(1);
 		expectNoVueWarnings(warn);
 	});
+
+	it("marks a driver's open load that cleared within 500 ms", () => {
+		const base = { ...EVENTS[1], type: "driver_error", subtype: "warning", device: 0 };
+		const events = [
+			{ ...base, id: 3, payload: { canAddress: 20, driver: 0, bits: ["phase B may be disconnected"], confirmed: false, durationS: 0.3 } },
+			{ ...base, id: 4, payload: { canAddress: 20, driver: 0, bits: ["phase A may be disconnected"], confirmed: true, durationS: 2.1 } }
+		];
+		const wrapper = mountInDwc(EventList, { props: { events, startMs: Date.parse(JOB.startedAt) } });
+		const rows = wrapper.findAll("tbody tr");
+		expect(rows[0].text()).toContain("plugins.QualityAssurance.events.unconfirmed");
+		expect(rows[0].text()).toContain("20.0: phase B may be disconnected, 0.3 s");
+		expect(rows[1].text()).not.toContain("plugins.QualityAssurance.events.unconfirmed");
+		expectNoVueWarnings(warn);
+	});
 });
 
 describe("ContextTable", () => {

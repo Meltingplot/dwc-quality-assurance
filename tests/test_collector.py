@@ -206,6 +206,32 @@ def test_driver_status_bits_and_messages(rig):
     assert events[2]["payload"]["canAddress"] == 20
 
 
+def test_open_load_is_recorded_and_confirmed_after_500_ms(rig):
+    """Job 20260928-075236-bddf0026: board 20's extruder driver flickered "phase A/B may be disconnected" in
+    the raw status; the board raises its own event only after 500 ms. QA keeps every episode, unconfirmed
+    until it lasted that long (Tim 2026-09-28: boards with many transients must show)."""
+    rig.start_job()
+    rig.patch({"move": {"currentMove": {"extrusionRate": 0.4, "topSpeed": 60}},
+               "boards": [{}, {"drivers": [{"status": 65536 | 128}]}]}, dt_ms=100)   # phase B, transient
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536}]}]}, dt_ms=300)
+    transient = rig.events("driver_error")
+    assert len(transient) == 1 and transient[0]["subtype"] == "warning"
+    assert transient[0]["payload"]["confirmed"] is False and transient[0]["payload"]["canAddress"] == 20
+    assert transient[0]["end_ms"] - transient[0]["ts_ms"] == 300 and transient[0]["block_id"] is None
+    assert (transient[0]["payload"]["extrusionRate"], transient[0]["payload"]["topSpeed"]) == (0.4, 60)
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536 | 64}]}]}, dt_ms=100)    # phase A, persists
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536 | 128}]}]}, dt_ms=300)   # B takes over
+    assert rig.events("driver_error")[1]["payload"]["confirmed"] is False
+    rig.tick(3000)                                                                  # no patch: the heartbeat
+    persistent = rig.events("driver_error")[1]
+    assert persistent["payload"]["confirmed"] is True and persistent["block_id"] is not None
+    assert persistent["payload"]["bits"] == ["phase A may be disconnected", "phase B may be disconnected"]
+    assert persistent["end_ms"] is None                                             # still open
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536}]}]}, dt_ms=100)
+    assert rig.events("driver_error")[1]["end_ms"] is not None
+    assert len(rig.events("driver_error")) == 2
+
+
 def test_voltage_dip_and_phantom(rig):
     rig.start_job()
     for _ in range(10):
