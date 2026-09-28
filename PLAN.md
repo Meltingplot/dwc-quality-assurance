@@ -30,7 +30,7 @@ eine eigene Auswertung des Filamentmonitors.
 | 9 | Kammer | `heat.chamberHeaterMapping` | Fallback auf den Analogsensor „SZP coil“ wie in der CHX-UI | die CHX 350 hat keinen Kammerheizer |
 | 10 | Materialcharge | `global.filamentBatch` | gibt es auf der CHX nicht; stattdessen konfigurierbare Liste von Globals im Kontext (§5.9) | Globals der Maschine |
 | 11 | Slicer-Kontext | Felder aus `job.file` | zusätzlich OrcaSlicer-`CONFIG_BLOCK` vom Dateiende (Parser aus dem CHX350-Backend) | DSF liest `;customInfo` nur im Dateikopf |
-| 12 | Accelerometer | Phase 4 | Phase 6 mit dem Accelerometer des SZP (CAN 60, `sensors.accelerometers[0]`, Port `60.i2c.lis`, 800 Hz); Spektren in reinem Python statt numpy (keine Python-Pakete im Image-Build nötig) | Tim 2026-09-27; Objektmodell im Screenshot vom 2026-09-27 |
+| 12 | Accelerometer | Phase 4 | Phase 6 mit dem Accelerometer des SZP (CAN 60, Port `60.i2c.lis`, 800 Hz; der Listenindex variiert, Laborgerät: 1), gewählt über `accelerometer.board`; Spektren in reinem Python statt numpy (keine Python-Pakete im Image-Build nötig) | Tim 2026-09-27; Objektmodell im Screenshot vom 2026-09-27 |
 | 13 | Daemon-Threads | ein HTTP/WS-Thread | dsf-python bedient jeden Endpunkt in einem eigenen Thread mit eigenem Event-Loop (§5.3) | CHX350-Backend, dsf-python 3.7.0b1 |
 | 14 | Backend-Erkennung | Banner nach Fehler | Plugin-pid im Objektmodell; `sbcAutoRestart: true` | DSF lässt Endpunkte nach einem Absturz registriert |
 | 16 | CRC32 | via M38 | `zlib.crc32` über die aufgelöste Datei; M38 nicht nötig (DSF berechnet M38 selbst und leert vorher die Code-Queue des Kanals) | DSF `MCodeHandler.cs` |
@@ -444,11 +444,13 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
   "timelapse": { "enabled": true, "snapshotUrl": null, "trigger": "layer", "minIntervalS": 2,
                  "fps": 30, "keyframeInterval": 30, "crf": null, "preset": null, "encoderThreads": 2,
                  "keepFramesOnFailure": true, "retention": { "jobs": 50, "maxBytes": 10737418240 } },
-  "accelerometer": { "enabled": "auto", "intervalMin": 15, "samples": 1000, "axes": "XYZ", "board": null, "referenceAutoCount": 5 },
+  "accelerometer": { "board": null, "intervalMin": 15, "samples": 1000, "axes": "XYZ", "referenceAutoCount": 5 },
   "retention": { "jobs": 50, "days": 90, "maxDbBytes": 2147483648 },
   "commitIntervalS": 30
 }
 ```
+`accelerometer.board` (CAN-Adresse, auf der CHX 350 60 = SZP) wählt das Accelerometer; `null` =
+keine Aufnahmen, keine automatische Wahl (Tim 2026-09-27, ersetzt `enabled: "auto"`).
 `contextGlobals` ersetzt `batchGlobalVariable` (`filamentBatch` gibt es auf der CHX nicht).
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung
@@ -530,7 +532,7 @@ Deshalb:
   `/opt/dsf/sd/gcodes/**`, `rw` auf `/run/dsf/QualityAssurance/**`; mit Accelerometer `rw` auf
   `/opt/dsf/sd/sys/accelerometer/**`; für den Zeitraffer Ausführen von ffmpeg und Netzwerk
   (`network inet stream`) zur Kamera-URL.
-- Test mit einem Image im Complain-Modus (`dsf.plugin_policy=complain`) und
+- Test mit einem Vorab-Image, gebaut mit der Build-Variablen `IGconf_dsf_plugin_policy=complain` (kein Boot-Parameter; korrigiert 2026-09-27), und
   `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`, danach mit Enforce ohne DENIED.
 - Arbeitsauftrag an die rpi-image-gen-Session läuft über Tim; Doku in `docs/image.md`.
 

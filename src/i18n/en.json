@@ -187,17 +187,14 @@
 			"fps": "Timelapse: video frame rate",
 			"encoderThreads": "Timelapse: encoder threads (empty = automatic)",
 			"keepFramesOnFailure": "Keep the frames when encoding fails",
-			"accelEnabled": "Vibration spectra",
-			"accelBoard": "Board CAN address (empty = first)",
+			"accelBoard": "Accelerometer board (CAN address, empty = none)",
 			"accelIntervalMin": "Every",
 			"accelSamples": "Samples per recording"
 		},
 		"accelerometer": "Accelerometer",
-		"accelModes": {
-			"auto": "Automatic (when configured)",
-			"on": "On",
-			"off": "Off"
-		}
+		"accelHint": "Spectra are recorded only from the accelerometer on this board (CHX 350: the SZP, 60).",
+		"accelAvailable": "Configured accelerometers (board and port): {list}.",
+		"accelNone": "The machine has no accelerometer configured (M955)."
 	},
 	"live": {
 		"recording": "Recording",

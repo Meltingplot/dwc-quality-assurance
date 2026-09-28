@@ -65,16 +65,13 @@
 
 			<div class="text-subtitle-2 mb-1 mt-2">{{ $t("plugins.QualityAssurance.settings.accelerometer") }}</div>
 			<v-row density="compact">
-				<v-col cols="12" sm="3">
-					<v-select :model-value="get('accelerometer.enabled')" :items="accelModes" density="compact" variant="outlined"
-						:label="$t('plugins.QualityAssurance.settings.fields.accelEnabled')" @update:model-value="set('accelerometer.enabled', $event)" />
-				</v-col>
-				<v-col v-for="field in accelFields" :key="field.path" cols="12" sm="3">
+				<v-col v-for="field in accelFields" :key="field.path" cols="12" sm="4">
 					<v-text-field :model-value="get(field.path)" type="number" density="compact" variant="outlined"
 						:label="$t(`plugins.QualityAssurance.settings.fields.${field.key}`)" :suffix="field.unit"
 						@update:model-value="set(field.path, field.nullable ? toIndex($event) : toNumber($event))" />
 				</v-col>
 			</v-row>
+			<div class="text-caption text-medium-emphasis">{{ accelHint }}</div>
 
 			<div class="d-flex ga-2 mt-2">
 				<v-btn color="primary" :loading="saving" @click="save">{{ $t("plugins.QualityAssurance.settings.save") }}</v-btn>
@@ -129,13 +126,19 @@ export default defineComponent({
 			saved: false,
 			numberFields: NUMBER_FIELDS,
 			timelapseFields: TIMELAPSE_FIELDS,
-			accelFields: ACCEL_FIELDS
+			accelFields: ACCEL_FIELDS,
+			accelerometers: null as Array<{ index: number; port: string; board: number }> | null
 		};
 	},
 	computed: {
-		accelModes(): Array<{ title: string; value: string | boolean }> {
-			return [["auto", "auto"], [true, "on"], [false, "off"]].map(([value, key]) => ({
-				title: this.$t(`plugins.QualityAssurance.settings.accelModes.${key}`), value: value as string | boolean }));
+		accelHint(): string {
+			if (this.accelerometers === null) {
+				return this.$t("plugins.QualityAssurance.settings.accelHint");
+			}
+			return this.accelerometers.length
+				? this.$t("plugins.QualityAssurance.settings.accelAvailable",
+					{ list: this.accelerometers.map((a) => `${a.board} (${a.port})`).join(", ") })
+				: this.$t("plugins.QualityAssurance.settings.accelNone");
 		},
 		chamberModes(): Array<{ title: string; value: string }> {
 			return ["auto", "heater", "sensor"].map((value) => ({ title: this.$t(`plugins.QualityAssurance.settings.chamberModes.${value}`), value }));
@@ -153,6 +156,12 @@ export default defineComponent({
 				this.errors = answer.errors;
 			} catch (e) {
 				this.errors = [e instanceof Error ? e.message : String(e)];
+			}
+			try {
+				// the accelerometers the machine has (M955), to pick a board from
+				this.accelerometers = (await this.api.status()).accelerometer.available ?? null;
+			} catch {
+				this.accelerometers = null;
 			}
 		},
 		get(path: string): any {

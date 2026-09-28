@@ -27,31 +27,23 @@ What `mp-dsf-plugins` checks and QA satisfies:
 Also: licence in `LICENSES.txt` (MIT, Meltingplot GmbH), and `QualityAssurance` in
 `skel/conf/plugins.txt` so it starts on its own.
 
+**Data directory (required):** `/opt/dsf/sd` itself is part of the read-only erofs root; only the
+subdirectories the image lists are bind mounts from `/persistent/shared` (rpi-image-gen
+`mp-dsf.d/customize.overlay/etc/rpi-image-gen/slot-shared.d/dsf.conf`, mount points in
+`mp-dsf-configure`, checked by `postbuild50-dsf-assert`; read 2026-09-27 at 5acba10). Without the
+same three entries Vigil has — `Path=/opt/dsf/sd/QualityAssurance`, its mount point and the assert —
+QA cannot create `/opt/dsf/sd/QualityAssurance` and records nothing. (`QA_DATA_DIR` overrides the
+directory, e.g. for a test.)
+
 ## 2. AppArmor block (`customize.overlay/etc/apparmor.d/opt.dsf.bin.DuetPluginService`, profile `dsf_plugin_py`)
 
-Files, following the Vigil block:
-
-```
-    # QualityAssurance, process data of every print job
-    /opt/dsf/plugins/QualityAssurance.json r,
-    /opt/dsf/plugins/QualityAssurance/** mr,
-    owner /opt/dsf/plugins/QualityAssurance/dsf/__pycache__/ w,
-    owner /opt/dsf/plugins/QualityAssurance/dsf/__pycache__/* rw,
-    # SQLite database with WAL/SHM files and locks, backups, settings, G-code layer
-    # index cache, timelapse frames and videos
-    /opt/dsf/sd/QualityAssurance/ rw,
-    /opt/dsf/sd/QualityAssurance/** rwk,
-    # job files: CRC32, slicer settings at the end of the file, toolpath for the replay
-    /opt/dsf/sd/gcodes/ r,
-    /opt/dsf/sd/gcodes/** r,
-    # its HTTP endpoints (one of them is the WebSocket `live`)
-    /run/dsf/QualityAssurance/{,**/} r,
-    /run/dsf/QualityAssurance/** rw,
-    # accelerometer: read and delete the CSVs of its own M956 recordings (qa-*.csv); RRF writes
-    # them through DSF, so the plugin never creates files there
-    /opt/dsf/sd/sys/accelerometer/ r,
-    /opt/dsf/sd/sys/accelerometer/qa-*.csv rw,
-```
+The rules are in [apparmor-QualityAssurance.inc](apparmor-QualityAssurance.inc), indented to be
+pasted into `dsf_plugin_py` after the CHX350 block: QA's code and manifest, its data directory
+`/opt/dsf/sd/QualityAssurance/`, the job files (read), its endpoint sockets under
+`/run/dsf/QualityAssurance/`, its own accelerometer CSVs, and for the timelapse the camera and
+ffmpeg (below). `scripts/sideload.sh` loads this same file on a test machine (docs/sideload.md);
+on the lab machine (image 0.1.0-rc.46) QA started and ran idle with it in enforce mode without a
+denial (2026-09-27); a print job with camera and accelerometer is still to run.
 
 `sbcPermissions` now also names `readSystem` and `writeSystem` (the CSVs are in `0:/sys`);
 `fileSystemAccess` covers them already in DSF's own check.
@@ -84,22 +76,30 @@ Without these two rules QA records everything else; a denied snapshot or encoder
 
 ## 3. Test
 
-Build an image with the plugin, boot with `dsf.plugin_policy=complain`, print a short job, and
-collect `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`. Every ALLOWED line for
+Build a prerelease image with the plugin and the build variable `IGconf_dsf_plugin_policy=complain`
+(`./rpi-image-gen build … -- IGconf_dsf_plugin_policy=complain`; it is a build variable, not a boot
+parameter, and the release gate refuses it for a final version — rpi-image-gen `mp-dsf.yaml`,
+`hooks/prebuild05-mp-release-gate`, 2026-09-27), deliver it by Connect OTA or tryboot into the other
+slot, print a short job, and collect `journalctl -b --grep 'apparmor="(ALLOWED|DENIED)"'`. Every ALLOWED line for
 `dsf_plugin_py` that names QualityAssurance is a missing rule. Then boot in enforce mode and
 check there is no DENIED line.
 
 ## 4. Settings on the CHX 350 (open)
 
-QA's default `timelapse.snapshotUrl` is `null`, because the URL depends on the machine; without it
-QA records no frames and `status.timelapse.reason` says so. On the CHX 350 it is
-`http://10.42.0.1/snapshot`. Either the operator sets it once on the QA page (classic DWC ›
-Quality Assurance › Settings), or the image seeds `/opt/dsf/sd/QualityAssurance/settings.json` on
-first boot with
+Two settings depend on the machine, so their defaults are `null` and QA records neither timelapse
+nor spectra until they are set (`status.timelapse.reason`, `status.accelerometer.reason` say so):
+
+| Setting | CHX 350 |
+|---|---|
+| `timelapse.snapshotUrl` | `http://10.42.0.1/snapshot` (HMI camera through haproxy) |
+| `accelerometer.board` | `60`: CAN address of the SZP (`60.i2c.lis`). The list index varies: the lab machine has the tool board's accelerometer (CAN 20) at 0 and the SZP's at 1 (2026-09-27) |
+
+Either the operator sets them once on the QA page (classic DWC › Quality Assurance › Settings,
+which also lists the configured accelerometers), or the image seeds
+`/opt/dsf/sd/QualityAssurance/settings.json` on first boot with
 
 ```json
-{ "timelapse": { "snapshotUrl": "http://10.42.0.1/snapshot" } }
+{ "timelapse": { "snapshotUrl": "http://10.42.0.1/snapshot" }, "accelerometer": { "board": 60 } }
 ```
 
-(missing keys take their defaults; QA validates the file on start). The accelerometer needs no
-setting: QA uses the first one configured with M955, on the CHX the SZP's (CAN 60).
+(missing keys take their defaults; QA validates the file on start).
