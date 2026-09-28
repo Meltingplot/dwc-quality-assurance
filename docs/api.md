@@ -166,7 +166,8 @@ rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without ex
 `job/timelapse` has the file. `layers` is in capture order:
 
 - The snapshot taken when `job.layer` changes to n shows layer n − 1 finished and is that layer's
-  frame; the last layer's frame is taken at the job end.
+  frame. The last layer has none: the job ends after the end G-code, which on the CHX 350 has
+  lowered the bed by then (2026-09-28). Show the latest earlier frame for it.
 - `frame` null: skipped (`reason: "interval"`, `timelapse.minIntervalS`) or failed (`reason: "snapshot: …"`).
   Show the latest earlier frame then. A layer taken twice (daemon restart) counts with its last frame.
 - Frame numbers ascend without gaps; frame n of the video is at `(n + 0.5) / fps` for a `<video>`.

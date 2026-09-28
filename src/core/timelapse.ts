@@ -1,7 +1,7 @@
 /**
  * Timelapse helpers (PLAN.md §5.11): which frame shows a layer, where a `<video>` has to seek,
- * and the video as an object URL. The daemon takes a layer's frame when the next layer starts
- * (the last one at the job end), so frame n shows its layer finished.
+ * and the video as an object URL. The daemon takes a layer's frame when the next layer starts, so
+ * frame n shows its layer finished; the last layer has none and shows the one before.
  */
 import type { QaApi, TimelapseEntry, TimelapseMeta } from "./api";
 

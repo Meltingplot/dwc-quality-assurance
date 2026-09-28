@@ -509,7 +509,9 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   höchstens 5 Pixeln um mehr als 24 Graustufen; kalibriert an 451 Bildern (geparkt ≤ 2, beim Drucken
   höchstens 0,3 s am Stück darunter). Der Index hält je Bild `waitMs` und `still`. Ab dem
   ersten M240 eines Jobs kommen dessen Bilder nur noch von M240 (Lage n−1 beim M240 in Lage n; vor
-  Lage 1 keins), das letzte weiter am Jobende. Braucht `codeInterceptionReadWrite`; ohne laufendes
+  Lage 1 keins). Die letzte Lage bekommt keins, in keinem Modus: das Jobende kommt erst nach dem
+  End-G-Code, und der hat das Bett der CHX 350 dann schon auf Z 947 abgesenkt (Bild am Jobende von
+  20260928-155257-118609a9 zeigte das leere Bett, Tim 2026-09-28: unterdrücken). Braucht `codeInterceptionReadWrite`; ohne laufendes
   QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine
   (chx350-config). Nummernwahl: M240 ist in RepRap-Wiki, Duet-Wiki, Marlin, MK4duo und Octolapse
   „Kamera auslösen“, in RRF/DSF/chx350-config frei (Recherche 2026-09-28).

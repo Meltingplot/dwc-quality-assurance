@@ -180,11 +180,13 @@ def test_frame_per_finished_layer_then_video(rig, lapse, data_dir):
     print_job(rig)
     assert wait_until(lambda: (row(rig) or {}).get("status") == "done")
     r = row(rig)
-    # the change to layer n shows layer n-1 finished; the last layer's frame comes at the job end
-    assert [(e["layer"], e["frame"]) for e in r["layer_frames"]] == [(1, 0), (2, 1), (3, 2)]
-    assert r["frames"] == 3 and r["codec"] == "av1" and r["fps"] == 30
+    # the change to layer n shows layer n-1 finished; the last layer gets none (the job end comes
+    # after the end G-code, which on the CHX 350 has lowered the bed)
+    assert [(e["layer"], e["frame"]) for e in r["layer_frames"]] == [(1, 0), (2, 1)]
+    assert r["frames"] == 2 and r["codec"] == "av1" and r["fps"] == 30
+    assert lapse.camera.calls == 2
     directory = os.path.join(data_dir, "timelapse", r["job_id"])
-    assert open(os.path.join(directory, "timelapse.mp4")).read() == "3"
+    assert open(os.path.join(directory, "timelapse.mp4")).read() == "2"
     assert not os.path.exists(os.path.join(directory, "frames"))  # verified: the JPEGs go
     assert r["size_bytes"] == 1 and r["path"].endswith("timelapse.mp4")
     assert lapse.status()["encoder"] == {"state": "idle", "jobId": None, "queued": 0}
@@ -195,8 +197,7 @@ def test_min_interval_skips_a_layer(rig, lapse, settings):
     print_job(rig)
     assert wait_until(lambda: (row(rig) or {}).get("status") == "done")
     entries = row(rig)["layer_frames"]
-    assert [(e["layer"], e["frame"], e.get("reason")) for e in entries] == [(1, 0, None), (2, None, "interval"),
-                                                                            (3, 1, None)]
+    assert [(e["layer"], e["frame"], e.get("reason")) for e in entries] == [(1, 0, None), (2, None, "interval")]
 
 
 def test_snapshot_failure_is_one_event_and_entries_without_frame(rig, lapse):
@@ -205,7 +206,7 @@ def test_snapshot_failure_is_one_event_and_entries_without_frame(rig, lapse):
     assert wait_until(lambda: (row(rig) or {}).get("status") == "failed")
     r = row(rig)
     assert r["error"] == "no frame captured"
-    assert [e["frame"] for e in r["layer_frames"]] == [None, None, None]
+    assert [e["frame"] for e in r["layer_frames"]] == [None, None]
     assert r["layer_frames"][0]["reason"] == "snapshot: HTTP 503"
     failed = rig.events("timelapse_failed")
     assert [(e["subtype"], e["payload"].get("error")) for e in failed] == [("snapshot", "HTTP 503"),
@@ -226,8 +227,8 @@ def test_m240_frames_replace_the_layer_changes(rig, lapse, settings):
     rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "layer": None}})
     rig.collector.resolve_pending_end(rig.t, force=True)
     assert wait_until(lambda: (row(rig) or {}).get("status") == "done")
-    assert [(e["layer"], e["frame"]) for e in row(rig)["layer_frames"]] == [(1, 0), (2, 1), (3, 2)]
-    assert lapse.camera.calls == 3                                     # two M240, the job end
+    assert [(e["layer"], e["frame"]) for e in row(rig)["layer_frames"]] == [(1, 0), (2, 1)]
+    assert lapse.camera.calls == 2                                     # two M240, nothing at the job end
 
 
 def test_m240_photo_failure_and_no_capture(rig, lapse, settings):
@@ -328,9 +329,9 @@ def test_encoder_failure_keeps_frames(rig, lapse, data_dir, monkeypatch):
     print_job(rig)
     assert wait_until(lambda: (row(rig) or {}).get("status") == "failed")
     r = row(rig)
-    assert r["error"] == "video has 2 frames (av1), expected 3"
+    assert r["error"] == "video has 1 frames (av1), expected 2"
     frames = os.path.join(data_dir, "timelapse", r["job_id"], "frames")
-    assert sorted(os.listdir(frames)) == ["000000.jpg", "000001.jpg", "000002.jpg"]
+    assert sorted(os.listdir(frames)) == ["000000.jpg", "000001.jpg"]
     assert not os.path.exists(os.path.join(data_dir, "timelapse", r["job_id"], "timelapse.mp4.tmp"))
     assert [e["subtype"] for e in rig.events("timelapse_failed")] == ["encode"]
 
@@ -469,7 +470,8 @@ def test_api_during_capture_and_after_encoding(rig, lapse, ctx, monkeypatch):
     rig.collector.resolve_pending_end(rig.t, force=True)
     assert wait_until(lambda: row(rig)["status"] == "done")
     status, meta, _ = api(ctx, "job/timelapse/meta", id=job_id)
-    assert meta["status"] == "done" and meta["video"] is True and meta["frames"] == 3
+    assert meta["status"] == "done" and meta["video"] is True and meta["frames"] == 2
+    assert api(ctx, "job/timelapse/frame", id=job_id, layer=3)[0] == 404  # the last layer has none
     status, path, kind = api(ctx, "job/timelapse", id=job_id)
     assert (status, kind) == (200, "file") and path.endswith("timelapse.mp4")
     # after the video: extracted, and reused

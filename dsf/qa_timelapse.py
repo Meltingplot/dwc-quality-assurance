@@ -3,7 +3,10 @@ after it.
 
 Capture. The collector thread only queues work; the capture thread fetches
 ``timelapse.snapshotUrl``. The snapshot taken when ``job.layer`` changes to n shows layer n-1
-finished, so it is that layer's frame; the last layer's frame is taken at the job end. A job whose
+finished, so it is that layer's frame. The last layer gets none: the job ends only after the file's
+end G-code, which on the CHX 350 lowers the bed to Z 947, so the frame taken at the job end showed
+the empty bed (job 20260928-155257-118609a9, 2026-09-28); the viewer shows layer n-1's frame for
+it. A job whose
 G-code sends M240 ("trigger camera", usually from a slicer macro that parks the head first; Tim
 2026-09-28) gets its frames from M240 instead, from the first one on: qa_intercept holds the code,
 ``photo`` fetches while the machine stands still, the capture thread stores the JPEG. The M240 at
@@ -436,7 +439,8 @@ class Timelapse:
         return result.stdout
 
     def job_finished(self, job, _result):
-        """The last layer's frame, then the job goes to the encoder; the encoder may run again."""
+        """The job goes to the encoder, without a frame of its own (the end G-code has run, see the
+        module docstring); the encoder may run again."""
         with self._lock:
             capture = self._captures.get(job.key)
             self._printing = False
@@ -448,8 +452,6 @@ class Timelapse:
                 self._paused = False
             self._wake.notify_all()
         if capture is not None:
-            if capture.last_layer is not None:
-                self._capture_queue.put(("frame", job.key, capture.last_layer, int(time.time() * 1000), None))
             self._capture_queue.put(("finish", job.key, None, None, None))
 
     def recover(self, current_key):
