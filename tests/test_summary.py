@@ -54,6 +54,16 @@ def test_layer_accumulator():
     assert record["load_stats"] == {"1": {"mean": 0.5}}
 
 
+def test_layer_flow_without_a_finished_check_segment():
+    """A small layer (as L144-172 of job 20260928-155257-118609a9): the extruder moves 3 mm, the monitor's
+    total does not advance, because no 5 mm check segment finished in the layer"""
+    acc = qa_summary.LayerAccumulator(150, 0, fm(1625.0, 93.0, e=1000.0), {0: 2.85}, None, {})
+    acc.advance(fm(1625.0, 93.0, 35.0, e=1001.5), 6)
+    record = acc.finish(12_000, fm(1625.0, 93.0, 35.0, e=1003.0))
+    assert record["filament"]["0"]["commandedMm"] == 0.0 and record["filament"]["0"]["extruderMm"] == 3.0
+    assert record["flow"]["0"] == pytest.approx(3 * math.pi * (2.85 / 2) ** 2 / 12, rel=1e-3)
+
+
 def test_job_filament_across_restarts():
     """As on the CHX 350 (job 20260928-075236-bddf0026): the monitor's total is stale from the last job
     until it has calibrated again, the print start zeroes the extruder, a pause restarts the monitor."""

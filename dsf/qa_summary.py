@@ -206,8 +206,11 @@ class LayerAccumulator:
         for i in self.filament.indices():
             entry = self.filament.entry(i, per_layer=True)
             filament[str(i)] = entry
+            # the extruder position, not the monitor's total: that one advances a check segment at a
+            # time (5 mm on the CHX 350), so most small layers showed flow 0 (commandedMm 0/5/10 per
+            # layer in job 20260928-155257-118609a9, 2026-09-28)
             commanded, extruder = entry["commandedMm"], entry["extruderMm"]
-            basis = commanded if commanded is not None else extruder
+            basis = extruder if extruder is not None else commanded
             if basis is not None and duration_s > 0:
                 flow[str(i)] = round(max(0.0, basis) * cross_section(self.diameters.get(i)) / duration_s, 3)
         temps = {"heaters": {}, "sensors": {}, "chamber": self.chamber.result(2)}
