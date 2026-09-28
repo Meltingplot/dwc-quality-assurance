@@ -55,6 +55,28 @@ export function isPending(meta: TimelapseMeta | null | undefined): boolean {
 	return meta?.status === "capturing" || meta?.status === "queued" || meta?.status === "encoding";
 }
 
+/**
+ * What to tell about the timelapse besides the frames: an i18n key under
+ * ``plugins.QualityAssurance.timelapse`` with its parameters, null when the video is there
+ */
+export function timelapseNote(meta: TimelapseMeta | null | undefined): { key: string; params?: Record<string, string> } | null {
+	switch (meta?.status) {
+		case "none":
+			return { key: "none", params: { reason: meta.reason ?? "—" } };
+		case "capturing":
+			return { key: "capturing" };
+		case "queued":
+		case "encoding":
+			return { key: "encoding" };
+		case "failed":
+			return { key: "failed", params: { error: meta.error ?? "—" } };
+		case "pruned":
+			return { key: "pruned" };
+		default:
+			return null;
+	}
+}
+
 let cached: { jobId: string; url: Promise<string> } | null = null;
 
 /**

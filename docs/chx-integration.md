@@ -1,9 +1,11 @@
 # CHX 350 UI: history and analysis from QA
 
 Work order for the DuetWebControl fork (`Meltingplot/DuetWebControl`, `src/plugins/CHX350`). QA does
-not change the fork; it provides the API (docs/api.md) and pins the contract in
-`tests/test_api.py` (`test_jobs_contract_for_the_chx_ui`, `test_layers_contract_for_the_chx_analysis`).
-Read against the fork's v3.7-dev @ 1fb6a51 on 2026-09-26 (PLAN.md §5.10).
+not change the fork; it provides the API (docs/api.md) and two embeddable views (§4), and pins the
+contract in `tests/test_api.py` (`test_jobs_contract_for_the_chx_ui`,
+`test_layers_contract_for_the_chx_analysis`) and `tests/components/embed.test.js`.
+Read against the fork's v3.7-dev @ 1fb6a51 on 2026-09-26 (PLAN.md §5.10); §1–3 are implemented
+there since ecd9b76 (2026-09-28).
 
 ## 1. QA is running
 
@@ -57,17 +59,31 @@ Today it reads `job.layers[]` of the running/last job. For an entry from QA, rea
 
 `currentIndex`: the last layer for a finished job.
 
-## 4. Placeholders of the analysis page
+## 4. Top view and timelapse: QA's own components
 
-- Part view: the replay — `GET machine/QualityAssurance/job/toolpath?id&layer` (docs/api.md "Toolpath";
-  202 while QA builds the layer index, 409 when the file is gone or was changed).
-- Timelapse: `GET machine/QualityAssurance/job/timelapse/meta?id` for the status and the layer →
-  frame index (docs/api.md "Timelapse"). Once `video` is true, load `job/timelapse?id` once with
-  `responseType: "blob"` (long timeout, tens of MB), put it in a `<video>` as an object URL and seek
-  to `(frame + 0.5) / fps` for the chosen layer; before that `job/timelapse/frame?id&layer` as a Blob
-  for an `<img>`. A layer without its own frame shows the latest earlier one. QA's own
-  `src/core/timelapse.ts` (`frameForLayer`, `seekTime`, `videoUrl`) does exactly this.
-- Findings, inspection report: Quality Control, not QA.
+The analysis page does not draw QA's toolpath or fetch its frames itself. QA registers two
+components with DWC 3.7's `registerEmbeddableComponent` (the registry for widgets of flexible
+layouts, DuetWebControl v3.7-dev `src/plugins/index.ts`, 2026-09-28) when DWC loads the plugin,
+and the page renders them by id from `useUiStore().embeddableComponents`:
+
+| id | shows |
+|---|---|
+| `QualityAssurance.LayerReplay` | the layer's toolpath coloured by commanded flow, the measured extrusion rate as dots, the layer's events as rings (like the Replay tab); wheel zooms, drag pans, double click fits |
+| `QualityAssurance.LayerTimelapse` | the camera frame after the layer (`job/timelapse/*`: the video once encoded, the JPEG before); a layer without its own frame shows the latest earlier one; asks again every 5 s while the job is recorded or encoded |
+
+Props of both: `jobId` (QA job id) and `layer` (`job.layer` numbering, i.e. QA's `layers[].layer`,
+not an array index: a job QA joined late starts above 1). Without `jobId` they follow
+`plugins.QualityAssurance.data.currentJobId`, else `lastJobId`; without `layer` the last layer.
+They fill the height their parent gives them (`height: 100%`), talk to the daemon themselves
+through DWC's connector, and load a layer only once the page's layer has stayed for 150 ms, so a
+slider drag asks for one layer, not for every layer it passes. Messages (index still building,
+file gone or changed, no timelapse and why) come from QA's translations.
+
+The CHX 350 analysis offers them as the views "Draufsicht" and "Zeitraffer" beside its layer
+strip, when both the embeddable and a QA job id exist: the job opened from the history, or while
+printing the one in `currentJobId`.
+
+Findings and the inspection report: Quality Control, not QA.
 
 ## 5. Heater-load banner
 

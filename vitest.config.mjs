@@ -32,4 +32,9 @@ config.resolve.alias['@/stores/machine'] = fileURLToPath(
     new URL('./tests/dwc-stubs/machine.js', import.meta.url),
 )
 
+// The kit's `@/plugins` stub lacks registerEmbeddableComponent (index.ts registers the layer views)
+config.resolve.alias['@/plugins'] = fileURLToPath(
+    new URL('./tests/dwc-stubs/plugins.js', import.meta.url),
+)
+
 export default defineConfig(config)

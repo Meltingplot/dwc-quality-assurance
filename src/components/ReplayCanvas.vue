@@ -1,5 +1,5 @@
 <template>
-	<div ref="box" class="qa-replay" @wheel.prevent="onWheel" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp"
+	<div ref="box" class="qa-replay" :class="{ 'qa-replay--fill': fill }" @wheel.prevent="onWheel" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp"
 		@pointerleave="onUp" @dblclick="fit">
 		<canvas ref="canvas" />
 		<div class="qa-replay__legend text-caption">
@@ -35,6 +35,7 @@ export default defineComponent({
 		markers: { type: Array as PropType<Array<ReplayMarker>>, default: () => [] },
 		hiddenObjects: { type: Array as PropType<Array<number>>, default: () => [] },
 		showTravel: { type: Boolean, default: false },
+		/** Canvas height in px; 0 fills the height the parent gives the component */
 		height: { type: Number, default: 480 }
 	},
 	data() {
@@ -45,6 +46,9 @@ export default defineComponent({
 		};
 	},
 	computed: {
+		fill(): boolean {
+			return this.height <= 0;
+		},
 		range(): [number, number] {
 			return this.toolpath ? flowRange(this.toolpath) : [0, 1];
 		},
@@ -68,7 +72,9 @@ export default defineComponent({
 	},
 	mounted() {
 		if (typeof ResizeObserver !== "undefined") {
-			this.observer = new ResizeObserver(() => this.draw());
+			// Filling its parent, the canvas first mounts at whatever height the layout has then:
+			// fit again once it knows its size
+			this.observer = new ResizeObserver(() => (this.fill ? this.fit() : this.draw()));
 			this.observer.observe(this.$refs.box as Element);
 		}
 		this.fit();
@@ -80,7 +86,7 @@ export default defineComponent({
 		formatNumber,
 		size(): { width: number; height: number } {
 			const box = this.$refs.box as HTMLElement | undefined;
-			return { width: Math.max(100, box?.clientWidth || 600), height: this.height };
+			return { width: Math.max(100, box?.clientWidth || 600), height: this.fill ? Math.max(100, box?.clientHeight || 0) : this.height };
 		},
 		fit() {
 			const bounds = this.toolpath ? toolpathBounds(this.toolpath, false) ?? toolpathBounds(this.toolpath) : null;
@@ -185,6 +191,15 @@ export default defineComponent({
 	cursor: grab;
 	background: rgba(128, 128, 128, 0.06);
 	border-radius: 4px;
+}
+/* The canvas takes no room of its own, so the parent alone decides the height */
+.qa-replay--fill {
+	height: 100%;
+	min-height: 100px;
+}
+.qa-replay--fill canvas {
+	position: absolute;
+	inset: 0;
 }
 .qa-replay__legend {
 	position: absolute;

@@ -41,20 +41,17 @@
 <script lang="ts">
 import { defineComponent, markRaw, type PropType } from "vue";
 
-import { statusOf, type JobDetail, type LayersAnswer, type QaApi, type QaEvent, type SamplesAnswer, type TimelapseMeta, type ToolpathAnswer } from "../core/api";
+import type { JobDetail, LayersAnswer, QaApi, QaEvent, SamplesAnswer, TimelapseMeta, ToolpathAnswer } from "../core/api";
 import { timeSeriesConfig } from "../core/charts";
 import { eventColor, eventDetail } from "../core/format";
-import { frameAt, machineToUser, measuredPoints, toolOffsets } from "../core/replay";
+import {
+	fetchToolpath, frameAt, layerEvents, layerSpan, machineToUser, markerColor, measuredPoints, nozzleHeaters, replayChannels,
+	SAMPLE_LEAD_MS, toolOffsets, TOOLPATH_RETRY_MS
+} from "../core/replay";
 import { layersWithFrames } from "../core/timelapse";
 import ChartCanvas from "./ChartCanvas.vue";
 import ReplayCanvas, { type ReplayMarker } from "./ReplayCanvas.vue";
 import TimelapseFrame from "./TimelapseFrame.vue";
-
-const MARKER_COLORS: Record<string, string> = { error: "#E53935", warning: "#FB8C00", info: "#1E88E5", primary: "#1976D2", success: "#43A047", grey: "#9E9E9E" };
-const RETRY_MS = 2000;
-/** Samples start this much before the layer: fine rows hold only changed values, the coarse row
- * before the layer has the positions (two intervals at the default sampleIntervalS of 5 s) */
-const SAMPLE_LEAD_MS = 10000;
 
 /** Layer by layer: toolpath from the G-code (parsed on demand by the daemon), measured flow and
  * events on top, temperature and heater-load curves of the layer beside it (PLAN.md §3 Replay) */
@@ -89,14 +86,10 @@ export default defineComponent({
 			return [0.5, 1, 2, 5].map((value) => ({ title: `${value} / s`, value }));
 		},
 		nozzles(): Array<{ index: number; tool: number | null }> {
-			return (this.layers?.meta.heaters ?? []).filter((h) => h.role === "nozzle");
+			return nozzleHeaters(this.layers);
 		},
 		layerRange(): { from: number; to: number } | null {
-			const record = this.layers?.layers.find((l) => l.layer === this.layer);
-			if (!record?.startedAt) {
-				return null;
-			}
-			return { from: new Date(record.startedAt).getTime(), to: record.endedAt ? new Date(record.endedAt).getTime() : Date.now() };
+			return layerSpan(this.layers, this.layer);
 		},
 		area(): number {
 			const d = this.toolpath?.meta.filamentDiameter ?? 1.75;
@@ -107,12 +100,12 @@ export default defineComponent({
 				.map((p) => ({ ...this.userPoint(p.x, p.y, p.ts), flow: p.flow }));
 		},
 		layerEvents(): Array<QaEvent> {
-			return this.events.filter((e) => e.layer === this.layer && !["job_start", "job_end"].includes(e.type));
+			return layerEvents(this.events, this.layer);
 		},
 		markers(): Array<ReplayMarker> {
 			return this.layerEvents.filter((e) => e.x !== null && e.y !== null && !(e.object_id !== null && this.hiddenObjects.includes(e.object_id))).map((e) => ({
 				...this.userPoint(e.x as number, e.y as number, e.ts_ms),
-				color: this.markerColor(e.type),
+				color: markerColor(e.type),
 				label: e.type
 			}));
 		},
@@ -131,7 +124,7 @@ export default defineComponent({
 				{ label: `${this.$t("plugins.QualityAssurance.layers.loadMean")} T${h.tool ?? h.index}`, unit: "0..1",
 					points: clip(channels[`heater.${h.index}.load`]), secondary: true }
 			]);
-			const markers = this.layerEvents.map((e) => ({ ts: e.ts_ms, label: e.type, color: this.markerColor(e.type) }));
+			const markers = this.layerEvents.map((e) => ({ ts: e.ts_ms, label: e.type, color: markerColor(e.type) }));
 			return timeSeriesConfig(series, from, { markers });
 		}
 	},
@@ -155,9 +148,6 @@ export default defineComponent({
 	methods: {
 		eventColor,
 		eventDetail,
-		markerColor(type: string): string {
-			return MARKER_COLORS[eventColor(type)] ?? MARKER_COLORS.grey;
-		},
 		init() {
 			this.maxLayer = this.layers?.layers.length ? Math.max(...this.layers.layers.map((l) => l.layer)) : (this.job.numLayers ?? 0);
 			this.layer = 1;
@@ -186,32 +176,26 @@ export default defineComponent({
 				clearTimeout(this.retry);
 				this.retry = null;
 			}
-			try {
-				const answer = await this.api.toolpath(this.job.id, this.layer);
-				if (request !== this.request) {
-					return;
-				}
-				if ("state" in answer) {
-					this.message = this.$t("plugins.QualityAssurance.replay.building");
-					this.messageType = "info";
-					this.retry = setTimeout(() => this.load(), RETRY_MS);
-					return;
-				}
+			const result = await fetchToolpath(this.api, this.job.id, this.layer);
+			if (request !== this.request) {
+				return;
+			}
+			if (result.state === "building") {
+				this.message = this.$t("plugins.QualityAssurance.replay.building");
+				this.messageType = "info";
+				this.retry = setTimeout(() => this.load(), TOOLPATH_RETRY_MS);
+				return;
+			}
+			if (result.state === "ready") {
 				this.message = null;
-				this.toolpath = markRaw(answer);
-				if (answer.meta.numLayers > this.maxLayer) {
-					this.maxLayer = answer.meta.numLayers;
+				this.toolpath = markRaw(result.toolpath);
+				if (result.toolpath.meta.numLayers > this.maxLayer) {
+					this.maxLayer = result.toolpath.meta.numLayers;
 				}
-			} catch (e) {
-				if (request !== this.request) {
-					return;
-				}
-				const status = statusOf(e);
+			} else {
 				this.toolpath = null;
-				this.messageType = status === 409 ? "warning" : "error";
-				this.message = status === 409 ? this.$t("plugins.QualityAssurance.replay.fileGone")
-					: status === 404 ? this.$t("plugins.QualityAssurance.replay.noLayer")
-						: (e instanceof Error ? e.message : String(e));
+				this.messageType = result.state === "fileGone" ? "warning" : "error";
+				this.message = result.state === "error" ? result.message : this.$t(`plugins.QualityAssurance.replay.${result.state}`);
 			}
 			this.loadSamples(request);
 		},
@@ -221,10 +205,8 @@ export default defineComponent({
 				this.samples = null;
 				return;
 			}
-			const channels = ["axis.X.machinePosition", "axis.Y.machinePosition", "move.currentMove.extrusionRate",
-				...this.nozzles.flatMap((h) => [`heater.${h.index}.current`, `heater.${h.index}.load`])];
 			try {
-				const samples = await this.api.samples(this.job.id, channels, { from: range.from - SAMPLE_LEAD_MS, to: range.to, resolution: "auto" });
+				const samples = await this.api.samples(this.job.id, replayChannels(this.nozzles), { from: range.from - SAMPLE_LEAD_MS, to: range.to, resolution: "auto" });
 				if (request === this.request) {
 					this.samples = markRaw(samples);
 				}

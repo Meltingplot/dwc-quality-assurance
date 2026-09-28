@@ -41,7 +41,7 @@ import { defineComponent, type PropType } from "vue";
 
 import type { JobDetail, QaApi, TimelapseMeta } from "../core/api";
 import { formatBytes } from "../core/format";
-import { frameForLayer, isPending, layerAtTime, layersWithFrames, seekTime, videoUrl } from "../core/timelapse";
+import { frameForLayer, isPending, layerAtTime, layersWithFrames, seekTime, timelapseNote, videoUrl } from "../core/timelapse";
 import TimelapseFrame from "./TimelapseFrame.vue";
 
 const POLL_MS = 5000;
@@ -80,22 +80,8 @@ export default defineComponent({
 			return STATUS_COLORS[this.meta?.status ?? "none"] ?? "grey";
 		},
 		note(): string | null {
-			const meta = this.meta;
-			switch (meta?.status) {
-				case "none":
-					return this.$t("plugins.QualityAssurance.timelapse.none", { reason: meta.reason ?? "—" });
-				case "capturing":
-					return this.$t("plugins.QualityAssurance.timelapse.capturing");
-				case "queued":
-				case "encoding":
-					return this.$t("plugins.QualityAssurance.timelapse.encoding");
-				case "failed":
-					return this.$t("plugins.QualityAssurance.timelapse.failed", { error: meta.error ?? "—" });
-				case "pruned":
-					return this.$t("plugins.QualityAssurance.timelapse.pruned");
-				default:
-					return null;
-			}
+			const note = timelapseNote(this.meta);
+			return note ? this.$t(`plugins.QualityAssurance.timelapse.${note.key}`, note.params ?? {}) : null;
 		}
 	},
 	watch: {

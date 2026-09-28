@@ -265,5 +265,10 @@
 		"useAsReference": "Use as {axis} reference",
 		"autoReference": "Automatic reference",
 		"compare": "Spectra of the last jobs against the reference"
+	},
+	"embed": {
+		"layerReplay": "Layer replay (QA)",
+		"layerTimelapse": "Layer camera frame (QA)",
+		"noJob": "Quality assurance has not recorded a job yet."
 	}
 }
