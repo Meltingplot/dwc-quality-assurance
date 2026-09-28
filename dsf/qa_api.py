@@ -239,7 +239,35 @@ def handle_job(ctx, request):
 def handle_layers(ctx, request):
     load = ctx.settings.current()["heaterLoad"] if ctx.settings is not None else None
     thresholds = {"high": load["high"], "limit": load["limit"]} if load else None
-    return _found(qa_queries.layers(_con(ctx), _job_id(request), thresholds))
+    con = _con(ctx)
+    result = qa_queries.layers(con, _job_id(request), thresholds)
+    if result is None:
+        raise ApiError(404, "job not found")
+    index, state = _layer_index(ctx, qa_queries.job(con, result["jobId"]))
+    result["meta"]["gcode"] = state
+    if index is not None:
+        stats = {entry["layer"]: entry.get("stats") for entry in index["layers"]}
+        for layer in result["layers"]:
+            layer["gcode"] = stats.get(layer["layer"])
+    return json_response(result)
+
+
+def _layer_index(ctx, job):
+    """``(index, state)`` of the job file's layer index; a missing one is built while the file is
+    still the job's. state: ``ready``, ``building``, ``missing``, ``gone`` (file deleted),
+    ``changed`` (file rewritten since the job) or ``error: …``."""
+    crc = (job or {}).get("fileCrc32")
+    if not crc or ctx.index_cache is None:
+        return None, "missing"
+    index, state = ctx.index_cache.get(crc)
+    if index is not None or state != "missing":
+        return index, state
+    path = ctx.resolve_path(job["file"]) if ctx.resolve_path and job["file"] else None
+    if not path or not os.path.isfile(path):
+        return None, "gone"
+    if _crc_cache.get(path) != crc:
+        return None, "changed"
+    return None, ctx.index_cache.ensure(path, crc)
 
 
 def handle_events(ctx, request):

@@ -102,8 +102,18 @@ def test_job_detail_and_missing(ctx, rig):
     assert get(ctx, "job")[0] == 400
 
 
+def wait_for_index(rig, job_id):
+    crc = rig.rows("SELECT file_crc32 FROM jobs WHERE id=?", job_id)[0]["file_crc32"]
+    for _ in range(200):
+        if rig.index.get(crc)[1] == "ready":
+            return
+        threading.Event().wait(0.01)
+    raise AssertionError("the layer index was not built")
+
+
 def test_layers_contract_for_the_chx_analysis(ctx, rig):
     job_id = run_job(rig)
+    wait_for_index(rig, job_id)
     status, body = get(ctx, "job/layers", id=job_id)
     assert status == 200
     layers = body["layers"]
@@ -119,11 +129,26 @@ def test_layers_contract_for_the_chx_analysis(ctx, rig):
     assert "shareHigh" in first["loadStats"]["1"]
     assert first["fmStats"]["0"]["mean"] == pytest.approx(99)
     assert first["flow"]["0"] > 0
+    # the G-code index per layer: the file has two layers, the job reported three
+    assert first["gcode"] == {"extrudeMm": 1.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0,
+                              "macros": {}}
+    assert layers[2]["gcode"] is None
     meta = body["meta"]
+    assert meta["gcode"] == "ready"
     assert {"index": 2, "name": "SZP coil", "type": "unknown"} in meta["sensors"]
     assert [h["role"] for h in meta["heaters"]] == ["bed", "nozzle"]
     assert meta["chamber"] == ["sensor", 2]
     assert meta["heaterLoad"] == {"high": 0.8, "limit": 0.9}
+
+
+def test_layers_without_a_layer_index(ctx, rig, tmp_path):
+    job_id = run_job(rig)
+    ctx.index_cache = qa_gcode.IndexCache(str(tmp_path / "other"))   # nothing built yet
+    rig.gcode.write_text(rig.gcode.read_text() + "G1 X0 Y0\n")
+    _, body = get(ctx, "job/layers", id=job_id)
+    assert body["meta"]["gcode"] == "changed" and "gcode" not in body["layers"][0]
+    rig.gcode.unlink()
+    assert get(ctx, "job/layers", id=job_id)[1]["meta"]["gcode"] == "gone"
 
 
 def test_events_and_type_filter(ctx, rig):

@@ -1,3 +1,4 @@
+import json
 import math
 import os
 
@@ -77,6 +78,53 @@ def test_index_by_comments(prusa_file):
     assert index["objects"] == {"0": "cube"}
 
 
+def test_layer_stats_with_slicer_retraction(prusa_file):
+    first, second = qa_gcode.build_index(prusa_file, "abc")["layers"]
+    assert first["stats"] == {"extrudeMm": 2.0, "types": {"External perimeter": 2.0}, "retracts": 1,
+                              "fwRetracts": 0, "retractMm": 0.8, "macros": {}}
+    # the unretract is no printing move
+    assert second["stats"]["extrudeMm"] == 1.5 and second["stats"]["retracts"] == 0
+
+
+# OrcaSlicer with firmware retraction and the CHX 350's photo macro at each layer change, as in
+# 3DBenchy_0.4_L0.18mm_N0.4_PLA_Meltingplot CHX 350_54m35s.gcode (2026-09-28)
+FIRMWARE_RETRACTION = """M83
+G10 P0 S220 R200
+;LAYER_CHANGE
+;Z:0.2
+G10 ; retract
+M98 P"0:/sys/meltingplot/timelapse/take-photo.g"
+G1 X1 Y1 Z0.2 F60000
+G11 ; unretract
+;TYPE:Outer wall
+G1 X10 Y1 E.5
+G10 ; retract
+G10
+G1 X20 Y1 F60000
+G11 ; unretract
+;TYPE:Gap infill
+G1 X20 Y10 E.3
+;LAYER_CHANGE
+;Z:0.4
+G10 ; retract
+M98 P"0:/sys/meltingplot/timelapse/take-photo.g"
+G1 X1 Y1 Z0.4 F60000
+G11 ; unretract
+G1 X10 Y1 E.5
+"""
+
+
+def test_layer_stats_with_firmware_retraction(tmp_path):
+    path = tmp_path / "orca.gcode"
+    path.write_text(FIRMWARE_RETRACTION)
+    first, second = qa_gcode.build_index(str(path))["layers"]
+    # a G10 while retracted is the same retraction; G10 with P sets temperatures
+    assert first["stats"] == {"extrudeMm": 0.8, "types": {"Outer wall": 0.5, "Gap infill": 0.3}, "retracts": 2,
+                              "fwRetracts": 2, "retractMm": 0.0,
+                              "macros": {"0:/sys/meltingplot/timelapse/take-photo.g": 1}}
+    assert second["stats"]["retracts"] == 1 and second["stats"]["types"] == {"Gap infill": 0.5}
+
+
 def test_toolpath_flow_and_objects(prusa_file):
     index = qa_gcode.build_index(prusa_file, "abc")
     tp = qa_gcode.toolpath(prusa_file, index, 1, filament_diameter=2.85)
@@ -111,6 +159,7 @@ def test_z_fallback_without_comments(tmp_path):
     index = qa_gcode.build_index(str(path))
     assert index["source"] == "z"
     assert index["numLayers"] == 2
+    assert [layer["stats"]["extrudeMm"] for layer in index["layers"]] == [2.0, 1.0]
     tp = qa_gcode.toolpath(str(path), index, 2)
     assert [e for e in tp["segments"]["e"] if e > 0] == [1.0]
 
@@ -134,4 +183,7 @@ def test_index_cache(tmp_path, prusa_file):
     assert state == "ready" and index["numLayers"] == 2
     fresh = qa_gcode.IndexCache(str(tmp_path))  # from the JSON file
     assert fresh.get("abc")[1] == "ready"
+    with open(os.path.join(str(tmp_path), "index", "old.json"), "w") as handle:
+        json.dump({**index, "version": 1}, handle)
+    assert fresh.get("old") == (None, "missing")  # an older version is built again
     assert cache.ensure("/nonexistent", "zzz", run_async=False).startswith("error")

@@ -400,6 +400,14 @@ Byteausschnitt der Lage: absolute/relative E und XYZ (G90/G91/M82/M83), G1/G0/G2
 (Bögen segmentiert), Feedrate, `M486 S<n>`/`EXCLUDE_OBJECT_START`, `;TYPE:`.
 Fluss = ΔE × π(d/2)² / (Länge/F). Filamentdurchmesser aus Job-Kontext.
 
+**Lagenstatistik aus dem Index** (Index-Version 2, ergänzt 2026-09-28): im selben Durchlauf je Lage
+Filament der Druckbewegungen (gesamt und je `;TYPE:`), Retracts (negatives E oder G10/M103, einmal
+bis E wieder vorwärts geht oder G11/M101), davon Firmware-Retracts (Länge = M207 des Werkzeugs aus
+dem Kontext), Retract-mm und `M98`-Aufrufe; `job/layers` liefert sie je Lage mit. Anlass: Die kleinen
+Kabinenlagen eines Benchys retrahierten 0,4 mm etwa alle 0,26 mm Filament, jede Filamentstelle lief
+4- bis 5-mal übers Extruderrad, das Filament wurde angefressen und der Sensor las 35 %
+(Job 20260928-155257-118609a9); ohne diese Werte sah QA nur das Ergebnis (Tim 2026-09-28).
+
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
 Kopf aus, und der Webserver des SBC kennt keine HTTP-Range-Anfragen. `qa_slicer.py` übernimmt

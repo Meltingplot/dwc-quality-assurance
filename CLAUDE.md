@@ -44,7 +44,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_context.py             job context snapshot, CRC32
   qa_summary.py             layer aggregates, job summary (time-weighted)
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
-  qa_gcode.py               layer index (as job.layer counts) and toolpath
+  qa_gcode.py               layer index (as job.layer counts), per-layer stats, toolpath
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
   qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
