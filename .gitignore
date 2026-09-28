@@ -223,3 +223,7 @@ __marimo__/
 
 # Machine-specific settings of scripts/sideload.sh (hosts, host keys)
 /.sideload.env
+
+# Browser automation output of UI test sessions (Playwright MCP: page snapshots, screenshots,
+# console logs)
+/.playwright-mcp/
