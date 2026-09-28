@@ -107,6 +107,10 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Layers follow `job.layer`. The G-code index counts layers the way DSF forwards comments and RRF
   parses them (`qa_gcode.py`), so index and `job.layer` agree. A layer's `z` is the Z of its last
   extruding sample; `height`/`fractionPrinted` come from `job.layers[]` when DSF has the layer.
+- Gear passes: M207 and e-steps are known only while printing and change during it, so each layer's
+  `filamentPath` is counted at its end with the values from its start, the layer index and the called
+  macros as read during the job; `gear_passes` event from `thresholds.gearPasses` 5 (3 = every piece
+  of filament back and forth once; Tim 2026-09-28).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger

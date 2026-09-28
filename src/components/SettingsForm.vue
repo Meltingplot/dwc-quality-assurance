@@ -105,6 +105,7 @@ const NUMBER_FIELDS = [
 	{ key: "filamentPercentPoints", path: "thresholds.filamentPercentPoints", unit: "%" },
 	{ key: "vInPercent", path: "thresholds.vInPercent", unit: "%" },
 	{ key: "phantomJumpK", path: "thresholds.phantomJumpK", unit: "K" },
+	{ key: "gearPasses", path: "thresholds.gearPasses", unit: "×" },
 	{ key: "filamentPercentWindowMinS", path: "filamentPercentWindowMinS", unit: "s" },
 	{ key: "loadHigh", path: "heaterLoad.high", unit: "" },
 	{ key: "loadLimit", path: "heaterLoad.limit", unit: "" },

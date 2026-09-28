@@ -2,6 +2,7 @@
 database writer, and the timings of a job as DSF reports them."""
 
 import json
+import threading
 
 import pytest
 
@@ -297,3 +298,83 @@ def test_decode_driver_status():
 def test_job_id_format():
     assert qa_collector.job_id(0, "0:/gcodes/a.gcode", "deadbeef").startswith("19700101-000000-")
     assert len(qa_collector.job_id(0, "a", None).split("-")[-1]) == 8
+
+
+# --- filament path through the extruder gear ------------------------------------------------------
+
+PHOTO = "M83\nG10\nG1 E-2 F2000\nG1 E2 F2000\nG11\n"   # take-photo.g's retraction as of chx350-config 4d2bf0e
+SMALL = "".join(f"G1 X{x} Y5 E0.25\nG10\nG1 X{x} Y9\nG11\n" for x in range(1, 5))
+
+
+def gear_layers():
+    """A big layer (2.2 passes), two small ones retracting every 0.25 mm (9 and 13 passes), a big one."""
+    big = 'G10\nM98 P"photo.g"\nG1 Z{z}\nG11\nG1 X10 Y10 E4 F1200\n'
+    small = 'G10\nM98 P"photo.g"\nG1 Z{z}\nG11\n' + SMALL
+    return "M83\n" + "".join(";LAYER_CHANGE\n" + part.format(z=0.2 * n)
+                             for n, part in enumerate((big, small, small, big), 1))
+
+
+def gear_rig(rig, tmp_path, ready=True):
+    rig.gcode.write_text(gear_layers())
+    macro = tmp_path / "photo.g"
+    macro.write_text(PHOTO)
+    files = {"0:/gcodes/a.gcode": str(rig.gcode), "0:/sys/photo.g": str(macro)}
+    rig.collector.resolve_path = files.get
+    rig.start_job()
+    crc = rig.rows("SELECT file_crc32 FROM jobs")[0]["file_crc32"]
+    for _ in range(200):
+        if rig.index.get(crc)[1] == "ready":
+            break
+        threading.Event().wait(0.01)
+    return macro
+
+
+def gear_print(rig, between=None):
+    for layer in (1, 2, 3, 4):
+        rig.patch({"job": {"layer": layer, "duration": layer * 20}}, dt_ms=20_000)
+        if between:
+            between(layer)
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "layer": None}}, dt_ms=20_000)
+    rig.collector.resolve_pending_end(rig.t, force=True)
+
+
+def test_gear_passes_with_the_values_valid_during_the_print(rig, tmp_path):
+    """M207 and e-steps change during the print; each layer counts with the values at its start."""
+    macro = gear_rig(rig, tmp_path)
+
+    def change(layer):
+        if layer == 2:   # a filament's config sets M207 S0.8, the MFM its e-steps
+            rig.patch({"tools": [{"retraction": {"length": 0.8}}], "move": {"extruders": [{"stepsPerMm": 834.38}]}})
+        if layer == 4:
+            macro.write_text(PHOTO.replace("E-2", "E-1"))   # edited while printing
+    gear_print(rig, change)
+    layers = {r["layer"]: qa_db.loads(r["filament_path"]) for r in rig.rows("SELECT * FROM job_layers")}
+    # layer 1: 4 mm printed, one G10 of 0.4 mm, the macro's 4 mm (its G10 skipped: already retracted)
+    assert layers[1] == {"mm": 8.8, "netMm": 4.0, "gearPasses": 2.2, "stepsPerMm": 790.0, "motorSteps": 6952,
+                         "retraction": {"length": 0.4, "extraRestart": 0}}
+    assert (layers[2]["mm"], layers[2]["gearPasses"]) == (9.0, 9.0)
+    assert (layers[3]["gearPasses"], layers[3]["stepsPerMm"], layers[3]["retraction"]["length"]) == (13.0, 834.38, 0.8)
+    assert layers[4]["gearPasses"] == 2.4   # 4 mm + one 0.8 mm cycle + the macro, 4 mm net
+    events = rig.events("gear_passes")
+    assert [(e["layer"], e["payload"]["firstLayer"], e["payload"]["lastLayer"], e["payload"]["max"],
+             e["payload"]["maxLayer"]) for e in events] == [(2, 2, 3, 13.0, 3)]
+    assert events[0]["end_ms"] is not None and events[0]["payload"]["threshold"] == 5
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    photo = context["macros"]['photo.g']
+    assert (photo["pathMm"], photo["fwRetracts"]) == (4.0, 1) and photo["crc32End"] != photo["crc32"]
+
+
+def test_gear_passes_wait_for_the_layer_index(rig, tmp_path, monkeypatch):
+    """Layers that finish while the index is being built get their path once it is ready."""
+    gear_rig(rig, tmp_path)
+    real = rig.index.get
+    building = {"on": True}
+    monkeypatch.setattr(rig.index, "get", lambda crc: (None, "building") if building["on"] else real(crc))
+
+    def release(layer):
+        if layer == 3:
+            building["on"] = False
+    gear_print(rig, release)
+    layers = {r["layer"]: qa_db.loads(r["filament_path"]) for r in rig.rows("SELECT * FROM job_layers")}
+    assert [layers[n]["gearPasses"] for n in (1, 2, 3, 4)] == [2.2, 9.0, 9.0, 2.2]
+    assert [(e["payload"]["firstLayer"], e["payload"]["lastLayer"]) for e in rig.events("gear_passes")] == [(2, 3)]

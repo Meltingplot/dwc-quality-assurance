@@ -23,6 +23,7 @@ import qa_accel
 import qa_channels
 import qa_context
 import qa_db
+import qa_gcode
 import qa_heaterload
 import qa_machine
 import qa_summary
@@ -35,6 +36,7 @@ ABORT_CAUSE_WINDOW_MS = 60_000
 LIVE_SAMPLE_INTERVAL_MS = 1000
 LIVE_HEARTBEAT_MS = 25_000
 VIN_MEDIAN_WINDOW_MS = 90_000
+NOT_READY = object()   # a layer's filament path while the file's layer index is being built
 
 PAUSED = ("pausing", "paused")
 RESUMING = ("resuming",)
@@ -100,6 +102,10 @@ class _Job:
         self.last_duration = None
         self.layers_written = 0
         self.last_accel_ms = None   # last M956 request
+        self.gear_inputs = None     # e-steps and M207 at the start of the current layer
+        self.gear_pending = []      # (layer record, gear inputs) finished before the layer index was ready
+        self.macros = None          # M98 argument -> qa_gcode.macro_stats (None: unreadable), read once
+        self.gear_stats = None      # layer -> stats of the layer index
 
 
 class Collector:
@@ -406,6 +412,7 @@ class Collector:
         self.job.job_acc = qa_summary.JobAccumulator(snapshot, diameters, self._chamber)
         layer = getattr(getattr(model, "job", None), "layer", None)
         self.job.layer = layer
+        self.job.gear_inputs = self._gear_inputs(model)
         self.job.layer_acc = qa_summary.LayerAccumulator(layer, now_ms, snapshot, diameters, self._chamber,
                                                          self._sensor_names) if layer else None
         self._last_coarse_ms = None
@@ -429,6 +436,7 @@ class Collector:
             return
         model = self.model
         cfg = self.cfg()
+        self._gear_backlog(model)
         self._close_ongoing(ended_ms)
         reason = None
         if result != "completed":
@@ -439,6 +447,8 @@ class Collector:
         summary = self._summary(result, reason, globals_end)
         context = dict(job.context)
         context["globalsEnd"] = globals_end
+        if job.macros is not None:
+            context["macros"] = self._macros_at_end(job.macros)
         self.writer.submit("job_update", job.key, {
             "ended_at": ended_ms, "result": result,
             "duration_s": job.last_duration if job.last_duration is not None else round((ended_ms - job.started_ms) / 1000, 1),
@@ -537,6 +547,7 @@ class Collector:
         self.job.layer = layer
         self.load.reset_layer()
         if layer is not None:
+            self.job.gear_inputs = self._gear_inputs(model)
             self.job.layer_acc = qa_summary.LayerAccumulator(layer, now_ms, snapshot, self._diameters,
                                                              self._chamber, self._sensor_names)
             self.broadcast({"type": "layer", "ts": now_ms, "jobId": self.job.id, "layer": layer})
@@ -568,7 +579,15 @@ class Collector:
                 fraction = round(pos / size, 4)
         record = acc.finish(now_ms, last, height=height, z=z, fraction_printed=fraction,
                             load_stats=self.load.layer_stats(acc.span_s))
+        self._gear_backlog(model)
+        path = self._filament_path(acc.layer, self.job.gear_inputs)
+        if path is NOT_READY:
+            self.job.gear_pending.append((record, self.job.gear_inputs))
+        else:
+            record["filament_path"] = path
         self.writer.submit("layer_upsert", self.job.key, record)
+        if path is not NOT_READY:
+            self._gear_passes_event(model, record, path)
         self.job.layers_written += 1
         self.job.layer_acc = None
         self.broadcast({"type": "layer", "ts": now_ms, "jobId": self.job.id, "layer": acc.layer, "finished": True,
@@ -583,25 +602,128 @@ class Collector:
         record["partial"] = True
         self.writer.submit("layer_upsert", self.job.key, record)
 
+    # --- filament path through the extruder gear (qa_gcode.filament_path) -----------------------
+
+    @staticmethod
+    def _gear_inputs(model):
+        """e-steps and M207 of the printing tool (its first extruder) now: known only while the job
+        runs, and they change during it (a filament's config at the tool selection, the MFM's M92)."""
+        tools = [t for t in (getattr(model, "tools", None) or []) if t is not None]
+        current = getattr(getattr(model, "state", None), "current_tool", -1)
+        tool = next((t for t in tools if getattr(t, "number", None) == current), tools[0] if tools else None)
+        drives = list(getattr(tool, "extruders", None) or []) if tool is not None else []
+        extruders = dict(qa_channels.items(getattr(getattr(model, "move", None), "extruders", None)))
+        extruder = extruders.get(drives[0] if drives else 0)
+        return {"stepsPerMm": qa_channels.number(getattr(extruder, "steps_per_mm", None)) if extruder is not None else None,
+                "retraction": qa_context.tool_retraction(tool) if tool is not None else None}
+
+    def _filament_path(self, layer, inputs):
+        """The layer's ``qa_gcode.filament_path``, None when the file has no such layer, NOT_READY
+        while its layer index is being built."""
+        job = self.job
+        if self.index_cache is None or not job.file_crc:
+            return None
+        index, state = self.index_cache.get(job.file_crc)
+        if index is None:
+            return NOT_READY if state == "building" else None
+        if job.gear_stats is None:
+            job.gear_stats = {e["layer"]: e.get("stats") for e in index["layers"]}
+        stats = job.gear_stats.get(layer)
+        if stats is None or inputs is None:
+            return None
+        if job.macros is None:
+            job.macros = self._read_macros(index)
+            job.context["macros"] = job.macros
+            self.writer.submit("job_update", job.key, {"context": dict(job.context)})
+        known = {name: info for name, info in job.macros.items() if info is not None}
+        return qa_gcode.filament_path(stats, inputs["stepsPerMm"], inputs["retraction"], known)
+
+    def _read_macros(self, index):
+        """Every macro the file calls, as it is while the job runs (it may change later)."""
+        names = sorted({name for e in index["layers"] for name in ((e.get("stats") or {}).get("macros") or {})})
+        macros = {}
+        for name in names:
+            path = self._real_path(qa_gcode.macro_name(name))
+            try:
+                macros[name] = qa_gcode.macro_stats(path) if path else None
+            except OSError as exc:
+                logger.warning("macro %s: %s", name, exc)
+                macros[name] = None
+        return macros
+
+    def _macros_at_end(self, macros):
+        """The macros again at the job end: a changed one keeps its stats and gets ``crc32End``."""
+        result = {}
+        for name, info in macros.items():
+            result[name] = info
+            path = self._real_path(qa_gcode.macro_name(name)) if info is not None else None
+            try:
+                now = qa_gcode.macro_stats(path)["crc32"] if path else None
+            except OSError:
+                now = None
+            if info is not None and now != info["crc32"]:
+                result[name] = {**info, "crc32End": now}
+        return result
+
+    def _gear_backlog(self, model):
+        """Layers that finished before the layer index was ready, once it is."""
+        job = self.job
+        if job is None or not job.gear_pending:
+            return
+        if self._filament_path(job.gear_pending[0][0]["layer"], job.gear_pending[0][1]) is NOT_READY:
+            return
+        pending, job.gear_pending = job.gear_pending, []
+        for record, inputs in pending:
+            path = self._filament_path(record["layer"], inputs)
+            self.writer.submit("layer_upsert", job.key, {**record, "filament_path": path})
+            self._gear_passes_event(model, record, path)
+
+    def _gear_passes_event(self, model, record, path):
+        """One event per run of layers whose filament passed the gear ``thresholds.gearPasses`` times
+        or more (5: each piece went back and forth twice; Tim 2026-09-28), from the first one's start
+        to the start of the first layer below."""
+        passes = (path or {}).get("gearPasses")
+        threshold = self.cfg()["thresholds"].get("gearPasses")
+        if passes is None or not threshold:
+            return
+        key = ("gear_passes",)
+        ongoing = self._ongoing.get(key)
+        layer = record["layer"]
+        if passes >= threshold:
+            if ongoing is None:
+                payload = {"threshold": threshold, "firstLayer": layer, "lastLayer": layer, "max": passes,
+                           "maxLayer": layer}
+                eid = self._event(model, record["started_at"], "gear_passes", "high", payload=payload,
+                                  trigger_block=False, layer=layer)
+                self._ongoing[key] = {"id": eid, "ts_ms": record["started_at"], "payload": payload}
+            else:
+                payload = ongoing["payload"]
+                payload["lastLayer"] = layer
+                if passes > payload["max"]:
+                    payload["max"], payload["maxLayer"] = passes, layer
+        elif ongoing is not None:
+            self._end_event(key, record["started_at"])
+
     # --- events ----------------------------------------------------------------------------
 
-    def _event(self, model, ts_ms, type_, subtype=None, payload=None, device=None, trigger_block=True):
+    def _event(self, model, ts_ms, type_, subtype=None, payload=None, device=None, trigger_block=True, layer=None):
         job = self.job
         if job is None:
             return None
+        layer = job.layer if layer is None else layer
         eid = self._alloc_event_id()
         pos, workplace, offsets = qa_channels.positions(model) if model is not None else ({}, None, {})
         block_id = self._trigger(ts_ms, type_) if trigger_block else None
         event = {
             "id": eid, "job_key": job.key, "ts_ms": ts_ms, "type": type_, "subtype": subtype,
-            "layer": job.layer, "x": pos.get("X"), "y": pos.get("Y"), "z": pos.get("Z"), "positions": pos,
+            "layer": layer, "x": pos.get("X"), "y": pos.get("Y"), "z": pos.get("Z"), "positions": pos,
             "workplace": workplace, "offsets": offsets,
             "tool": qa_channels.current_tool(model) if model is not None else None,
             "object_id": qa_channels.current_object(model) if model is not None else None,
             "device": device, "payload": payload, "block_id": block_id,
         }
         self.writer.submit("event_insert", event, urgent=True)
-        job.events.append({"id": eid, "type": type_, "subtype": subtype, "layer": job.layer, "ts_ms": ts_ms,
+        job.events.append({"id": eid, "type": type_, "subtype": subtype, "layer": layer, "ts_ms": ts_ms,
                            "payload": payload})
         self.broadcast({"type": "event", "ts": ts_ms, "jobId": job.id, "event": {
             k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device", "payload")}})

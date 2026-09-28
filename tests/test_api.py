@@ -131,7 +131,7 @@ def test_layers_contract_for_the_chx_analysis(ctx, rig):
     assert first["flow"]["0"] > 0
     # the G-code index per layer: the file has two layers, the job reported three
     assert first["gcode"] == {"extrudeMm": 1.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0,
-                              "macros": {}}
+                              "macros": {}, "pathMm": 1.0, "macrosRetracted": {}}
     assert layers[2]["gcode"] is None
     meta = body["meta"]
     assert meta["gcode"] == "ready"
