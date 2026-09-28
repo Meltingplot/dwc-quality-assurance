@@ -20,6 +20,8 @@ def test_job_start_records_context_and_event(rig):
     context = qa_db.loads(job["context"])
     assert context["file"]["crc32"] == job["file_crc32"]
     assert context["versions"]["plugin"] == "test"
+    assert context["tools"][0]["retraction"] == {"length": 0.4, "extraRestart": 0, "speed": 20.8,
+                                                 "unretractSpeed": 14, "zHop": 0}
     assert [e["type"] for e in rig.events()] == ["job_start"]
     assert rig.collector.status()["currentJobId"] == job["id"]
     # the layer index is built in the background
@@ -171,12 +173,16 @@ def test_heater_fault_monitor_and_setpoints(rig):
     rig.patch({"heat": {"heaters": [{"active": 70}, {"current": 301}]}})
     rig.patch({"heat": {"heaters": [{}, {"state": "fault", "current": 305}]}})
     rig.patch({"move": {"extruders": [{"pressAdv": {"k0": 0.06}}], "axes": [{}, {}, {"babystep": 0.02}]}})
+    rig.patch({"tools": [{"retraction": {"length": 0.8}}]})   # M207 S0.8, e.g. by a filament's config
     types = [(e["type"], e["subtype"]) for e in rig.events()]
     assert ("setpoint_change", "heater.active") in types
     assert ("heater_monitor", "tooHigh") in types
     assert ("heater_fault", None) in types
     assert ("setpoint_change", "pressAdv.k0") in types
     assert ("babystep", None) in types
+    retraction = [e for e in rig.events("setpoint_change") if e["subtype"] == "tool.retraction"]
+    assert [(e["device"], e["payload"]["from"]["length"], e["payload"]["to"]["length"]) for e in retraction] == [
+        (0, 0.4, 0.8)]
     fault = rig.events("heater_fault")[0]
     assert fault["device"] == 1 and fault["tool"] == 0 and fault["layer"] is None
 

@@ -89,8 +89,19 @@ def tools(model):
             "active": _list(getattr(tool, "active", None)),
             "standby": _list(getattr(tool, "standby", None)),
             "offsets": _list(getattr(tool, "offsets", None)),
+            "retraction": tool_retraction(tool),
         })
     return result
+
+
+# ToolRetraction in dsf-python 3.7.0b1 (object_model/tools/tool_retraction.py, read 2026-09-28)
+RETRACTION_FIELDS = (("length", "length"), ("extra_restart", "extraRestart"), ("speed", "speed"),
+                     ("unretract_speed", "unretractSpeed"), ("z_hop", "zHop"))
+
+
+def tool_retraction(tool):
+    """The tool's M207 (firmware retraction, used by G10/G11; speeds in mm/s), None without."""
+    return _object_fields(getattr(tool, "retraction", None), RETRACTION_FIELDS)
 
 
 def _object_fields(obj, fields):
