@@ -261,7 +261,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
 - **Events**: Typkatalog `filament_status`, `filament_percent_window`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
-  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `job_start`, `job_end`,
+  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
@@ -408,6 +408,16 @@ Kabinenlagen eines Benchys retrahierten 0,4 mm etwa alle 0,26 mm Filament, jede 
 4- bis 5-mal übers Extruderrad, das Filament wurde angefressen und der Sensor las 35 %
 (Job 20260928-155257-118609a9); ohne diese Werte sah QA nur das Ergebnis (Tim 2026-09-28).
 
+**Filamentweg durchs Extruderrad** (Index-Version 3, Schema-Version 2, Tim 2026-09-28): M207 und
+E-Steps kennt erst der Druck, und sie ändern sich darin (Filament-Config beim Werkzeugwechsel, M92 der
+MFM-Korrektur). Der Collector merkt sie sich zu Beginn jeder Lage und rechnet am Lagenende mit dem
+Index (Σ|ΔE| der Datei, Firmware-Retracts, `M98`-Aufrufe) und den Makros, wie sie während des Drucks
+auf der Karte liegen (einmal gelesen, sobald der Index fertig ist; am Jobende erneut verglichen), den
+Weg `mm`, das Netto `netMm` und `gearPasses` = Weg / Netto: 1 ohne Retract, 3 = jedes Stück einmal
+vor, zurück, vor, 5 = zweimal. Lagen vor dem fertigen Index werden nachgerechnet. Event `gear_passes`
+für eine Folge von Lagen ≥ `thresholds.gearPasses` (5). Beim Benchy (mit Foto-Makro) lagen 82 von 265
+Lagen bei 5 oder mehr; der Sensor las dort im Referenzlauf im Mittel 80 %, sonst 91–93 %.
+
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
 Kopf aus, und der Webserver des SBC kennt keine HTTP-Range-Anfragen. `qa_slicer.py` übernimmt
@@ -442,7 +452,7 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 ```jsonc
 {
   "sampleIntervalS": 5, "ringBufferS": 90, "postTriggerS": 30,
-  "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15 },
+  "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5 },
   "filamentPercentWindowMinS": 5,
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },

@@ -81,7 +81,7 @@ def test_index_by_comments(prusa_file):
 def test_layer_stats_with_slicer_retraction(prusa_file):
     first, second = qa_gcode.build_index(prusa_file, "abc")["layers"]
     assert first["stats"] == {"extrudeMm": 2.0, "types": {"External perimeter": 2.0}, "retracts": 1,
-                              "fwRetracts": 0, "retractMm": 0.8, "macros": {}}
+                              "fwRetracts": 0, "retractMm": 0.8, "macros": {}, "pathMm": 2.8, "macrosRetracted": {}}
     # the unretract is no printing move
     assert second["stats"]["extrudeMm"] == 1.5 and second["stats"]["retracts"] == 0
 
@@ -121,8 +121,59 @@ def test_layer_stats_with_firmware_retraction(tmp_path):
     # a G10 while retracted is the same retraction; G10 with P sets temperatures
     assert first["stats"] == {"extrudeMm": 0.8, "types": {"Outer wall": 0.5, "Gap infill": 0.3}, "retracts": 2,
                               "fwRetracts": 2, "retractMm": 0.0,
-                              "macros": {"0:/sys/meltingplot/timelapse/take-photo.g": 1}}
+                              "macros": {"0:/sys/meltingplot/timelapse/take-photo.g": 1}, "pathMm": 0.8,
+                              "macrosRetracted": {"0:/sys/meltingplot/timelapse/take-photo.g": 1}}
     assert second["stats"]["retracts"] == 1 and second["stats"]["types"] == {"Gap infill": 0.5}
+
+
+# take-photo.g of the CHX 350 as it was on the machine on 2026-09-28 20:20 (2 mm back, 0.8 forward),
+# shortened
+TAKE_PHOTO = """if state.status == "simulating"
+  M99
+M400
+G10                                               ; firmware retract (M207 of the loaded filament)
+M83
+G1 E-2 F1000
+if var.x_parts < 0
+  G53 G1 X{move.axes[0].max - 5} F60000
+else
+  G1 X{min(var.x_parts + var.clearance, move.axes[0].max - 5)} F60000
+M240
+G1 R3 Z0 F1200
+G1 E0.8 F1200                                       ; the extra 2 mm back
+G11
+"""
+
+
+def test_macro_stats(tmp_path):
+    path = tmp_path / "take-photo.g"
+    path.write_text(TAKE_PHOTO)
+    stats = qa_gcode.macro_stats(str(path))
+    assert {k: stats[k] for k in ("pathMm", "netMm", "fwRetracts", "approximate", "calls")} == {
+        "pathMm": 2.8, "netMm": -1.2, "fwRetracts": 1, "approximate": False, "calls": []}
+    assert len(stats["crc32"]) == 8
+    path.write_text('M82\nG1 E5\nG1 E3\nG1 E{var.prime}\nM98 P"clean.g"\n')
+    stats = qa_gcode.macro_stats(str(path))   # the first absolute E has no start, the expression no value
+    assert (stats["pathMm"], stats["netMm"], stats["approximate"], stats["calls"]) == (2.0, -2.0, True, ["clean.g"])
+    assert qa_gcode.macro_name("take-photo.g") == "0:/sys/take-photo.g"
+    assert qa_gcode.macro_name("/macros/a.g") == "0:/macros/a.g"
+    assert qa_gcode.macro_name("1:/sys/a.g") == "1:/sys/a.g"
+
+
+def test_filament_path():
+    stats = {"pathMm": 1.8, "retractMm": 0.4, "fwRetracts": 2, "macros": {"m.g": 2, "gone.g": 1},
+             "macrosRetracted": {"m.g": 1}}
+    macro = {"pathMm": 4.0, "netMm": 0.0, "fwRetracts": 1}
+    result = qa_gcode.filament_path(stats, 800, {"length": 0.5, "extraRestart": 0.1}, {"m.g": macro})
+    # file: 1.8 + 2 cycles of 1.1; macro twice 4 mm, one of its G10 counts (the other call was retracted)
+    assert result["mm"] == pytest.approx(1.8 + 2.2 + 8 + 1.1)
+    assert result["netMm"] == pytest.approx(1.0 + 0.2 + 0.1)
+    assert result["gearPasses"] == pytest.approx(13.1 / 1.3, abs=0.01)
+    assert result["motorSteps"] == round(13.1 * 800) and result["unknownMacros"] == ["gone.g"]
+    # a macro that feeds back less than it retracts leaves no filament for the layer: no passes
+    short = qa_gcode.filament_path({"pathMm": 0.5, "retractMm": 0, "fwRetracts": 0, "macros": {"m.g": 1}},
+                                   None, None, {"m.g": {"pathMm": 2.8, "netMm": -1.2, "fwRetracts": 1}})
+    assert short["gearPasses"] is None and short["netMm"] == pytest.approx(-0.7) and short["motorSteps"] is None
 
 
 def test_toolpath_flow_and_objects(prusa_file):

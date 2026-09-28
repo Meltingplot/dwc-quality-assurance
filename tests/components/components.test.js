@@ -67,7 +67,9 @@ const LAYERS = {
 		filament: { 0: { commandedMm: 10, measuredMm: 9.7, extruderMm: 10.1, ratio: 0.97 } }, flow: { 0: 2.1 },
 		temps: { heaters: { 1: { min: 219, max: 221, mean: 220, std: 0.5, setpoint: 220 } }, sensors: { 2: { min: 30, max: 31, mean: 30.5, std: 0.2, name: "SZP coil" } }, chamber: null },
 		fmStats: { 0: { min: 90, max: 104, mean: 97, std: 3, avgPercentage: 97, mmPerRev: 25.1 } },
-		pwmStats: {}, loadStats: { 1: { mean: 0.55, max: 0.7, p95: 0.66, maxMean60: 0.6, atSetpointS: 30, shareHigh: 0.1, shareLimit: 0, setpoint: 220 } }
+		pwmStats: {}, loadStats: { 1: { mean: 0.55, max: 0.7, p95: 0.66, maxMean60: 0.6, atSetpointS: 30, shareHigh: 0.1, shareLimit: 0, setpoint: 220 } },
+		filamentPath: layer === 1 ? null : { mm: 12, netMm: 1.6, gearPasses: 2 + 2.5 * layer, stepsPerMm: 801, motorSteps: 9612,
+			retraction: { length: 0.4, extraRestart: 0 } }
 	}))
 };
 
@@ -243,6 +245,10 @@ describe("LayerCharts", () => {
 		}
 		const last = charts[charts.length - 1];
 		expect(last.data.datasets[0].label).toContain("SZP coil");
+		wrapper.vm.view = "gearPasses";   // layer 1 finished before the layer index was ready
+		await flush();
+		expect(charts[charts.length - 1].data.datasets[0].data).toEqual([null, 7, 9.5]);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.layers.gearPassesHint");
 		expectNoVueWarnings(warn);
 	});
 

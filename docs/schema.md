@@ -66,7 +66,8 @@ that the large tables reference.
 ### `job_layers`
 Primary key (`job_key`, `layer`); `layer` counts like `job.layer`. `started_at`, `ended_at`,
 `duration_s`, `height`, `z`, `fraction_printed` and the JSON columns `filament`, `flow`, `temps`,
-`fm_stats`, `pwm_stats`, `load_stats` — the fields of api.md "Layer" (snake_case here).
+`fm_stats`, `pwm_stats`, `load_stats`, `filament_path` (schema version 2) — the fields of api.md "Layer"
+(snake_case here).
 
 ### `channels`
 `id`, `name` (e.g. `heater.1.current`; the names are listed in api.md "Channels").
@@ -124,6 +125,7 @@ when the machine or the file changes later.
 | `versions` | `firmware`, `dsf`, `plugin` |
 | `globalsStart` | the `contextGlobals` at job start (missing globals are left out) |
 | `globalsEnd` | the same at job end (added then) |
+| `macros` | every macro the file calls (`M98 P` argument), read while the job runs once the layer index is ready: `crc32`, `pathMm`, `netMm`, `fwRetracts` (its own E travel, as `qa_gcode.macro_stats` counts it), `approximate`, `calls` (nested M98), `crc32End` when it differed at the job end; null when unreadable |
 | `material` | as the column |
 
 ## Job summary (`jobs.summary`)

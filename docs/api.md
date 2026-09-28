@@ -99,7 +99,8 @@ Each layer (`job.layer` numbering, i.e. RRF's):
 | `fmStats` | per monitor: `lastPercentage` `{min, max, mean, std}`, `avgPercentage`, `mmPerRev` at layer end |
 | `pwmStats` | per heater at a constant, reached setpoint: `avgPwmMean`, `avgPwmStd`, `currentStd` |
 | `loadStats` | per heater: `mean`, `max`, `p95` (load at the setpoint), `maxMean60`, `atSetpointS`, `shareAtSetpoint`, `shareHigh`, `shareLimit` (time share of the 60 s mean ≥ high/limit), `setpoint` |
-| `gcode` | from the file's layer index (absent unless `meta.gcode` is `ready`, null for a layer the file does not have): `extrudeMm` (filament of printing moves), `types` (the same per `;TYPE:`), `retracts` (retractions: negative E or G10/M103, once until E moves forward or G11/M101), `fwRetracts` (of these firmware ones, each the tool's M207 length: context `tools[].retraction`, changes as `setpoint_change` `tool.retraction`), `retractMm` (negative E), `macros` (`M98 P` calls: path → count; their own moves are not in the file) |
+| `gcode` | from the file's layer index (absent unless `meta.gcode` is `ready`, null for a layer the file does not have): `extrudeMm` (filament of printing moves), `types` (the same per `;TYPE:`), `retracts` (retractions: negative E or G10/M103, once until E moves forward or G11/M101), `fwRetracts` (of these firmware ones, each the tool's M207 length: context `tools[].retraction`, changes as `setpoint_change` `tool.retraction`), `retractMm` (negative E), `macros` (`M98 P` calls: path → count; their own moves are not in the file), `pathMm` (E travel of the file's moves both ways, Σ\|ΔE\|), `macrosRetracted` (of the calls, those made while retracted) |
+| `filamentPath` | the filament's path through the extruder gear, counted when the layer ends with the e-steps and M207 valid at its start (null: no index, or the file lacks the layer): `mm` (path both ways: the file's E, firmware retraction cycles of length + length + extraRestart, the macros' own E as in `context.macros`), `netMm` (filament fed), `gearPasses` (`mm` / `netMm`: 1 without retraction, 3 when every piece went back and forth once; null when `netMm` < 0.1), `stepsPerMm`, `motorSteps` (`mm` × `stepsPerMm`), `retraction` `{length, extraRestart}`, `unknownMacros` (called, but unreadable) |
 
 Heater load = `avgPwm / model.maxPwm`, clamped to 0…1; counted only while processing, at an
 active setpoint that was reached (the CHX UI banner's definition, PLAN.md §5.4.1).
@@ -121,6 +122,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `resume` | – | `pausedS`, `pauseEvent` |
 | `filament_status` | new status | `monitor`, `status`, `from`, `lastPercentage`; end: `returnedTo`, `durationS` |
 | `filament_percent_window` | `low` / `high` | `monitor`, `since`, `percentMin`, `percentMax`, `lastPercentage`, `side`; end: `extreme` |
+| `gear_passes` | `high` | a run of layers with `filamentPath.gearPasses` ≥ `thresholds.gearPasses` (default 5), from the first one's start to the start of the first layer below: `threshold`, `firstLayer`, `lastLayer`, `max`, `maxLayer` |
 | `heater_fault` | – | `heater`, `previousState`, `current` |
 | `heater_monitor` | `tooHigh` / `tooLow` | `heater`, `monitor`, `limit`, `reading`, `sensor`, `action` |
 | `heater_load` | `high` / `limit` | `heater`, `tool`, `setpoint`, `level`, `peakMean`, `levels`, `volumetricFlow`, `speedFactor` |

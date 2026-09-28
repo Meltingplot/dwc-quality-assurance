@@ -99,6 +99,7 @@ const EVENT_COLORS: Record<string, string> = {
 	mfm_error_tolerated: "warning",
 	mfm_recovery: "warning",
 	mfm_flow_bias: "warning",
+	gear_passes: "warning",
 	pause: "info",
 	resume: "info",
 	setpoint_change: "primary",
@@ -141,6 +142,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return formatDuration(p.pausedS);
 		case "mfm_error_tolerated":
 			return `#${p.count ?? "?"}`;
+		case "gear_passes":
+			return `${formatNumber(p.max, 1)}× @ L${p.maxLayer ?? "?"} (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
 		case "babystep":
 			return `${p.from ?? "—"} → ${p.to ?? "—"} mm`;
 		case "timelapse_failed":

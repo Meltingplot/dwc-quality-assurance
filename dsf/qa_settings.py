@@ -36,6 +36,9 @@ DEFAULTS = {
         # phantomReturnS to within temperatureK of the value before the jump
         "phantomJumpK": 15,
         "phantomReturnS": 5,
+        # a run of layers whose filament passed the extruder gear this often is one gear_passes
+        # event: 1 = no retraction, 3 = every piece back and forth once, 5 = twice (Tim 2026-09-28)
+        "gearPasses": 5,
     },
     # lastPercentage outside configured.percentMin/Max (without a firmware error) this long
     "filamentPercentWindowMinS": 5,
@@ -77,6 +80,7 @@ BOUNDS = {
     "thresholds.vInPercent": (_NUMBER, 1, 100),
     "thresholds.phantomJumpK": (_NUMBER, 1, 1000),
     "thresholds.phantomReturnS": (_NUMBER, 0.1, 60),
+    "thresholds.gearPasses": (_NUMBER, 1, 100),
     "filamentPercentWindowMinS": (_NUMBER, 0, 3600),
     "heaterLoad.high": (_NUMBER, 0, 1),
     "heaterLoad.limit": (_NUMBER, 0, 1),

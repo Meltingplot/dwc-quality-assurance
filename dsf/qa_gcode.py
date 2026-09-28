@@ -24,6 +24,15 @@ or a firmware retraction, counted once until E moves forward or G11/M101 undo it
 retraction's length is the tool's M207 setting (``tools[].retraction`` in the job context), not
 in the file. A macro's own moves are not in the file either, hence ``macros``.
 
+Version 3 (2026-09-28) adds ``pathMm``, the file's own E travel both ways (Σ|ΔE|), and
+``macrosRetracted``, the macro calls made while retracted. With the M207 and the e-steps valid for
+the layer, which only the print knows and which may change during it, and the macros' own moves
+(``macro_stats``), ``filament_path`` gives the filament's path through the extruder gear and how
+often each piece passed it (``gearPasses``): 1 without retractions, 3 when every piece went
+forward, back and forward once, 5 when twice. In the Benchy the layers at 5 or more (82 of 265,
+with the photo macro) read 80 % on average in the reference run 20260928-134928-118609a9, the
+others 91-93 %.
+
 G-code semantics from the Duet3D wiki (Gcodes.md, 2026-09-21): G90/G91 switch X/Y/Z only,
 M82/M83 the extruder; G92 sets the user position; G2/G3 take I/J (relative centre) or R;
 M486 S<n> [A"name"] marks the object being printed, S-1 a non-object feature. G10 without
@@ -36,6 +45,7 @@ import math
 import os
 import re
 import threading
+import zlib
 from collections import OrderedDict
 
 # DuetControlServer Settings.FirmwareComments (v3.7-dev @ cd3ae65f)
@@ -45,7 +55,7 @@ FIRMWARE_COMMENTS = ("printing object", "MESH", "process", "stop printing object
 START_STRINGS = ("printing object", "MESH", "process", "stop printing object", "layer", "LAYER",
                  "; --- layer", "BEGIN_LAYER_OBJECT z=", "HEIGHT", "PRINTING", "REMAINING_TIME", "LAYER_CHANGE")
 
-INDEX_VERSION = 2  # 2: per-layer stats (2026-09-28)
+INDEX_VERSION = 3  # 2: per-layer stats, 3: pathMm and macrosRetracted (2026-09-28)
 _WORD_RE = re.compile(r"([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))")
 _INT_RE = re.compile(r"[-+]?\d+")
 _M486_NAME_RE = re.compile(r'A\s*"((?:[^"]|"")*)"')
@@ -215,7 +225,8 @@ def _comment_object(state, objects, comment):
 
 
 def _new_stats():
-    return {"extrudeMm": 0.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0, "macros": {}}
+    return {"extrudeMm": 0.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0, "macros": {},
+            "pathMm": 0.0, "macrosRetracted": {}}
 
 
 def _firmware_code(code):
@@ -260,12 +271,14 @@ class _StatsScan:
                     stats["fwRetracts"] += 1
             if mm is not None:
                 stats["retractMm"] += mm
+                stats["pathMm"] += mm
         self.retracted = True
 
     def forward(self, mm, printing, type_):
         self.retracted = False
-        if printing:
-            for stats in self._targets():
+        for stats in self._targets():
+            stats["pathMm"] += mm
+            if printing:
                 stats["extrudeMm"] += mm
                 if type_:
                     stats["types"][type_] = stats["types"].get(type_, 0.0) + mm
@@ -273,11 +286,102 @@ class _StatsScan:
     def macro(self, name):
         for stats in self._targets():
             stats["macros"][name] = stats["macros"].get(name, 0) + 1
+            if self.retracted:
+                stats["macrosRetracted"][name] = stats["macrosRetracted"].get(name, 0) + 1
 
     @staticmethod
     def rounded(stats):
         return {**stats, "extrudeMm": round(stats["extrudeMm"], 3), "retractMm": round(stats["retractMm"], 3),
-                "types": {k: round(v, 3) for k, v in stats["types"].items()}}
+                "pathMm": round(stats["pathMm"], 3), "types": {k: round(v, 3) for k, v in stats["types"].items()}}
+
+
+def macro_name(name):
+    """The SD path of an ``M98 P`` argument: a relative one is in /sys (wiki M98, 2026-09-26)."""
+    if re.match(r"^\d:/", name):
+        return name
+    return "0:" + name if name.startswith("/") else "0:/sys/" + name
+
+
+def macro_stats(path):
+    """E travel of a macro file as written, for ``filament_path``: every branch of a conditional
+    counts, an E given by an expression or an absolute E without a known start does not
+    (``approximate``), a nested ``M98`` is only listed in ``calls``. E is relative until ``M82``
+    (OrcaSlicer files and the CHX 350's macros run with M83)."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    result = {"crc32": f"{zlib.crc32(data) & 0xFFFFFFFF:08x}", "pathMm": 0.0, "netMm": 0.0, "fwRetracts": 0,
+              "approximate": False, "calls": []}
+    rel_e, e_abs, retracted = True, None, False
+    for raw in data.decode("utf-8", errors="replace").splitlines():
+        stripped = _split(raw)[0].strip()
+        if not stripped or stripped[0] not in "GMgm":
+            continue
+        special = _firmware_code(stripped)
+        if special == "retract":
+            if not retracted:
+                result["fwRetracts"] += 1
+            retracted = True
+            continue
+        if special == "unretract":
+            retracted = False
+            continue
+        if special is not None:
+            result["calls"].append(special[1])
+            continue
+        if "{" in stripped:
+            if re.search(r"\bE\s*\{", stripped, re.IGNORECASE):
+                result["approximate"] = True
+            continue
+        words = parse_words(stripped)
+        if words.get("M") in (82, 83):
+            rel_e = words["M"] == 83
+        elif words.get("G") in (0, 1, 2, 3) and "E" in words:
+            if rel_e:
+                de = words["E"]
+            elif e_abs is None:
+                de = 0.0
+                result["approximate"] = True
+            else:
+                de = words["E"] - e_abs
+            e_abs = words["E"] if not rel_e else e_abs
+            result["pathMm"] += abs(de)
+            result["netMm"] += de
+    result["pathMm"] = round(result["pathMm"], 3)
+    result["netMm"] = round(result["netMm"], 3)
+    return result
+
+
+NET_MIN_MM = 0.1   # below this a layer fed no filament to speak of: no gearPasses
+
+
+def filament_path(stats, steps_per_mm, retraction, macros):
+    """A layer's filament path through the extruder gear: its index ``stats``, the ``steps_per_mm``
+    and M207 ``retraction`` (``{length, extraRestart}``) valid for it, and ``macros`` (M98 argument
+    → ``macro_stats``). A firmware retraction cycle moves the filament back by the length and
+    forward by the length plus extraRestart. A macro called while retracted skips its first G10,
+    the one the file already did."""
+    length = (retraction or {}).get("length") or 0.0
+    extra = (retraction or {}).get("extraRestart") or 0.0
+    cycles = stats.get("fwRetracts", 0)
+    path = stats.get("pathMm", 0.0) + cycles * (2 * length + extra)
+    net = stats.get("pathMm", 0.0) - 2 * stats.get("retractMm", 0.0) + cycles * extra
+    unknown = []
+    for name, calls in (stats.get("macros") or {}).items():
+        info = (macros or {}).get(name)
+        if info is None:
+            unknown.append(name)
+            continue
+        retracted = (stats.get("macrosRetracted") or {}).get(name, 0)
+        own = (calls - retracted) * info["fwRetracts"] + retracted * max(0, info["fwRetracts"] - 1)
+        path += calls * info["pathMm"] + own * (2 * length + extra)
+        net += calls * info["netMm"] + own * extra
+    result = {"mm": round(path, 3), "netMm": round(net, 3),
+              "gearPasses": round(path / net, 2) if net > NET_MIN_MM else None,
+              "stepsPerMm": steps_per_mm, "motorSteps": round(path * steps_per_mm) if steps_per_mm else None,
+              "retraction": {"length": length, "extraRestart": extra}}
+    if unknown:
+        result["unknownMacros"] = sorted(unknown)
+    return result
 
 
 def build_index(path, crc32=None, progress=None):

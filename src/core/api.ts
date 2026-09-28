@@ -76,6 +76,18 @@ export interface LayerRecord {
 	} | null>;
 	/** absent until the layer index is ready, null for a layer the file does not have */
 	gcode?: LayerGcodeStats | null;
+	/** the filament's path through the extruder gear, counted at the layer's end (docs/api.md) */
+	filamentPath: FilamentPath | null;
+}
+
+export interface FilamentPath {
+	mm: number;
+	netMm: number;
+	gearPasses: number | null;
+	stepsPerMm: number | null;
+	motorSteps: number | null;
+	retraction: { length: number; extraRestart: number };
+	unknownMacros?: Array<string>;
 }
 
 export interface LayersAnswer {
@@ -100,6 +112,8 @@ export interface LayerGcodeStats {
 	fwRetracts: number;
 	retractMm: number;
 	macros: Record<string, number>;
+	pathMm: number;
+	macrosRetracted: Record<string, number>;
 }
 
 export interface QaEvent {
