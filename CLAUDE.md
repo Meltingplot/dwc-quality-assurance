@@ -115,9 +115,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `temperatureK` of the value before inside `phantomReturnS`.
 - Timelapse: the snapshot at the change to layer n is layer n − 1's frame (the last one at the job
   end); a job that sends M240 (slicer macro: park, M400, M240, return; Tim 2026-09-28) gets its frames
-  from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
-  nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
-  frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
+  from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; the
+  photo waits until the camera picture stood still (`stillMs`: the CHX 350 camera shows the machine
+  1.3–2.3 s late, measured 2026-09-28; thumbnails via ffmpeg); frames numbered without gaps;
+  encoding only while no job prints (SIGSTOP/SIGCONT), with nice 19 + I/O idle set on the encoder
+  thread and inherited by ffmpeg; verified video (packets = frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).
 - Accelerometer: only the one on the board `accelerometer.board` names (CAN address; default `null`
   = none, Tim 2026-09-27: chosen by setting, never automatically); every `intervalMin` while

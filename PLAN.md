@@ -497,8 +497,17 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   („trigger camera“, RepRap-Wiki; RRF implementiert es nicht) sendet und zurückfährt; Profile oder
   Jobs, die das nicht vertragen, lassen es weg (Standard: aus). M240 allein = Foto an Ort und Stelle.
   QA hält M240 per DSF-Code-Interception (Pre, Kanäle File/File2, `auto_flush`), sendet `M400` auf
-  dem SBC-Kanal, wartet `settleMs` (300 ms, Kamera-Latenz), holt das Bild und gibt M240 frei — immer,
-  auch bei Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Ab dem
+  dem SBC-Kanal, wartet `settleMs` (300 ms), holt dann Bilder, bis das Bild `stillMs` (500 ms) still
+  steht, höchstens bis `stillMaxMs` (5 s) nach dem M240, und gibt M240 frei — immer, auch bei
+  Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Grund: die Kamera
+  der CHX 350 zeigt die Maschine 1,3–2,3 s verspätet, schwankend innerhalb eines Jobs (gemessen
+  2026-09-28, Kopfposition aus dem Objektmodell gegen Snapshots mit 10 Hz); mit fester Wartezeit
+  (`G4 P1000` im Makro + 300 ms) zeigten die Bilder den Kopf auf dem Weg zur Parkposition. Ursache
+  war ein Rückstau in den TCP-Puffern zwischen Kamera und motion (motion las mit der Kamerarate von
+  10 fps und holte nie auf); `netcam_params capture_rate=15` auf dem HMI behebt das. „Still“ =
+  zwei aufeinanderfolgende Bilder als graues 160×90-Vorschaubild (ffmpeg) unterscheiden sich in
+  höchstens 5 Pixeln um mehr als 24 Graustufen; kalibriert an 451 Bildern (geparkt ≤ 2, beim Drucken
+  höchstens 0,3 s am Stück darunter). Der Index hält je Bild `waitMs` und `still`. Ab dem
   ersten M240 eines Jobs kommen dessen Bilder nur noch von M240 (Lage n−1 beim M240 in Lage n; vor
   Lage 1 keins), das letzte weiter am Jobende. Braucht `codeInterceptionReadWrite`; ohne laufendes
   QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine

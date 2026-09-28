@@ -214,6 +214,9 @@ export interface TimelapseEntry {
 	frame: number | null;
 	ts: number;
 	reason?: string;
+	/** M240 photo: ms from the M240 to the snapshot, and whether the picture had stood still (null: not judged) */
+	waitMs?: number;
+	still?: boolean | null;
 }
 
 export interface TimelapseMeta {

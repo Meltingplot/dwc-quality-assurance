@@ -116,7 +116,9 @@ const TIMELAPSE_FIELDS = [
 	{ key: "minIntervalS", path: "timelapse.minIntervalS", unit: "s", nullable: false },
 	{ key: "fps", path: "timelapse.fps", unit: "fps", nullable: false },
 	{ key: "encoderThreads", path: "timelapse.encoderThreads", unit: "", nullable: true },
-	{ key: "settleMs", path: "timelapse.settleMs", unit: "ms", nullable: false }
+	{ key: "settleMs", path: "timelapse.settleMs", unit: "ms", nullable: false },
+	{ key: "stillMs", path: "timelapse.stillMs", unit: "ms", nullable: false },
+	{ key: "stillMaxMs", path: "timelapse.stillMaxMs", unit: "ms", nullable: false }
 ];
 
 const ACCEL_FIELDS = [
