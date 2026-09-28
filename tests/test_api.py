@@ -45,7 +45,7 @@ def run_job(rig, cancel=False):
                    "move": {"currentMove": {"extrusionRate": 1.0}, "axes": [{}, {}, {"machinePosition": 0.2 * layer}]},
                    "sensors": {"filamentMonitors": [{"lastPercentage": 99, "avgPercentage": 98,
                                                      "totalExtrusion": 10.0 * layer,
-                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 9.8 * layer}}]}})
+                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 10.0 * layer}}]}})
         for _ in range(12):
             rig.patch({"heat": {"heaters": [{}, {"avgPwm": 0.6}]}}, dt_ms=1000)
     rig.patch({"heat": {"heaters": [{}, {"current": 213}]}})  # a jump: one fine block

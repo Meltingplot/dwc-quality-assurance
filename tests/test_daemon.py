@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import threading
 
 import pytest
 
@@ -17,7 +18,26 @@ def daemon(data_dir):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module._shutdown.clear()
+    module.InterceptConnection = FakeIntercept
     return module
+
+
+class FakeIntercept:
+    """The M240 interceptor: connected, never receives a code"""
+
+    def __init__(self, *args, **kwargs):
+        self.closed = threading.Event()
+        self.socket = None
+
+    def connect(self):
+        pass
+
+    def receive_code(self):
+        self.closed.wait(5)
+        raise ConnectionError("closed")
+
+    def close(self):
+        self.closed.set()
 
 
 class FakeEndpoint:
@@ -118,6 +138,39 @@ def test_main_gives_up_after_repeated_errors(daemon, monkeypatch):
     monkeypatch.setattr(daemon._shutdown, "wait", lambda _t=None: False)
     with pytest.raises(ConnectionResetError):
         daemon.main()
+
+
+def test_sigterm_wakes_the_main_loop(daemon, monkeypatch):
+    """The handler shuts the subscription socket down: the blocked read ends at once (patched receive_json
+    raises ConnectionError on end of stream) instead of after the 3 s subscription timeout"""
+    import socket
+
+    ours, theirs = socket.socketpair()
+
+    class BlockingSubscribe:
+        def __init__(self, *args, **kwargs):
+            self.socket = ours
+
+        def connect(self):
+            pass
+
+        def close(self):
+            pass
+
+        def get_object_model(self):
+            return make_model()
+
+        def get_object_model_patch(self):
+            daemon._signal_handler(15, None)          # SIGTERM arrives while QA waits for DSF
+            if not self.socket.recv(4096):
+                raise ConnectionError("DSF closed the connection")
+            raise AssertionError("the socket should be shut down")
+
+    monkeypatch.setattr(daemon, "CommandConnection", FakeCommand)
+    monkeypatch.setattr(daemon, "SubscribeConnection", BlockingSubscribe)
+    daemon.main()
+    assert daemon._shutdown.is_set()
+    theirs.close()
 
 
 def test_connect_with_retry(daemon, monkeypatch):

@@ -46,6 +46,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts) and toolpath
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
+  qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
@@ -67,6 +68,8 @@ the real library. Verified 2026-09-26 against dsf-python 3.7.0b1 and DSF v3.7-de
 | `RotatingMagnetFilamentMonitor.agc`, `calibrated.mmPerRev`, `FilamentMonitor.filamentPresent` missing | added as `model_prop`s |
 | `BuildObject.cancelled` spelled `canceled` | alias |
 | `sensors.accelerometers` missing (DuetAPI moved it from `Board`, 524fdc4c), no `port`/`resolution`/`samplingRate` | collection of the library's `Accelerometer` + the three props (verified 2026-09-27) |
+| `receive_json` counts braces inside strings, decodes each 4 KiB `recv` alone (split `°` → UnicodeDecodeError), spins on EOF | string-aware `json_object_end`, incremental UTF-8 decoder, `ConnectionError` on EOF (2026-09-28) |
+| `HttpEndpointUnixSocket.close` calls `loop.stop()` from another thread: loops stay in epoll, Python joins them at exit → DSF SIGKILLs after 4 s | stop via `call_soon_threadsafe`; SIGTERM also shuts the subscription socket (2026-09-28, CHX 350: stop 126 ms) |
 
 `messages[]` is read from the raw patch dict, not from the typed model (the typed collection
 is overwritten index by index by every patch). DSF sends only new messages in a patch
@@ -91,7 +94,7 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Manifest: `sbcAutoRestart` restarts 2 s after an unexpected exit; permissions used:
   commandExecution, objectModelReadWrite, registerHttpEndpoints, fileSystemAccess, readGCodes,
   networkAccess (camera), launchProcesses (ffmpeg), readSystem/writeSystem (accelerometer CSVs
-  in `0:/sys/accelerometer`). `sbcPackageDependencies: ["ffmpeg"]`, no Python packages beyond dsf-python.
+  in `0:/sys/accelerometer`), codeInterceptionReadWrite (M240; resolving needs it). `sbcPackageDependencies: ["ffmpeg"]`, no Python packages beyond dsf-python.
 - Accelerometers are `sensors.accelerometers[]`, the index is the M955/M956 P number; `runs` counts
   every finished run (`points` 0 = failed). M956 on the SBC channel starts at once without a
   movement lock (RRF 3.7-dev @ 3638836 `Accelerometers.cpp`); in SBC mode `runs` advances before the
@@ -111,7 +114,8 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
   `temperatureK` of the value before inside `phantomReturnS`.
 - Timelapse: the snapshot at the change to layer n is layer n − 1's frame (the last one at the job
-  end); frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
+  end); a job that sends M240 (slicer macro: park, M400, M240, return; Tim 2026-09-28) gets its frames
+  from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
   nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
   frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).
@@ -122,7 +126,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event.
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
   boards that report status; RRF's event text in `messages[]` for the others (only printed when
-  no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`).
+  no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`). `boards[].drivers[].status` is raw,
+  the boards raise open load (bits 6/7) only after 500 ms (Duet3Expansion 3.7-dev @ 806ef34
+  `Move.cpp:389-410`, CANlib `OpenLoadTimeout`; 2026-09-28): QA records every open-load episode as
+  one event, `confirmed: false` until it lasted 500 ms (then a fine block), with its duration — so
+  boards with many transients show (Tim 2026-09-28).
 
 ## Build, test, release
 ```bash

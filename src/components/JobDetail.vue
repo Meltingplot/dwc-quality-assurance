@@ -7,7 +7,7 @@
 				<div>
 					<div class="text-h6">{{ fileName(job.file) }}</div>
 					<div class="text-caption text-medium-emphasis">
-						{{ job.id }} · {{ formatDateTime(job.startedAt) }} – {{ formatDateTime(job.endedAt) }}
+						{{ job.id }} · {{ formatDateTime(job.startedAt) }}<template v-if="job.endedAt"> – {{ formatDateTime(job.endedAt) }}</template>
 					</div>
 				</div>
 				<v-chip :color="resultColor(job.result)" variant="tonal">{{ $t(`plugins.QualityAssurance.results.${job.qaResult}`) }}</v-chip>
@@ -27,7 +27,7 @@
 				</v-col>
 			</v-row>
 
-			<v-tabs v-model="tab" density="compact" class="mb-2">
+			<v-tabs v-model="tab" density="compact">
 				<v-tab value="layers">{{ $t("plugins.QualityAssurance.job.tabLayers") }}</v-tab>
 				<v-tab value="replay">{{ $t("plugins.QualityAssurance.job.tabReplay") }}</v-tab>
 				<v-tab value="timelapse">{{ $t("plugins.QualityAssurance.job.tabTimelapse") }}</v-tab>
@@ -37,7 +37,8 @@
 				<v-tab value="summary">{{ $t("plugins.QualityAssurance.job.tabSummary") }}</v-tab>
 				<v-tab value="context">{{ $t("plugins.QualityAssurance.job.tabContext") }}</v-tab>
 			</v-tabs>
-			<v-window v-model="tab">
+			<!-- gap inside the window, see QualityAssurance.vue -->
+			<v-window v-model="tab" class="pt-2">
 				<v-window-item value="layers">
 					<layer-charts :answer="layers" />
 					<div v-if="distribution.length" class="mt-4">
@@ -52,11 +53,11 @@
 					<timelapse-viewer v-if="tab === 'timelapse'" :api="api" :job="job" />
 				</v-window-item>
 				<v-window-item value="spectra">
-					<spectrum-view v-if="tab === 'spectra'" :api="api" :job="job" />
+					<spectrum-view v-if="tab === 'spectra'" :api="api" :job="job" :reload-key="reloadKey" />
 				</v-window-item>
 				<v-window-item value="channels">
 					<channel-chart v-if="tab === 'channels'" :api="api" :job-id="job.id" :start-ms="startMs" :events="events"
-						:raw-pruned="job.rawPruned" :default-channels="defaultChannels" />
+						:raw-pruned="job.rawPruned" :default-channels="defaultChannels" :reload-key="reloadKey" />
 				</v-window-item>
 				<v-window-item value="events">
 					<event-list :events="events" :start-ms="startMs" />
@@ -129,8 +130,9 @@ export default defineComponent({
 			const summary = (this.job?.summary ?? {}) as Record<string, any>;
 			const filament = Object.values(summary.filament ?? {})[0] as Record<string, any> | undefined;
 			const loads = Object.values(summary.thermal?.heaterLoad ?? {}).filter((l: any) => l?.nozzle) as Array<Record<string, any>>;
+			// unconfirmed: a driver's open load that cleared within 500 ms (listed, not counted here)
 			const events = Object.entries(summary.events ?? {}).filter(([type]) => !QUIET_EVENTS.has(type))
-				.reduce((sum, [, e]) => sum + ((e as { count: number }).count ?? 0), 0);
+				.reduce((sum, [, e]) => sum + (((e as { count: number }).count ?? 0) - ((e as { unconfirmed?: number }).unconfirmed ?? 0)), 0);
 			return [
 				{ key: "duration", value: formatDuration(this.job?.durationS) },
 				{ key: "layers", value: String(this.layers?.layers.length ?? "—") },
@@ -146,7 +148,7 @@ export default defineComponent({
 			this.load();
 		},
 		reloadKey() {
-			this.load();
+			this.load(true);
 		}
 	},
 	mounted() {
@@ -156,8 +158,9 @@ export default defineComponent({
 		fileName,
 		formatDateTime,
 		resultColor,
-		async load() {
-			this.loading = true;
+		/** ``quiet`` keeps the shown job without a progress bar (reloads while it runs) */
+		async load(quiet = false) {
+			this.loading = !quiet;
 			this.error = null;
 			try {
 				const [job, layers, events] = await Promise.all([

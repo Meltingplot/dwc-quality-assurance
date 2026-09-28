@@ -87,7 +87,9 @@
 		"type": "Ereignis",
 		"detail": "Detail",
 		"position": "Position (Maschine)",
-		"none": "Keine Ereignisse"
+		"none": "Keine Ereignisse",
+		"unconfirmed": "unbestätigt",
+		"unconfirmedHint": "Nach weniger als 500 ms verschwunden: das Board selbst meldet Open Load erst nach 500 ms"
 	},
 	"eventTypes": {
 		"filament_status": "Filamentmonitor",
@@ -158,8 +160,11 @@
 		"timelapse": "Zeitraffer",
 		"save": "Speichern",
 		"reset": "Änderungen verwerfen",
+		"timelapseM240": "Sendet der G-Code M240 (Kamera auslösen, z. B. aus einem Slicer-Makro, das den Kopf parkt), kommen die Bilder des Jobs von M240; der Druck wartet auf jedes Foto. Sonst entsteht ein Bild bei jedem Lagenwechsel.",
+		"timelapseNotReady": "Zeitraffer nicht bereit: {reason}.",
+		"chamberAutoHint": "Kammerheizer, sonst der Sensor aus „Sensorname“",
 		"chamberModes": {
-			"auto": "Automatisch (Kammerheizer, sonst Sensor nach Name)",
+			"auto": "Automatisch",
 			"heater": "Heizer",
 			"sensor": "Analogsensor"
 		},
@@ -186,6 +191,7 @@
 			"minIntervalS": "Zeitraffer: Mindestabstand der Bilder",
 			"fps": "Zeitraffer: Bildrate des Videos",
 			"encoderThreads": "Zeitraffer: Encoder-Threads (leer = automatisch)",
+			"settleMs": "Zeitraffer: Kameraverzögerung vor einem M240-Foto",
 			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt",
 			"accelBoard": "Accelerometer-Board (CAN-Adresse, leer = keins)",
 			"accelIntervalMin": "Alle",

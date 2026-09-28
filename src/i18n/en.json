@@ -87,7 +87,9 @@
 		"type": "Event",
 		"detail": "Detail",
 		"position": "Position (machine)",
-		"none": "No events"
+		"none": "No events",
+		"unconfirmed": "unconfirmed",
+		"unconfirmedHint": "Cleared within 500 ms: the board itself reports open load only after 500 ms"
 	},
 	"eventTypes": {
 		"filament_status": "Filament monitor",
@@ -158,8 +160,11 @@
 		"timelapse": "Timelapse",
 		"save": "Save",
 		"reset": "Discard changes",
+		"timelapseM240": "A job whose G-code sends M240 (trigger camera, e.g. from a slicer macro that parks the head) gets its frames from M240; the print waits for each photo. Otherwise a frame is taken at each layer change.",
+		"timelapseNotReady": "Timelapse not ready: {reason}.",
+		"chamberAutoHint": "Chamber heater, else the sensor named under “Sensor name”",
 		"chamberModes": {
-			"auto": "Automatic (chamber heater, else sensor by name)",
+			"auto": "Automatic",
 			"heater": "Heater",
 			"sensor": "Analog sensor"
 		},
@@ -186,6 +191,7 @@
 			"minIntervalS": "Timelapse: minimum time between frames",
 			"fps": "Timelapse: video frame rate",
 			"encoderThreads": "Timelapse: encoder threads (empty = automatic)",
+			"settleMs": "Timelapse: camera delay before an M240 photo",
 			"keepFramesOnFailure": "Keep the frames when encoding fails",
 			"accelBoard": "Accelerometer board (CAN address, empty = none)",
 			"accelIntervalMin": "Every",

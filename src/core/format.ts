@@ -129,8 +129,14 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return `${formatNumber(p.vIn, 1, "V")} (${formatNumber(p.median90s, 1, "V")})`;
 		case "phantom_reading":
 			return `${formatNumber(p.before, 1)} → ${formatNumber(p.peak, 1)} °C`;
-		case "driver_error":
-			return p.text ?? (Array.isArray(p.bits) ? p.bits.join(", ") : "");
+		case "driver_error": {
+			if (p.text) {
+				return p.text;  // RRF's own message names the driver already
+			}
+			const driver = p.driver !== undefined && p.driver !== null ? `${p.canAddress ?? p.board ?? "?"}.${p.driver}: ` : "";
+			const duration = typeof p.durationS === "number" ? `, ${p.durationS} s` : "";  // an open-load episode
+			return driver + (Array.isArray(p.bits) ? p.bits.join(", ") : "") + duration;
+		}
 		case "resume":
 			return formatDuration(p.pausedS);
 		case "mfm_error_tolerated":

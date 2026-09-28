@@ -80,8 +80,8 @@ def test_layers_samples_and_heater_load(rig):
                    "move": {"axes": [{}, {}, {"machinePosition": 0.2 * layer}], "extruders": [{"position": 10.0 * layer}],
                             "currentMove": {"extrusionRate": 1.0}},
                    "heat": {"heaters": [{"current": 60}, {"current": 220, "avgPwm": 0.5}]},
-                   "sensors": {"filamentMonitors": [{"lastPercentage": 100, "totalExtrusion": 10.0 * layer,
-                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 9.5 * layer}}]}})
+                   "sensors": {"filamentMonitors": [{"lastPercentage": 95, "avgPercentage": 95, "totalExtrusion": 10.0 * layer,
+                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 10.0 * layer}}]}})
         for _ in range(20):
             rig.patch({"heat": {"heaters": [{}, {"avgPwm": 0.5}]}}, dt_ms=1000)
     layers = rig.rows("SELECT * FROM job_layers ORDER BY layer")
@@ -181,6 +181,17 @@ def test_heater_fault_monitor_and_setpoints(rig):
     assert fault["device"] == 1 and fault["tool"] == 0 and fault["layer"] is None
 
 
+def test_heater_monitor_only_while_the_heater_regulates(rig):
+    """The job end on a CHX 350: heaters off, then the CE default mode caps them (M143 S50 A2) while still hot"""
+    rig.start_job()
+    rig.patch({"heat": {"heaters": [{"state": "off", "active": 0}, {"state": "off", "active": 0, "current": 203.9}]}})
+    rig.patch({"heat": {"heaters": [{"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]},
+                                    {"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]}]}})
+    assert rig.events("heater_monitor") == []
+    rig.patch({"heat": {"heaters": [{}, {"state": "active", "active": 60}]}})  # switched on above its cap
+    assert [(e["device"], e["payload"]["limit"]) for e in rig.events("heater_monitor")] == [(1, 50)]
+
+
 def test_driver_status_bits_and_messages(rig):
     rig.start_job()
     rig.patch({"boards": [{"drivers": [{"status": 65536 | 2}, {}]}, {}]})     # over temperature shutdown
@@ -193,6 +204,32 @@ def test_driver_status_bits_and_messages(rig):
         ("error", 0, "status"), ("stall", 1, "status"), ("warning", 0, "message")]
     assert events[0]["payload"]["bits"] == ["over temperature shutdown"]
     assert events[2]["payload"]["canAddress"] == 20
+
+
+def test_open_load_is_recorded_and_confirmed_after_500_ms(rig):
+    """Job 20260928-075236-bddf0026: board 20's extruder driver flickered "phase A/B may be disconnected" in
+    the raw status; the board raises its own event only after 500 ms. QA keeps every episode, unconfirmed
+    until it lasted that long (Tim 2026-09-28: boards with many transients must show)."""
+    rig.start_job()
+    rig.patch({"move": {"currentMove": {"extrusionRate": 0.4, "topSpeed": 60}},
+               "boards": [{}, {"drivers": [{"status": 65536 | 128}]}]}, dt_ms=100)   # phase B, transient
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536}]}]}, dt_ms=300)
+    transient = rig.events("driver_error")
+    assert len(transient) == 1 and transient[0]["subtype"] == "warning"
+    assert transient[0]["payload"]["confirmed"] is False and transient[0]["payload"]["canAddress"] == 20
+    assert transient[0]["end_ms"] - transient[0]["ts_ms"] == 300 and transient[0]["block_id"] is None
+    assert (transient[0]["payload"]["extrusionRate"], transient[0]["payload"]["topSpeed"]) == (0.4, 60)
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536 | 64}]}]}, dt_ms=100)    # phase A, persists
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536 | 128}]}]}, dt_ms=300)   # B takes over
+    assert rig.events("driver_error")[1]["payload"]["confirmed"] is False
+    rig.tick(3000)                                                                  # no patch: the heartbeat
+    persistent = rig.events("driver_error")[1]
+    assert persistent["payload"]["confirmed"] is True and persistent["block_id"] is not None
+    assert persistent["payload"]["bits"] == ["phase A may be disconnected", "phase B may be disconnected"]
+    assert persistent["end_ms"] is None                                             # still open
+    rig.patch({"boards": [{}, {"drivers": [{"status": 65536}]}]}, dt_ms=100)
+    assert rig.events("driver_error")[1]["end_ms"] is not None
+    assert len(rig.events("driver_error")) == 2
 
 
 def test_voltage_dip_and_phantom(rig):

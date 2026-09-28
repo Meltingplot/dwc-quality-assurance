@@ -26,6 +26,10 @@
 						</v-chip>
 						<span v-if="event.subtype" class="text-caption ml-1">{{ event.subtype }}</span>
 						<span v-if="event.device !== null" class="text-caption text-medium-emphasis ml-1">#{{ event.device }}</span>
+						<v-chip v-if="event.payload?.confirmed === false" size="x-small" variant="outlined" class="ml-1"
+							:title="$t('plugins.QualityAssurance.events.unconfirmedHint')">
+							{{ $t("plugins.QualityAssurance.events.unconfirmed") }}
+						</v-chip>
 					</td>
 					<td class="text-caption">{{ eventDetail(event) }}</td>
 					<td class="text-caption text-no-wrap">{{ position(event) }}</td>

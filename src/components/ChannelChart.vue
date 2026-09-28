@@ -52,7 +52,9 @@ export default defineComponent({
 		events: { type: Array as PropType<Array<QaEvent>>, default: () => [] },
 		rawPruned: { type: Boolean, default: false },
 		/** Channels shown first (the page derives them from the job's nozzle heaters) */
-		defaultChannels: { type: Array as PropType<Array<string>>, default: () => [] }
+		defaultChannels: { type: Array as PropType<Array<string>>, default: () => [] },
+		/** Bumped when the job may have new samples */
+		reloadKey: { type: Number, default: 0 }
 	},
 	data() {
 		return {
@@ -85,6 +87,9 @@ export default defineComponent({
 	},
 	watch: {
 		jobId() {
+			this.load();
+		},
+		reloadKey() {
 			this.load();
 		},
 		selected() {
@@ -135,6 +140,6 @@ export default defineComponent({
 	flex: 1 1 400px;
 }
 .qa-resolution {
-	max-width: 180px;
+	max-width: 280px;
 }
 </style>

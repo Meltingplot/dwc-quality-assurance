@@ -121,3 +121,66 @@ def test_read_json_object_keeps_leftover():
 def test_read_json_object_closed_connection():
     with pytest.raises(ConnectionError):
         qa_patches.read_json_object(lambda _n: b"")
+
+
+def _connection(timeout=1):
+    import socket
+
+    from dsf.connections.base_connection import BaseConnection
+    ours, theirs = socket.socketpair()
+    conn = BaseConnection(timeout=timeout)
+    conn.socket = ours
+    ours.settimeout(timeout)
+    return conn, theirs
+
+
+def test_receive_json_braces_in_strings_and_split_characters():
+    conn, dsf = _connection()
+    message = '{"content":"Error: expected \'}\' in G1 {E","temp":"25 °C"}{"next":1}'.encode("utf-8")
+    cut = message.index("°".encode("utf-8")) + 1          # inside the two bytes of °
+    dsf.sendall(message[:cut])
+    dsf.sendall(message[cut:])
+    assert json.loads(conn.receive_json()) == {"content": "Error: expected '}' in G1 {E", "temp": "25 °C"}
+    assert json.loads(conn.receive_json()) == {"next": 1}   # from the leftover, no further recv
+    assert conn.has_data_available() is False
+
+
+def test_receive_json_end_of_stream_and_timeout():
+    import time
+
+    conn, dsf = _connection(timeout=0.3)
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        conn.receive_json()
+    assert time.monotonic() - start < 1.5
+    dsf.sendall(b'{"a":')
+    dsf.close()
+    with pytest.raises(ConnectionError):   # not an endless loop on b""
+        conn.receive_json()
+
+
+def test_endpoint_close_ends_its_thread(tmp_path):
+    """With a client connected, the unpatched close() left the loop in epoll and the process hung at exit"""
+    import socket
+    import time
+
+    from dsf.http import HttpEndpointUnixSocket
+    from dsf.object_model import HttpEndpointType
+    endpoints, clients = [], []
+    for n in range(3):
+        endpoints.append(HttpEndpointUnixSocket(HttpEndpointType.GET, "qa", f"t{n}", str(tmp_path / f"ep{n}.sock")))
+    time.sleep(0.3)
+    for n in range(3):
+        client = socket.socket(socket.AF_UNIX)
+        client.connect(str(tmp_path / f"ep{n}.sock"))
+        clients.append(client)
+    time.sleep(0.2)
+    for endpoint in endpoints:
+        endpoint.close()
+    threads = [t for endpoint in endpoints for t in endpoint.executor._threads]
+    deadline = time.monotonic() + 3
+    while any(t.is_alive() for t in threads) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not any(t.is_alive() for t in threads)
+    for client in clients:
+        client.close()

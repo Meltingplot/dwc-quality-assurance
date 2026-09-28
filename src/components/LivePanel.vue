@@ -6,11 +6,7 @@
 				<div class="text-subtitle-2">
 					{{ recording ? $t("plugins.QualityAssurance.live.recording") : $t("plugins.QualityAssurance.live.idle") }}
 				</div>
-				<div class="text-caption text-medium-emphasis">
-					<span v-if="jobId">{{ jobId }}</span>
-					<span v-if="layer !== null"> · {{ $t("plugins.QualityAssurance.live.layer", { layer }) }}</span>
-					<span> · {{ $t(`plugins.QualityAssurance.live.states.${connection}`) }}</span>
-				</div>
+				<div class="text-caption text-medium-emphasis">{{ details }}</div>
 			</div>
 			<v-spacer />
 			<div v-for="nozzle in loads" :key="nozzle.heater" class="qa-load">
@@ -61,6 +57,14 @@ export default defineComponent({
 		},
 		layer(): number | null {
 			return this.sample?.layer ?? this.status?.layer ?? null;
+		},
+		/** Job, layer and connection, separated only between the parts that exist */
+		details(): string {
+			return [
+				this.jobId,
+				this.layer !== null ? this.$t("plugins.QualityAssurance.live.layer", { layer: this.layer }) : null,
+				this.$t(`plugins.QualityAssurance.live.states.${this.connection}`)
+			].filter((part) => part !== null).join(" · ");
 		},
 		loads(): Array<{ heater: string; mean: number | null; level: string | null }> {
 			const loads = (this.sample?.heaterLoad ?? {}) as Record<string, { mean: number; level: string | null }>;

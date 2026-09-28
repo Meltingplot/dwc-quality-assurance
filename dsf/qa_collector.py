@@ -52,6 +52,13 @@ DRIVER_MESSAGE_RE = re.compile(r"Driver (\d+)(?:\.(\d+))? (error|warning|stall)\
 DRIVER_ERROR_MASK = 0b00_0100_1010_0011_1110
 DRIVER_WARNING_MASK = 0b00_0010_0100_1100_0001
 DRIVER_STALL_BIT = 1 << 8
+# Open load (bits 6/7): boards[].drivers[].status carries the raw bits, the boards raise their own event
+# only once open load persisted 500 ms (TMC drivers flag it transiently, especially in stealthChop;
+# Duet3Expansion 3.7-dev @ 806ef34 Move.cpp:389-410 and 2197-2203; CANlib 3.7-dev @ cb52d69
+# RRF3Common.h:28 OpenLoadTimeout = 500, :197 OpenLoadBitsPos = 6; read 2026-09-28). QA records every
+# one, unconfirmed until it persisted as long, so boards with many transients show (Tim 2026-09-28).
+DRIVER_OPEN_LOAD_BITS = 0b11 << 6
+OPEN_LOAD_CONFIRM_MS = 500
 DRIVER_BITS = ("over temperature warning", "over temperature shutdown", "phase A short to ground",
                "phase B short to ground", "phase A short to Vin", "phase B short to Vin",
                "phase A may be disconnected", "phase B may be disconnected", "motor stall",
@@ -222,6 +229,7 @@ class Collector:
             status = qa_channels.enum_value(getattr(getattr(self.model, "state", None), "status", None))
             self._heater_load(self.model, status, now_ms)
             self._fm_window_check(self.model, now_ms)
+            self._driver_events(self.model, None, now_ms)  # confirms an open load that persisted without a patch
             self._close_block_if_due(now_ms)
             self._accelerometer(status, now_ms)
             self._write_coarse(self._prev_snapshot, now_ms)
@@ -229,6 +237,11 @@ class Collector:
         elif now_ms - self._last_live_ms >= LIVE_HEARTBEAT_MS:
             self._last_live_ms = now_ms
             self.broadcast({"type": "status", "ts": now_ms, **self.status()})
+
+    def camera_state(self):
+        """For the M240 trigger (its own thread): ``(job_key, layer, simulating)``, None without a job."""
+        job = self.job
+        return None if job is None else (job.key, job.layer, self._simulating)
 
     def shutdown(self, now_ms):
         """Daemon stops: keep the running job 'running' (it is resumed on the next start), flush."""
@@ -664,7 +677,10 @@ class Collector:
                     reading = getattr(analog[sensor], "last_reading", None)
                 elif sensor in (None, -1):
                     reading = getattr(heater, "current", None)
-                violated = (limit is not None and reading is not None and
+                # RRF checks monitors only while the heater regulates (LocalHeater.cpp:459-570, RRF
+                # 3.7-dev @ 3638836, 2026-09-28); an off heater above a cap such as the CE default
+                # mode's M143 S50 A2 (chx350-config operating-mode/default.g) is no violation
+                violated = (state in ("active", "standby") and limit is not None and reading is not None and
                             ((condition == "tooHigh" and reading > limit) or (condition == "tooLow" and reading < limit)))
                 key = (i, m)
                 if violated and key not in self._monitor_violations:
@@ -817,24 +833,61 @@ class Collector:
                     values[(b, d)] = getattr(driver, "status", None)
         return values
 
+    def _open_load(self, model, key, value, where, now_ms):
+        """One event per open-load episode of a driver: from the first raw bit, confirmed (and a fine
+        block triggered) once it persisted OPEN_LOAD_CONFIRM_MS, ended with its duration when it clears."""
+        okey = ("driver_open_load",) + key
+        ongoing = self._ongoing.get(okey)
+        bits = value & DRIVER_OPEN_LOAD_BITS if value is not None else 0
+        if not bits:
+            if ongoing is not None:
+                self._end_event(okey, now_ms)
+            return
+        if ongoing is None:
+            # the motion at the onset: the boards trust open load only from 20 full steps/s and 500 mA
+            # (Duet3Expansion TMC22xx.cpp:1809-1826, CANlib RRF3Common.h:34), so a cluster near that
+            # speed points at the detection, one at speed at the wiring (Tim 2026-09-28)
+            current = getattr(getattr(model, "move", None), "current_move", None)
+            payload = {**where, "status": value, "bits": decode_driver_status(bits), "confirmed": False,
+                       "extrusionRate": getattr(current, "extrusion_rate", None),
+                       "topSpeed": getattr(current, "top_speed", None)}
+            eid = self._event(model, now_ms, "driver_error", "warning", device=key[1], payload=payload,
+                              trigger_block=False)
+            if eid is not None:
+                self._ongoing[okey] = {"id": eid, "ts_ms": now_ms, "payload": payload}
+            return
+        payload = ongoing["payload"]
+        fields = {}
+        seen = [b for b in DRIVER_BITS if b in payload["bits"] or b in decode_driver_status(bits)]
+        if seen != payload["bits"]:
+            payload["bits"] = seen   # phase A and B may alternate within one episode
+            fields["payload"] = payload
+        if not payload["confirmed"] and now_ms - ongoing["ts_ms"] >= OPEN_LOAD_CONFIRM_MS:
+            payload["confirmed"] = True
+            fields["payload"] = payload
+            fields["block_id"] = self._trigger(now_ms, "driver_error")
+        if fields:
+            self.writer.submit("event_update", ongoing["id"], fields, urgent=True)
+
     def _driver_events(self, model, patch, now_ms):
         # Main board and any board that reports its status: new error/warning/stall bits
         new = self._read_driver_status(model)
         boards = getattr(model, "boards", None) or []
         for key, value in new.items():
+            b, d = key
+            board = boards[b] if b < len(boards) else None
+            where = {"source": "status", "board": b, "canAddress": getattr(board, "can_address", None), "driver": d}
+            self._open_load(model, key, value, where, now_ms)
             prev = self._driver_status.get(key)
             if value is None or prev is None or value == prev:
                 continue
-            added = value & ~prev
+            added = value & ~prev & ~DRIVER_OPEN_LOAD_BITS
             kind = "error" if added & DRIVER_ERROR_MASK else ("warning" if added & DRIVER_WARNING_MASK else (
                 "stall" if added & DRIVER_STALL_BIT else None))
             if kind is None:
                 continue
-            b, d = key
-            board = boards[b] if b < len(boards) else None
             self._event(model, now_ms, "driver_error", kind, device=d, payload={
-                "source": "status", "board": b, "canAddress": getattr(board, "can_address", None),
-                "driver": d, "status": value, "previous": prev, "bits": decode_driver_status(added)})
+                **where, "status": value, "previous": prev, "bits": decode_driver_status(added)})
         self._driver_status = new
         # Expansion boards do not report status changes by themselves (wiki CAN_limitations.md);
         # RRF's event text reaches messages[] when no handler macro exists

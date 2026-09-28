@@ -169,6 +169,30 @@ describe("JobDetail", () => {
 		expect(charts.length).toBeGreaterThan(0);
 		expectNoVueWarnings(warn);
 	});
+
+	it("reloads without a progress bar when the page bumps the key", async () => {
+		const api = fakeApi();
+		const wrapper = mountInDwc(JobDetail, { props: { api, jobId: JOB.id } });
+		await flush();
+		await flush();
+		await wrapper.setProps({ reloadKey: 1 });
+		expect(wrapper.vm.loading).toBe(false);  // the job stays on screen, no progress bar above it
+		await flush();
+		expect(api.job).toHaveBeenCalledTimes(2);
+		expect(api.layers).toHaveBeenCalledTimes(2);
+		expect(api.events).toHaveBeenCalledTimes(2);
+		expectNoVueWarnings(warn);
+	});
+
+	it("shows no end while the job runs", async () => {
+		const api = fakeApi({ job: vi.fn(async () => ({ ...DETAIL, endedAt: null, qaResult: "running", summary: null })) });
+		const wrapper = mountInDwc(JobDetail, { props: { api, jobId: JOB.id } });
+		await flush();
+		await flush();
+		expect(wrapper.text()).toContain(JOB.id);
+		expect(wrapper.text()).not.toContain("–");
+		expectNoVueWarnings(warn);
+	});
 });
 
 describe("EventList", () => {
@@ -179,6 +203,20 @@ describe("EventList", () => {
 		expect(wrapper.findAll("tbody tr")).toHaveLength(2);
 		await wrapper.findAll(".v-chip")[0].trigger("click");
 		expect(wrapper.findAll("tbody tr").length).toBe(1);
+		expectNoVueWarnings(warn);
+	});
+
+	it("marks a driver's open load that cleared within 500 ms", () => {
+		const base = { ...EVENTS[1], type: "driver_error", subtype: "warning", device: 0 };
+		const events = [
+			{ ...base, id: 3, payload: { canAddress: 20, driver: 0, bits: ["phase B may be disconnected"], confirmed: false, durationS: 0.3 } },
+			{ ...base, id: 4, payload: { canAddress: 20, driver: 0, bits: ["phase A may be disconnected"], confirmed: true, durationS: 2.1 } }
+		];
+		const wrapper = mountInDwc(EventList, { props: { events, startMs: Date.parse(JOB.startedAt) } });
+		const rows = wrapper.findAll("tbody tr");
+		expect(rows[0].text()).toContain("plugins.QualityAssurance.events.unconfirmed");
+		expect(rows[0].text()).toContain("20.0: phase B may be disconnected, 0.3 s");
+		expect(rows[1].text()).not.toContain("plugins.QualityAssurance.events.unconfirmed");
 		expectNoVueWarnings(warn);
 	});
 });
@@ -257,13 +295,37 @@ describe("SettingsForm", () => {
 		expectNoVueWarnings(warn);
 	});
 
+	it("says why the timelapse is not ready", async () => {
+		const api = fakeApi();
+		const status = await api.status();
+		api.status = vi.fn(async () => ({ ...status, timelapse: { enabled: false, reason: "ffmpeg not found" } }));
+		const wrapper = mountInDwc(SettingsForm, { props: { api } });
+		await flush();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.timelapseNotReady");
+		wrapper.vm.set("timelapse.enabled", false);
+		await flush();
+		expect(wrapper.text()).not.toContain("plugins.QualityAssurance.settings.timelapseNotReady");
+		expectNoVueWarnings(warn);
+	});
+
 	it("shows what the daemon refused", async () => {
 		const api = fakeApi({ saveSettings: vi.fn(async (s) => ({ saved: false, settings: s, errors: ["sampleIntervalS: must be >= 1"] })) });
 		const wrapper = mountInDwc(SettingsForm, { props: { api } });
 		await flush();
 		await wrapper.findAll("button").find((b) => b.text().includes("settings.save")).trigger("click");
 		await flush();
-		expect(wrapper.text()).toContain("sampleIntervalS: must be >= 1");
+		// next to the Save button (the form is longer than the screen), and on the field itself
+		const alert = wrapper.findAll(".v-alert").find((a) => a.text().includes("sampleIntervalS: must be >= 1"));
+		expect(alert.element.nextElementSibling.textContent).toContain("settings.save");
+		const field = wrapper.findAll(".v-input--error");
+		expect(field).toHaveLength(1);
+		expect(field[0].text()).toContain("settings.fields.sampleIntervalS");
+		expect(field[0].text()).toContain("must be >= 1");
+		// editing the field takes its refusal back
+		wrapper.vm.set("sampleIntervalS", 5);
+		await flush();
+		expect(wrapper.findAll(".v-input--error")).toHaveLength(0);
+		expectNoVueWarnings(warn);
 	});
 });
 
@@ -271,9 +333,11 @@ describe("LivePanel", () => {
 	it("follows the live frames", async () => {
 		const wrapper = mountInDwc(LivePanel, { props: { connection: "open" } });
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.live.idle");
+		expect(wrapper.find(".text-caption").text()).toBe("plugins.QualityAssurance.live.states.open");
 		await wrapper.setProps({ frame: { type: "sample", ts: 1, jobId: "j", layer: 4, values: { "fm.0.lastPercentage": 98 },
 			heaterLoad: { 1: { mean: 0.86, level: "high" } } } });
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.live.recording");
+		expect(wrapper.find(".text-caption").text()).toBe("j · plugins.QualityAssurance.live.layer · plugins.QualityAssurance.live.states.open");
 		expect(wrapper.text()).toContain("86 %");
 		expect(wrapper.text()).toContain("98 %");
 		await wrapper.setProps({ frame: { type: "event", ts: 2, event: { type: "heater_load", subtype: "high" } } });
@@ -306,5 +370,36 @@ describe("QualityAssurance page", () => {
 		expect(wrapper.text()).toContain("cube.gcode");
 		wrapper.unmount();
 		expectNoVueWarnings(warn);
+	});
+
+	it("reloads a running job's detail on its layer changes, at most every 30 s", async () => {
+		vi.useFakeTimers({ now: 1_000_000 });
+		try {
+			const host = { pluginEntry: () => ({ pid: 42 }), startBackend: () => Promise.resolve(), webSocketUrl: () => null,
+				request: vi.fn(async () => ({})) };
+			const wrapper = mountInDwc(QualityAssurance, { props: { host } });
+			const vm = wrapper.vm;
+			vm.openJob("j");
+			const version = vm.jobVersion;
+			vm.onFrame({ type: "layer", ts: 1, jobId: "other", layer: 2 });
+			vm.onFrame({ type: "layer", ts: 1, jobId: "j", layer: 2 });
+			expect(vm.jobVersion).toBe(version);  // just opened: the detail has loaded it
+			vm.onFrame({ type: "layer", ts: 2, jobId: "j", layer: 3 });
+			vi.advanceTimersByTime(29_999);
+			expect(vm.jobVersion).toBe(version);
+			vi.advanceTimersByTime(1);
+			expect(vm.jobVersion).toBe(version + 1);  // one reload for both changes
+			vi.advanceTimersByTime(60_000);
+			vm.onFrame({ type: "layer", ts: 3, jobId: "j", layer: 4 });
+			expect(vm.jobVersion).toBe(version + 2);  // quiet for 30 s: at once
+			vm.onFrame({ type: "layer", ts: 4, jobId: "j", layer: 5 });
+			vm.onFrame({ type: "job", ts: 5, jobId: "j" });
+			expect(vm.jobVersion).toBe(version + 3);  // the end reloads at once and takes the pending reload along
+			vi.advanceTimersByTime(60_000);
+			expect(vm.jobVersion).toBe(version + 3);
+			wrapper.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

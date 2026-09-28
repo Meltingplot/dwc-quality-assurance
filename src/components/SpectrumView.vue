@@ -66,7 +66,9 @@ export default defineComponent({
 	components: { ChartCanvas },
 	props: {
 		api: { type: Object as PropType<QaApi>, required: true },
-		job: { type: Object as PropType<JobDetail>, required: true }
+		job: { type: Object as PropType<JobDetail>, required: true },
+		/** Bumped when the job may have new recordings */
+		reloadKey: { type: Number, default: 0 }
 	},
 	data() {
 		return {
@@ -134,6 +136,9 @@ export default defineComponent({
 	},
 	watch: {
 		"job.id"() {
+			this.load();
+		},
+		reloadKey() {
 			this.load();
 		}
 	},

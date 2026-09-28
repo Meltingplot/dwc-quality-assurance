@@ -116,12 +116,13 @@ SBC-CPU/RAM, freier Speicher.
 | Lebenszyklus-Events | Start, Ende (completed/cancelled/aborted), Pause/Resume mit vermuteter Ursache, Babystep/Z-Offset. Simulationen werden ignoriert. Daemon-Start mid-Job → Job ab jetzt, Flag `partial` + Startlage |
 | Werkzeugwechsel | nicht als Event (nicht gewählt); `currentTool` wird als Kontext an Events mitgeführt |
 | Heizer-Rollen | Düsen = Heizer der Werkzeuge (je Heizer gezählt, nicht je Werkzeug, wie `useTemps().nozzles` der CHX-UI); Bett aus `heat.bedHeaterMapping` (RRF 3.7: ein Slot kann mehrere Heizer halten; `heat.bedHeaters` ist veraltet und auf der CHX überall −1); Kammer siehe unten |
-| Lagenaggregate | je Heizer min/max/mean + Sollwert am Lagenende; je Düsenheizer Heizlast (§5.4.1); je Extruder Filament befohlen (`totalExtrusion`-Delta) und gemessen (`calibrated.totalDistance`-Delta), Volumenstrom (befohlen × Querschnitt / Dauer); Monitor-Prozent min/max/mean/std; Hotend `avgPwm`/`current` std bei konstantem Sollwert; Dauer, Höhe, `fractionPrinted` |
+| Lagenaggregate | je Heizer min/max/mean + Sollwert am Lagenende; je Düsenheizer Heizlast (§5.4.1); je Extruder Filament befohlen (`totalExtrusion`-Delta über die Neustarts des Sensors), gemessen = befohlen gewichtet mit `lastPercentage` (das ganzzahlige `avgPercentage` ist für eine Lage zu grob), Extruderweg (`position`-Delta, Nullung beim Druckstart erkannt), Volumenstrom (befohlen × Querschnitt / Dauer); Monitor-Prozent min/max/mean/std; Hotend `avgPwm`/`current` std bei konstantem Sollwert; Dauer, Höhe, `fractionPrinted` |
 | Kammer | konfigurierbar: auto aus `heat.chamberHeaterMapping`, sonst Analogsensor mit Namen „SZP coil“ (wie `useJobAnalysis.chamberChannel` der CHX-UI), überschreibbar durch Heizer- oder `sensors.analog`-Index |
 | Job-Kontext | `job.file` (Name, Slicer, Lagenhöhe, Lagenzahl, Zeit, Filament, Größe, Datum, **CRC32** mit `zlib.crc32`); **Slicer-Einstellungen aus dem `CONFIG_BLOCK` am Dateiende** (§5.7); Extruder (`stepsPerMm, pressAdv, nonlinear, filament, filamentDiameter`), Werkzeug; Filamentmonitor `configured`+`calibrated`; Heizermodelle (PID, heatingRate, maxPwm); `move.shaping`; Firmware/DSF/Plugin-Version, Boardnamen; **Maschinen-Globals** aus einer konfigurierbaren Liste (§5.9), Schnappschuss bei Start und Ende |
-| Job-Zusammenfassung | Filament: Verhältnis gemessen/befohlen, `avgPercentage` und `calibrated.mmPerRev` am Jobende, Prozentwert-Verteilung (2 %-Klassen), Kennlinie Fluss vs. Prozent (gebinnt); Thermik: Aufheizzeit je Heizer, **Heizlast je Düsenheizer** (§5.4.1), Kammer min/max/mean; MFM der Maschine: tolerierte Fehler, Recoveries mit Ergebnis, vorgeschlagene/angewandte E-Steps; Ereignisse: Anzahl je Typ, erste/letzte Lage, Abbruchursache; Spulenverbrauch (g) aus `spool_remaining` Start − Ende; Mechanik: Peak-Frequenz und RMS je Achse je Spektrum, Job-Mittel |
+| Job-Zusammenfassung | Filament: Verhältnis gemessen/befohlen aus dem Integral des Sensors, Σ Δ(`totalExtrusion` × `avgPercentage` / 100) über seine Neustarts (wie die E-Steps- und NLE-Makros, Tim 2026-09-28), `avgPercentage` und `calibrated.mmPerRev` am Jobende, Prozentwert-Verteilung (2 %-Klassen), Kennlinie Fluss vs. Prozent (gebinnt); Thermik: Aufheizzeit je Heizer, **Heizlast je Düsenheizer** (§5.4.1), Kammer min/max/mean; MFM der Maschine: tolerierte Fehler, Recoveries mit Ergebnis, vorgeschlagene/angewandte E-Steps; Ereignisse: Anzahl je Typ, erste/letzte Lage, Abbruchursache; Spulenverbrauch (g) aus `spool_remaining` Start − Ende; Mechanik: Peak-Frequenz und RMS je Achse je Spektrum, Job-Mittel |
 | Accelerometer | **bedingt**: nur wenn ein Board `accelerometer != null` meldet (2026-09-26 auf der CHX 350 bei keinem der 7 Boards). Dann: **alle 15 min** im Zustand `processing` `M956 P<M955-Nummer> S1000 A0 F"qa-<job>-<ts>.csv"` (RRF 3.7: P ist die logische Nummer aus M955 ohne Boardadresse, rc.1 kann nur P0; nur ein Sensor gleichzeitig), bei Pause angehalten; CSV aus `0:/sys/accelerometer/` lesen, letzte Zeile (Datenrate, Overflows) prüfen und bei Overflows > 0 verwerfen, FFT in reinem Python wie @duet3d/motionanalysis (seit 2026-09-27, vorher numpy), Spektrum in DB, CSV löschen. Referenz: automatisch (Median der ersten N) mit manueller Übersteuerung |
 | Histogramm | je Lage: gemessen vs. befohlen je Extruder |
+| Filamentsensor-Zähler | RRF liefert **keinen gemessenen Weg**: `totalExtrusion` und `calibrated.totalDistance` sind beide der *befohlene* Weg seit Kalibrierbeginn, gemessen steckt nur in `avgPercentage` = 100 × gemessen / befohlen (Duet3Expansion 3.7-dev @ 806ef34 `RotatingMagnetFilamentMonitor.cpp:628-643`, RRF 3.7-dev @ 3638836 `Duet3DFilamentMonitor.cpp:46`; 2026-09-28). Das Toolboard setzt beide zurück, sobald nicht gedruckt wird (`FilamentMonitor.cpp:318-325`: Druckstart, Pause) und sendet während der 10 mm Kalibrierung nichts (das OM behält die alte Summe, `avgPercentage` null); RRF nullt die Extruderpositionen beim Druckstart (`GCodes.cpp:3861-3864`) |
 | Replay | Lage für Lage: Toolpath aus der G-Code-Datei (**on demand im Daemon geparst, nichts gespeichert**, CRC32-Prüfung), Bahn eingefärbt nach befohlener Volumenflussrate (E-Delta × Querschnitt / Segmentdauer), gemessene `extrusionRate`-Samples als Marker darüber, Events als Marker, `currentObject` je Segment/Event, Temperatur- und Heizlastkurven der Lage, Zeitraffer-Frame der Lage. Slicer: PrusaSlicer/Orca/SuperSlicer, Cura, Simplify3D, Z-Heuristik als Fallback |
 | Zeitraffer | Snapshot von einer konfigurierbaren Kamera-URL je Lagenwechsel, nach Jobende als AV1-Video (nur AV1, SVT-AV1 über ffmpeg); Frame je Lage in Analyse/Replay, Video als Download (§5.11) |
 | QC-Zugriff | ausschließlich HTTP-API (JSON); Notizen/Bewertung/Befunde/Prüfbericht gehören in QC, QA hat keine Eingabefelder |
@@ -489,8 +490,20 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   2026-09-26 vom SBC aus geprüft: 200, `image/jpeg`, 104 888 Bytes in 0,02 s). Dahinter: der haproxy
   des HMI reicht `/snapshot` an `/0/current` von `hmi-motion.service` (motion, `127.0.0.1:8081`)
   weiter; 1984×1080, ca. 105 KB je Bild.
-- **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`. Kein Parken des
-  Kopfes (würde den Druck verändern).
+- **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`; QA selbst parkt nie.
+- **M240 aus dem G-Code** (Entscheidung Tim 2026-09-28, ersetzt „kein Parken“): Wer ein Bild mit
+  geparktem Kopf will, lässt den Slicer bei jedem Lagenwechsel ein Makro aufrufen (Orca
+  `time_lapse_gcode`, z. B. `M98 P"…/timelapse-frame.g"`), das parkt, `M400` und **M240**
+  („trigger camera“, RepRap-Wiki; RRF implementiert es nicht) sendet und zurückfährt; Profile oder
+  Jobs, die das nicht vertragen, lassen es weg (Standard: aus). M240 allein = Foto an Ort und Stelle.
+  QA hält M240 per DSF-Code-Interception (Pre, Kanäle File/File2, `auto_flush`), sendet `M400` auf
+  dem SBC-Kanal, wartet `settleMs` (300 ms, Kamera-Latenz), holt das Bild und gibt M240 frei — immer,
+  auch bei Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Ab dem
+  ersten M240 eines Jobs kommen dessen Bilder nur noch von M240 (Lage n−1 beim M240 in Lage n; vor
+  Lage 1 keins), das letzte weiter am Jobende. Braucht `codeInterceptionReadWrite`; ohne laufendes
+  QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine
+  (chx350-config). Nummernwahl: M240 ist in RepRap-Wiki, Duet-Wiki, Marlin, MK4duo und Octolapse
+  „Kamera auslösen“, in RRF/DSF/chx350-config frei (Recherche 2026-09-28).
 - **Während des Drucks:** Frames als JPEG nach `/opt/dsf/sd/QualityAssurance/timelapse/<job>/frames/`,
   Index Lage → Frame (Zeitstempel, Lage). Ein fehlender Snapshot wird im Index vermerkt, kein Abbruch.
   Beispiel laufender Job: 1019 Lagen × 105 KB ≈ 107 MB temporär.
@@ -623,7 +636,7 @@ Offen:
   Firmware-Meldungen mit Filamentbezug; `fan.requestedValue`, `speedFactor`, `extruder.factor`
   sind Kanäle, keine Sollwert-Events. `heater_load` ist kein Sollwertabweichungs-Event, sondern
   misst die Leistungsreserve.
-- Zeitraffer ohne Parken des Kopfes und ohne Eingriff in den Druck.
+- Parken für den Zeitraffer durch QA selbst: das macht das Slicer-Makro vor M240 (§5.11).
 - Kein DWC 3.6, kein direkter DB-Zugriff für QC, kein Toolpath-Speichern, keine CSV-Exporte.
 - Keine Installation über Settings › Plugins (Image-Richtlinie).
 
