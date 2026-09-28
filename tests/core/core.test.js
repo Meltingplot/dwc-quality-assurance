@@ -93,6 +93,7 @@ describe("charts", () => {
 		expect(hist.data.labels).toEqual(["98–100"]);
 		const trend = trendConfig([{ label: "a", points: [{ ts: 0, value: 1, jobId: "j" }] }], 86_400_000);
 		expect(trend.data.datasets[0].data[0]).toMatchObject({ x: -1, y: 1, jobId: "j" });
+		expect(trend.options.scales.x).toMatchObject({ max: 0, suggestedMin: -7 });  // one job: a week up to now
 	});
 
 	it("draws markers inside the chart area only", () => {

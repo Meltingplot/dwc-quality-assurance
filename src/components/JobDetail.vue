@@ -7,7 +7,7 @@
 				<div>
 					<div class="text-h6">{{ fileName(job.file) }}</div>
 					<div class="text-caption text-medium-emphasis">
-						{{ job.id }} · {{ formatDateTime(job.startedAt) }} – {{ formatDateTime(job.endedAt) }}
+						{{ job.id }} · {{ formatDateTime(job.startedAt) }}<template v-if="job.endedAt"> – {{ formatDateTime(job.endedAt) }}</template>
 					</div>
 				</div>
 				<v-chip :color="resultColor(job.result)" variant="tonal">{{ $t(`plugins.QualityAssurance.results.${job.qaResult}`) }}</v-chip>
@@ -27,7 +27,7 @@
 				</v-col>
 			</v-row>
 
-			<v-tabs v-model="tab" density="compact" class="mb-2">
+			<v-tabs v-model="tab" density="compact">
 				<v-tab value="layers">{{ $t("plugins.QualityAssurance.job.tabLayers") }}</v-tab>
 				<v-tab value="replay">{{ $t("plugins.QualityAssurance.job.tabReplay") }}</v-tab>
 				<v-tab value="timelapse">{{ $t("plugins.QualityAssurance.job.tabTimelapse") }}</v-tab>
@@ -37,7 +37,8 @@
 				<v-tab value="summary">{{ $t("plugins.QualityAssurance.job.tabSummary") }}</v-tab>
 				<v-tab value="context">{{ $t("plugins.QualityAssurance.job.tabContext") }}</v-tab>
 			</v-tabs>
-			<v-window v-model="tab">
+			<!-- gap inside the window, see QualityAssurance.vue -->
+			<v-window v-model="tab" class="pt-2">
 				<v-window-item value="layers">
 					<layer-charts :answer="layers" />
 					<div v-if="distribution.length" class="mt-4">

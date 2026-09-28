@@ -160,8 +160,10 @@
 		"timelapse": "Timelapse",
 		"save": "Save",
 		"reset": "Discard changes",
+		"timelapseNotReady": "Timelapse not ready: {reason}.",
+		"chamberAutoHint": "Chamber heater, else the sensor named under “Sensor name”",
 		"chamberModes": {
-			"auto": "Automatic (chamber heater, else sensor by name)",
+			"auto": "Automatic",
 			"heater": "Heater",
 			"sensor": "Analog sensor"
 		},

@@ -160,8 +160,10 @@
 		"timelapse": "Zeitraffer",
 		"save": "Speichern",
 		"reset": "Änderungen verwerfen",
+		"timelapseNotReady": "Zeitraffer nicht bereit: {reason}.",
+		"chamberAutoHint": "Kammerheizer, sonst der Sensor aus „Sensorname“",
 		"chamberModes": {
-			"auto": "Automatisch (Kammerheizer, sonst Sensor nach Name)",
+			"auto": "Automatisch",
 			"heater": "Heizer",
 			"sensor": "Analogsensor"
 		},

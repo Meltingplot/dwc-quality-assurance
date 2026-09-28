@@ -135,6 +135,6 @@ export default defineComponent({
 	flex: 1 1 400px;
 }
 .qa-resolution {
-	max-width: 180px;
+	max-width: 280px;
 }
 </style>

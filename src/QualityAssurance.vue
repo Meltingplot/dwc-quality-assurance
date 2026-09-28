@@ -2,13 +2,14 @@
 	<div class="qa-page pa-2">
 		<backend-banner :host="host" />
 		<live-panel :frame="frame" :status="status" :connection="connection" />
-		<v-tabs v-model="tab" density="compact" class="mb-2">
+		<v-tabs v-model="tab" density="compact">
 			<v-tab value="jobs" prepend-icon="mdi-format-list-bulleted">{{ $t("plugins.QualityAssurance.tabs.jobs") }}</v-tab>
 			<v-tab value="job" prepend-icon="mdi-file-chart-outline" :disabled="!selectedJob">{{ $t("plugins.QualityAssurance.tabs.job") }}</v-tab>
 			<v-tab value="trends" prepend-icon="mdi-chart-line">{{ $t("plugins.QualityAssurance.tabs.trends") }}</v-tab>
 			<v-tab value="settings" prepend-icon="mdi-cog-outline">{{ $t("plugins.QualityAssurance.tabs.settings") }}</v-tab>
 		</v-tabs>
-		<v-window v-model="tab">
+		<!-- the gap lives inside the window: v-window clips, and an outlined field's floating label sits above its box -->
+		<v-window v-model="tab" class="pt-2">
 			<v-window-item value="jobs">
 				<job-list :api="api" :selected="selectedJob" :reload-key="jobsVersion" @select="openJob" />
 			</v-window-item>

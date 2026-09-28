@@ -169,7 +169,8 @@ export function trendConfig(series: Array<TrendSeries>, nowMs: number, yLabel = 
 		options: {
 			...STATIC,
 			scales: {
-				x: { type: "linear" as const, ...SUBTLE_GRID, title: { display: true, text: "d" } },
+				// days before now: ends at now and shows at least a week, so a single job is not a hairline scale
+				x: { type: "linear" as const, max: 0, suggestedMin: -7, ...SUBTLE_GRID, title: { display: true, text: "d" } },
 				y: { type: "linear" as const, ...SUBTLE_GRID, title: { display: !!yLabel, text: yLabel } }
 			},
 			plugins: { legend: { position: "bottom" as const, labels: { boxWidth: 12 } } }

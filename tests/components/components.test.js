@@ -169,6 +169,16 @@ describe("JobDetail", () => {
 		expect(charts.length).toBeGreaterThan(0);
 		expectNoVueWarnings(warn);
 	});
+
+	it("shows no end while the job runs", async () => {
+		const api = fakeApi({ job: vi.fn(async () => ({ ...DETAIL, endedAt: null, qaResult: "running", summary: null })) });
+		const wrapper = mountInDwc(JobDetail, { props: { api, jobId: JOB.id } });
+		await flush();
+		await flush();
+		expect(wrapper.text()).toContain(JOB.id);
+		expect(wrapper.text()).not.toContain("–");
+		expectNoVueWarnings(warn);
+	});
 });
 
 describe("EventList", () => {
@@ -271,13 +281,37 @@ describe("SettingsForm", () => {
 		expectNoVueWarnings(warn);
 	});
 
+	it("says why the timelapse is not ready", async () => {
+		const api = fakeApi();
+		const status = await api.status();
+		api.status = vi.fn(async () => ({ ...status, timelapse: { enabled: false, reason: "ffmpeg not found" } }));
+		const wrapper = mountInDwc(SettingsForm, { props: { api } });
+		await flush();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.timelapseNotReady");
+		wrapper.vm.set("timelapse.enabled", false);
+		await flush();
+		expect(wrapper.text()).not.toContain("plugins.QualityAssurance.settings.timelapseNotReady");
+		expectNoVueWarnings(warn);
+	});
+
 	it("shows what the daemon refused", async () => {
 		const api = fakeApi({ saveSettings: vi.fn(async (s) => ({ saved: false, settings: s, errors: ["sampleIntervalS: must be >= 1"] })) });
 		const wrapper = mountInDwc(SettingsForm, { props: { api } });
 		await flush();
 		await wrapper.findAll("button").find((b) => b.text().includes("settings.save")).trigger("click");
 		await flush();
-		expect(wrapper.text()).toContain("sampleIntervalS: must be >= 1");
+		// next to the Save button (the form is longer than the screen), and on the field itself
+		const alert = wrapper.findAll(".v-alert").find((a) => a.text().includes("sampleIntervalS: must be >= 1"));
+		expect(alert.element.nextElementSibling.textContent).toContain("settings.save");
+		const field = wrapper.findAll(".v-input--error");
+		expect(field).toHaveLength(1);
+		expect(field[0].text()).toContain("settings.fields.sampleIntervalS");
+		expect(field[0].text()).toContain("must be >= 1");
+		// editing the field takes its refusal back
+		wrapper.vm.set("sampleIntervalS", 5);
+		await flush();
+		expect(wrapper.findAll(".v-input--error")).toHaveLength(0);
+		expectNoVueWarnings(warn);
 	});
 });
 
@@ -285,9 +319,11 @@ describe("LivePanel", () => {
 	it("follows the live frames", async () => {
 		const wrapper = mountInDwc(LivePanel, { props: { connection: "open" } });
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.live.idle");
+		expect(wrapper.find(".text-caption").text()).toBe("plugins.QualityAssurance.live.states.open");
 		await wrapper.setProps({ frame: { type: "sample", ts: 1, jobId: "j", layer: 4, values: { "fm.0.lastPercentage": 98 },
 			heaterLoad: { 1: { mean: 0.86, level: "high" } } } });
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.live.recording");
+		expect(wrapper.find(".text-caption").text()).toBe("j · plugins.QualityAssurance.live.layer · plugins.QualityAssurance.live.states.open");
 		expect(wrapper.text()).toContain("86 %");
 		expect(wrapper.text()).toContain("98 %");
 		await wrapper.setProps({ frame: { type: "event", ts: 2, event: { type: "heater_load", subtype: "high" } } });
