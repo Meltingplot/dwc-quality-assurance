@@ -53,7 +53,7 @@ DEFAULTS = {
     # until the picture has stood still for stillMs (0 = not), after stillMaxMs from the M240 at the
     # latest; the CHX 350 camera shows the machine 1.3-2.3 s late (qa_timelapse docstring, 2026-09-28)
     "timelapse": {"enabled": True, "snapshotUrl": None, "trigger": "layer", "minIntervalS": 2, "settleMs": 300,
-                  "stillMs": 500, "stillMaxMs": 5000,
+                  "stillMs": 250, "stillMaxMs": 5000,
                   "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None, "encoderThreads": 2,
                   "keepFramesOnFailure": True,
                   "retention": {"jobs": 50, "maxBytes": 10 * 1024 ** 3}},

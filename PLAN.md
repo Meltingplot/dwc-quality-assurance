@@ -497,7 +497,7 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   („trigger camera“, RepRap-Wiki; RRF implementiert es nicht) sendet und zurückfährt; Profile oder
   Jobs, die das nicht vertragen, lassen es weg (Standard: aus). M240 allein = Foto an Ort und Stelle.
   QA hält M240 per DSF-Code-Interception (Pre, Kanäle File/File2, `auto_flush`), sendet `M400` auf
-  dem SBC-Kanal, wartet `settleMs` (300 ms), holt dann Bilder, bis das Bild `stillMs` (500 ms) still
+  dem SBC-Kanal, wartet `settleMs` (300 ms), holt dann Bilder, bis das Bild `stillMs` (250 ms) still
   steht, höchstens bis `stillMaxMs` (5 s) nach dem M240, und gibt M240 frei — immer, auch bei
   Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Grund: die Kamera
   der CHX 350 zeigt die Maschine 1,3–2,3 s verspätet, schwankend innerhalb eines Jobs (gemessen
