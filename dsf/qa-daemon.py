@@ -32,13 +32,16 @@ import qa_patches  # noqa: E402
 logger = qa_log.setup()
 qa_patches.apply()
 
-from dsf.connections import CommandConnection, SubscribeConnection, SubscriptionMode  # noqa: E402
+from dsf.commands.code_channel import CodeChannel  # noqa: E402
+from dsf.connections import (  # noqa: E402
+    CommandConnection, InterceptConnection, InterceptionMode, SubscribeConnection, SubscriptionMode)
 
 import qa_accel  # noqa: E402
 import qa_api  # noqa: E402
 import qa_collector  # noqa: E402
 import qa_db  # noqa: E402
 import qa_gcode  # noqa: E402
+import qa_intercept  # noqa: E402
 import qa_settings  # noqa: E402
 import qa_timelapse  # noqa: E402
 
@@ -180,6 +183,16 @@ def main():
     accel.on_event = collector.external_event
     accel.start()
 
+    def connect_interceptor():
+        # both file channels: a job on the second motion system sends M240 on File2
+        conn = InterceptConnection(InterceptionMode.PRE, channels=[CodeChannel.File, CodeChannel.File2],
+                                   filters=[qa_intercept.FILTER], auto_flush=True, auto_evaluate_expression=True)
+        conn.connect()
+        return conn
+
+    camera = qa_intercept.CameraTrigger(timelapse, collector.camera_state, connect_interceptor, CodeChannel.SBC)
+    camera.start()
+
     endpoints = []
     sub = None
     try:
@@ -237,6 +250,7 @@ def main():
             collector.shutdown(now_ms())
         except Exception as exc:  # noqa: BLE001
             logger.error("collector shutdown failed: %s", exc)
+        camera.stop()
         timelapse.stop()
         accel.stop()
         writer.stop()

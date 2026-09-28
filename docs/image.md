@@ -47,6 +47,11 @@ denial (2026-09-27); a print job with camera and accelerometer is still to run.
 
 `sbcPermissions` now also names `readSystem` and `writeSystem` (the CSVs are in `0:/sys`);
 `fileSystemAccess` covers them already in DSF's own check.
+`codeInterceptionReadWrite` (2026-09-28) lets QA hold and resolve M240 for the timelapse
+(dsf/qa_intercept.py). DCS enforces it; the interceptor uses the same `dcs.sock` connection, so the
+AppArmor block needs nothing new (DuetPluginService AppArmorPermissionManager.cs:44-52, DSF v3.7-dev
+@ cd3ae65f). The machine should carry an empty `/sys/M240.g` (chx350-config): without QA running,
+RRF runs it instead of warning "M240: Command is not supported" at every layer.
 
 ### What the timelapse needs beyond that (decision for the image build)
 

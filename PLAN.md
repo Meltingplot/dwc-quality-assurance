@@ -490,8 +490,20 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   2026-09-26 vom SBC aus geprüft: 200, `image/jpeg`, 104 888 Bytes in 0,02 s). Dahinter: der haproxy
   des HMI reicht `/snapshot` an `/0/current` von `hmi-motion.service` (motion, `127.0.0.1:8081`)
   weiter; 1984×1080, ca. 105 KB je Bild.
-- **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`. Kein Parken des
-  Kopfes (würde den Druck verändern).
+- **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`; QA selbst parkt nie.
+- **M240 aus dem G-Code** (Entscheidung Tim 2026-09-28, ersetzt „kein Parken“): Wer ein Bild mit
+  geparktem Kopf will, lässt den Slicer bei jedem Lagenwechsel ein Makro aufrufen (Orca
+  `time_lapse_gcode`, z. B. `M98 P"…/timelapse-frame.g"`), das parkt, `M400` und **M240**
+  („trigger camera“, RepRap-Wiki; RRF implementiert es nicht) sendet und zurückfährt; Profile oder
+  Jobs, die das nicht vertragen, lassen es weg (Standard: aus). M240 allein = Foto an Ort und Stelle.
+  QA hält M240 per DSF-Code-Interception (Pre, Kanäle File/File2, `auto_flush`), sendet `M400` auf
+  dem SBC-Kanal, wartet `settleMs` (300 ms, Kamera-Latenz), holt das Bild und gibt M240 frei — immer,
+  auch bei Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Ab dem
+  ersten M240 eines Jobs kommen dessen Bilder nur noch von M240 (Lage n−1 beim M240 in Lage n; vor
+  Lage 1 keins), das letzte weiter am Jobende. Braucht `codeInterceptionReadWrite`; ohne laufendes
+  QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine
+  (chx350-config). Nummernwahl: M240 ist in RepRap-Wiki, Duet-Wiki, Marlin, MK4duo und Octolapse
+  „Kamera auslösen“, in RRF/DSF/chx350-config frei (Recherche 2026-09-28).
 - **Während des Drucks:** Frames als JPEG nach `/opt/dsf/sd/QualityAssurance/timelapse/<job>/frames/`,
   Index Lage → Frame (Zeitstempel, Lage). Ein fehlender Snapshot wird im Index vermerkt, kein Abbruch.
   Beispiel laufender Job: 1019 Lagen × 105 KB ≈ 107 MB temporär.
@@ -624,7 +636,7 @@ Offen:
   Firmware-Meldungen mit Filamentbezug; `fan.requestedValue`, `speedFactor`, `extruder.factor`
   sind Kanäle, keine Sollwert-Events. `heater_load` ist kein Sollwertabweichungs-Event, sondern
   misst die Leistungsreserve.
-- Zeitraffer ohne Parken des Kopfes und ohne Eingriff in den Druck.
+- Parken für den Zeitraffer durch QA selbst: das macht das Slicer-Makro vor M240 (§5.11).
 - Kein DWC 3.6, kein direkter DB-Zugriff für QC, kein Toolpath-Speichern, keine CSV-Exporte.
 - Keine Installation über Settings › Plugins (Image-Richtlinie).
 

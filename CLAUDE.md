@@ -46,6 +46,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts) and toolpath
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
+  qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
@@ -93,7 +94,7 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Manifest: `sbcAutoRestart` restarts 2 s after an unexpected exit; permissions used:
   commandExecution, objectModelReadWrite, registerHttpEndpoints, fileSystemAccess, readGCodes,
   networkAccess (camera), launchProcesses (ffmpeg), readSystem/writeSystem (accelerometer CSVs
-  in `0:/sys/accelerometer`). `sbcPackageDependencies: ["ffmpeg"]`, no Python packages beyond dsf-python.
+  in `0:/sys/accelerometer`), codeInterceptionReadWrite (M240; resolving needs it). `sbcPackageDependencies: ["ffmpeg"]`, no Python packages beyond dsf-python.
 - Accelerometers are `sensors.accelerometers[]`, the index is the M955/M956 P number; `runs` counts
   every finished run (`points` 0 = failed). M956 on the SBC channel starts at once without a
   movement lock (RRF 3.7-dev @ 3638836 `Accelerometers.cpp`); in SBC mode `runs` advances before the
@@ -113,7 +114,8 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
   `temperatureK` of the value before inside `phantomReturnS`.
 - Timelapse: the snapshot at the change to layer n is layer n − 1's frame (the last one at the job
-  end); frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
+  end); a job that sends M240 (slicer macro: park, M400, M240, return; Tim 2026-09-28) gets its frames
+  from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; frames numbered without gaps; encoding only while no job prints (SIGSTOP/SIGCONT), with
   nice 19 + I/O idle set on the encoder thread and inherited by ffmpeg; verified video (packets =
   frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).

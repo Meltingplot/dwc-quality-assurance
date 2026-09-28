@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import threading
 
 import pytest
 
@@ -17,7 +18,26 @@ def daemon(data_dir):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module._shutdown.clear()
+    module.InterceptConnection = FakeIntercept
     return module
+
+
+class FakeIntercept:
+    """The M240 interceptor: connected, never receives a code"""
+
+    def __init__(self, *args, **kwargs):
+        self.closed = threading.Event()
+        self.socket = None
+
+    def connect(self):
+        pass
+
+    def receive_code(self):
+        self.closed.wait(5)
+        raise ConnectionError("closed")
+
+    def close(self):
+        self.closed.set()
 
 
 class FakeEndpoint:

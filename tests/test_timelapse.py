@@ -210,6 +210,35 @@ def test_snapshot_failure_is_one_event_and_entries_without_frame(rig, lapse):
                                                                           ("empty", "no frame captured")]
 
 
+def test_m240_frames_replace_the_layer_changes(rig, lapse, settings):
+    """A slicer macro sends M240 at each layer change (after ;LAYER_CHANGE, so job.layer is already n)"""
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0}})
+    rig.start_job()
+    key = rig.collector.job.key
+    rig.patch({"job": {"layer": 1, "duration": 20}})
+    assert lapse.photo(key, 1, rig.t) == "before the first layer"     # the empty bed: no frame
+    for layer in (2, 3):
+        rig.patch({"job": {"layer": layer, "duration": layer * 20}})  # no snapshot of its own any more
+        assert lapse.photo(key, layer, rig.t) == "taken"
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "layer": None}})
+    rig.collector.resolve_pending_end(rig.t, force=True)
+    assert wait_until(lambda: (row(rig) or {}).get("status") == "done")
+    assert [(e["layer"], e["frame"]) for e in row(rig)["layer_frames"]] == [(1, 0), (2, 1), (3, 2)]
+    assert lapse.camera.calls == 3                                     # two M240, the job end
+
+
+def test_m240_photo_failure_and_no_capture(rig, lapse, settings):
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0}})
+    assert lapse.photo(12345, 3, 0).startswith("no capture")
+    rig.start_job()
+    rig.patch({"job": {"layer": 2, "duration": 20}})
+    lapse.camera.fail = "HTTP 503"
+    assert lapse.photo(rig.collector.job.key, 2, rig.t) == "failed: HTTP 503"
+    assert wait_until(lambda: len((row(rig) or {}).get("layer_frames") or []) == 1)
+    assert row(rig)["layer_frames"][0] == {"layer": 1, "frame": None, "ts": rig.t, "reason": "snapshot: HTTP 503"}
+    assert [e["subtype"] for e in rig.events("timelapse_failed")] == ["snapshot"]
+
+
 def test_encoder_failure_keeps_frames(rig, lapse, data_dir, monkeypatch):
     monkeypatch.setenv("FAKE_FFPROBE_SHORT", "1")  # the video has a frame less than the index
     print_job(rig)

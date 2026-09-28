@@ -21,7 +21,8 @@
     "networkAccess",
     "launchProcesses",
     "readSystem",
-    "writeSystem"
+    "writeSystem",
+    "codeInterceptionReadWrite"
   ],
   "sbcPythonDependencies": ["dsf-python"],
   "sbcPackageDependencies": ["ffmpeg"],

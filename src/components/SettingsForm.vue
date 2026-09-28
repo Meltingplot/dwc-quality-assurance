@@ -63,6 +63,7 @@
 						@update:model-value="set('timelapse.keepFramesOnFailure', !!$event)" />
 				</v-col>
 			</v-row>
+			<div class="text-caption text-medium-emphasis">{{ $t("plugins.QualityAssurance.settings.timelapseM240") }}</div>
 			<div v-if="get('timelapse.enabled') && timelapseReason" class="text-caption text-warning">
 				{{ $t("plugins.QualityAssurance.settings.timelapseNotReady", { reason: timelapseReason }) }}
 			</div>
@@ -114,7 +115,8 @@ const NUMBER_FIELDS = [
 const TIMELAPSE_FIELDS = [
 	{ key: "minIntervalS", path: "timelapse.minIntervalS", unit: "s", nullable: false },
 	{ key: "fps", path: "timelapse.fps", unit: "fps", nullable: false },
-	{ key: "encoderThreads", path: "timelapse.encoderThreads", unit: "", nullable: true }
+	{ key: "encoderThreads", path: "timelapse.encoderThreads", unit: "", nullable: true },
+	{ key: "settleMs", path: "timelapse.settleMs", unit: "ms", nullable: false }
 ];
 
 const ACCEL_FIELDS = [

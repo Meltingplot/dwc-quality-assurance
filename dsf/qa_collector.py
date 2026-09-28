@@ -238,6 +238,11 @@ class Collector:
             self._last_live_ms = now_ms
             self.broadcast({"type": "status", "ts": now_ms, **self.status()})
 
+    def camera_state(self):
+        """For the M240 trigger (its own thread): ``(job_key, layer, simulating)``, None without a job."""
+        job = self.job
+        return None if job is None else (job.key, job.layer, self._simulating)
+
     def shutdown(self, now_ms):
         """Daemon stops: keep the running job 'running' (it is resumed on the next start), flush."""
         self.resolve_pending_end(now_ms, force=True)

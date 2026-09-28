@@ -49,7 +49,9 @@ DEFAULTS = {
     "machineSignals": {"mfm": True},
     # encoderThreads: SVT-AV1 "lp"; a paused encoder keeps its memory through a print, about
     # 0.57 GB with 2 at 1984×1080 against 0.95 GB with 4 (qa_timelapse docstring); None = SVT decides
-    "timelapse": {"enabled": True, "snapshotUrl": None, "trigger": "layer", "minIntervalS": 2,
+    # settleMs: wait before an M240 photo, the camera's picture lags the machine (Bambu dwells 300 ms,
+    # M400 P300 in its Orca profiles)
+    "timelapse": {"enabled": True, "snapshotUrl": None, "trigger": "layer", "minIntervalS": 2, "settleMs": 300,
                   "fps": 30, "keyframeInterval": 30, "crf": None, "preset": None, "encoderThreads": 2,
                   "keepFramesOnFailure": True,
                   "retention": {"jobs": 50, "maxBytes": 10 * 1024 ** 3}},
@@ -86,6 +88,7 @@ BOUNDS = {
     "contextGlobals": (list, None, None),
     "timelapse.snapshotUrl": ((str, type(None)), None, None),
     "timelapse.minIntervalS": (_NUMBER, 0, 3600),
+    "timelapse.settleMs": (_NUMBER, 0, 5000),
     "timelapse.fps": (_NUMBER, 1, 120),
     "timelapse.keyframeInterval": (int, 1, 1000),
     "timelapse.crf": ((int, type(None)), 0, 63),

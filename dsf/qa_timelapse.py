@@ -3,7 +3,11 @@ after it.
 
 Capture. The collector thread only queues work; the capture thread fetches
 ``timelapse.snapshotUrl``. The snapshot taken when ``job.layer`` changes to n shows layer n-1
-finished, so it is that layer's frame; the last layer's frame is taken at the job end. Only a
+finished, so it is that layer's frame; the last layer's frame is taken at the job end. A job whose
+G-code sends M240 ("trigger camera", usually from a slicer macro that parks the head first; Tim
+2026-09-28) gets its frames from M240 instead, from the first one on: qa_intercept holds the code,
+``photo`` waits ``settleMs`` for the camera and fetches while the machine stands still, the capture
+thread stores the JPEG. The M240 at the change to layer n is layer n-1's frame as well. Only a
 valid JPEG gets a frame number (``000000.jpg``, ``000001.jpg``, … without gaps: that is the input
 ffmpeg reads); a failed or skipped snapshot is an index entry without a frame. Frames live in
 ``<data>/timelapse/<job id>/frames/`` until the video is verified.
@@ -176,6 +180,7 @@ class _Capture:
         self.last_layer = last_layer      # collector thread
         self.last_queued = None           # collector thread, monotonic
         self.snapshot_failed = False
+        self.marker = False               # frames come from M240 (set by the interceptor thread)
 
 
 class Timelapse:
@@ -294,7 +299,7 @@ class Timelapse:
         if capture is None:
             return
         finished, capture.last_layer = capture.last_layer, layer
-        if finished is None:
+        if finished is None or capture.marker:
             return
         mono = time.monotonic()
         if capture.last_queued is not None and mono - capture.last_queued < self.cfg()["minIntervalS"]:
@@ -302,6 +307,29 @@ class Timelapse:
             return
         capture.last_queued = mono
         self._capture_queue.put(("frame", job.key, finished, now_ms, None))
+
+    # --- M240 (qa_intercept thread; the print waits until this returns) --------------------------
+
+    def photo(self, job_key, layer, ts_ms):
+        """The frame of layer ``layer`` - 1, fetched now; the capture thread stores it. Returns what
+        happened, for the log."""
+        with self._lock:
+            capture = self._captures.get(job_key)
+        if capture is None:
+            return "no capture (off, no snapshotUrl or no job)"
+        capture.marker = True
+        finished = (layer or 0) - 1
+        if finished < 1:
+            return "before the first layer"
+        cfg = self.cfg()
+        if cfg["settleMs"]:
+            time.sleep(cfg["settleMs"] / 1000.0)   # the camera's picture lags the machine
+        try:
+            result = self._fetch(cfg["snapshotUrl"])
+        except SnapshotError as exc:
+            result = exc
+        self._capture_queue.put(("photo", job_key, finished, ts_ms, result))
+        return f"failed: {result}" if isinstance(result, Exception) else "taken"
 
     def job_finished(self, job, _result):
         """The last layer's frame, then the job goes to the encoder; the encoder may run again."""
@@ -356,6 +384,8 @@ class Timelapse:
             try:
                 if kind == "frame":
                     self._take(capture, layer, ts_ms)
+                elif kind == "photo":             # fetched by photo(): the JPEG or the SnapshotError
+                    self._take(capture, layer, ts_ms, fetched=reason)
                 elif kind == "skip":
                     capture.entries.append({"layer": layer, "frame": None, "ts": ts_ms, "reason": reason})
                     self._store(capture)
@@ -364,12 +394,16 @@ class Timelapse:
             except Exception as exc:  # noqa: BLE001
                 logger.error("timelapse capture error: %s", exc)
 
-    def _take(self, capture, layer, ts_ms):
+    def _take(self, capture, layer, ts_ms, fetched=None):
         try:
-            url = self.cfg()["snapshotUrl"]
-            if not url:
-                raise SnapshotError("no snapshotUrl set")
-            data = self._fetch(url)
+            if isinstance(fetched, SnapshotError):
+                raise fetched
+            data = fetched
+            if data is None:
+                url = self.cfg()["snapshotUrl"]
+                if not url:
+                    raise SnapshotError("no snapshotUrl set")
+                data = self._fetch(url)
             os.makedirs(capture.frames_dir, exist_ok=True)
             path = os.path.join(capture.frames_dir, frame_name(capture.next_frame))
             with open(path + ".tmp", "wb") as handle:
