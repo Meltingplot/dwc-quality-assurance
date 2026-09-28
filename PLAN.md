@@ -456,7 +456,7 @@ keine Aufnahmen, keine automatische Wahl (Tim 2026-09-27, ersetzt `enabled: "aut
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung
 festlegen (§7). `encoderThreads` (SVT-AV1 `lp`, ergänzt 2026-09-27): ein angehaltener Encoder behält
-seinen Speicher während des Drucks; bei 1984×1080 gemessen 0,57 GB mit 2, 0,95 GB mit 4 Threads
+seinen Speicher während des Drucks; bei 1920×1080 gemessen 0,55 GB mit 2, 0,93 GB mit 4 Threads
 (`dsf/qa_timelapse.py`).
 
 ### 5.10 Integration in die CHX-UI (neu)
@@ -489,7 +489,7 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   2026-09-26). Auf der CHX 350 ist das vom SBC aus **`http://10.42.0.1/snapshot`** (Tim, am
   2026-09-26 vom SBC aus geprüft: 200, `image/jpeg`, 104 888 Bytes in 0,02 s). Dahinter: der haproxy
   des HMI reicht `/snapshot` an `/0/current` von `hmi-motion.service` (motion, `127.0.0.1:8081`)
-  weiter; 1984×1080, ca. 105 KB je Bild.
+  weiter; 1920×1080, ca. 105 KB je Bild (2026-09-28 geprüft; bis dahin skalierte motion auf 1984×1080).
 - **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`; QA selbst parkt nie.
 - **M240 aus dem G-Code** (Entscheidung Tim 2026-09-28, ersetzt „kein Parken“): Wer ein Bild mit
   geparktem Kopf will, lässt den Slicer bei jedem Lagenwechsel ein Makro aufrufen (Orca

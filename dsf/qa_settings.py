@@ -48,7 +48,7 @@ DEFAULTS = {
                        "filament_max_flow_rate", "machine_mode"],
     "machineSignals": {"mfm": True},
     # encoderThreads: SVT-AV1 "lp"; a paused encoder keeps its memory through a print, about
-    # 0.57 GB with 2 at 1984×1080 against 0.95 GB with 4 (qa_timelapse docstring); None = SVT decides
+    # 0.55 GB with 2 at 1920×1080 against 0.93 GB with 4 (qa_timelapse docstring); None = SVT decides
     # M240 photo: settleMs first (Bambu dwells 300 ms, M400 P300 in its Orca profiles), then snapshots
     # until the picture has stood still for stillMs (0 = not), after stillMaxMs from the M240 at the
     # latest; the CHX 350 camera shows the machine 1.3-2.3 s late (qa_timelapse docstring, 2026-09-28)

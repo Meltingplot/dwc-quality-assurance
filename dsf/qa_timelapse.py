@@ -40,8 +40,9 @@ Checked against Debian trixie's ffmpeg 7.1.5 (libsvtav1enc2 2.3.0, libdav1d7 1.5
 container, 2026-09-27): ``-preset`` −2..13 and ``-crf`` 0..63 with −2/0 meaning SVT's default;
 ``-g 30`` puts a keyframe every 30 frames; the MP4 reports nb_frames = packets = JPEGs;
 ``-ss (n − 0.5)/fps`` before ``-i`` extracts frame n (PSNR 41 dB against n, 24 dB against its
-neighbours); odd sizes encode. Peak memory at 1984×1080 (the CHX 350 camera): 1.16 GB with SVT's
-default threads on 12 cores, 0.95 GB ``lp=4``, 0.57 GB ``lp=2``, 0.46 GB ``lp=1``. A paused
+neighbours); odd sizes encode. Peak memory at 1920×1080 (the CHX 350 camera; its HMI scaled to
+1984×1080 until 2026-09-28): 1.14 GB with SVT's default threads on 12 cores, 0.93 GB ``lp=4``,
+0.55 GB ``lp=2``, 0.44 GB ``lp=1`` (maximum RSS, 120 testsrc2 frames, 2026-09-28). A paused
 encoder keeps its memory through the print, hence ``encoderThreads`` (default 2).
 """
 

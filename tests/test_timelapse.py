@@ -538,7 +538,7 @@ def test_real_ffmpeg_thumbnail(tmp_path, writer, settings, data_dir):
     shots = []
     for second in (0, 3):  # the CHX 350 camera's size
         out = tmp_path / f"{second}.jpg"
-        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1984x1080:rate=1",
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=1",
                         "-ss", str(second), "-frames:v", "1", str(out)], check=True)
         shots.append(out.read_bytes())
     tl = qa_timelapse.Timelapse(writer, settings, data_dir)
