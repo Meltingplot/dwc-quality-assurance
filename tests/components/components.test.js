@@ -170,6 +170,20 @@ describe("JobDetail", () => {
 		expectNoVueWarnings(warn);
 	});
 
+	it("reloads without a progress bar when the page bumps the key", async () => {
+		const api = fakeApi();
+		const wrapper = mountInDwc(JobDetail, { props: { api, jobId: JOB.id } });
+		await flush();
+		await flush();
+		await wrapper.setProps({ reloadKey: 1 });
+		expect(wrapper.vm.loading).toBe(false);  // the job stays on screen, no progress bar above it
+		await flush();
+		expect(api.job).toHaveBeenCalledTimes(2);
+		expect(api.layers).toHaveBeenCalledTimes(2);
+		expect(api.events).toHaveBeenCalledTimes(2);
+		expectNoVueWarnings(warn);
+	});
+
 	it("shows no end while the job runs", async () => {
 		const api = fakeApi({ job: vi.fn(async () => ({ ...DETAIL, endedAt: null, qaResult: "running", summary: null })) });
 		const wrapper = mountInDwc(JobDetail, { props: { api, jobId: JOB.id } });
@@ -356,5 +370,36 @@ describe("QualityAssurance page", () => {
 		expect(wrapper.text()).toContain("cube.gcode");
 		wrapper.unmount();
 		expectNoVueWarnings(warn);
+	});
+
+	it("reloads a running job's detail on its layer changes, at most every 30 s", async () => {
+		vi.useFakeTimers({ now: 1_000_000 });
+		try {
+			const host = { pluginEntry: () => ({ pid: 42 }), startBackend: () => Promise.resolve(), webSocketUrl: () => null,
+				request: vi.fn(async () => ({})) };
+			const wrapper = mountInDwc(QualityAssurance, { props: { host } });
+			const vm = wrapper.vm;
+			vm.openJob("j");
+			const version = vm.jobVersion;
+			vm.onFrame({ type: "layer", ts: 1, jobId: "other", layer: 2 });
+			vm.onFrame({ type: "layer", ts: 1, jobId: "j", layer: 2 });
+			expect(vm.jobVersion).toBe(version);  // just opened: the detail has loaded it
+			vm.onFrame({ type: "layer", ts: 2, jobId: "j", layer: 3 });
+			vi.advanceTimersByTime(29_999);
+			expect(vm.jobVersion).toBe(version);
+			vi.advanceTimersByTime(1);
+			expect(vm.jobVersion).toBe(version + 1);  // one reload for both changes
+			vi.advanceTimersByTime(60_000);
+			vm.onFrame({ type: "layer", ts: 3, jobId: "j", layer: 4 });
+			expect(vm.jobVersion).toBe(version + 2);  // quiet for 30 s: at once
+			vm.onFrame({ type: "layer", ts: 4, jobId: "j", layer: 5 });
+			vm.onFrame({ type: "job", ts: 5, jobId: "j" });
+			expect(vm.jobVersion).toBe(version + 3);  // the end reloads at once and takes the pending reload along
+			vi.advanceTimersByTime(60_000);
+			expect(vm.jobVersion).toBe(version + 3);
+			wrapper.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

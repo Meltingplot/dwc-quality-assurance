@@ -53,11 +53,11 @@
 					<timelapse-viewer v-if="tab === 'timelapse'" :api="api" :job="job" />
 				</v-window-item>
 				<v-window-item value="spectra">
-					<spectrum-view v-if="tab === 'spectra'" :api="api" :job="job" />
+					<spectrum-view v-if="tab === 'spectra'" :api="api" :job="job" :reload-key="reloadKey" />
 				</v-window-item>
 				<v-window-item value="channels">
 					<channel-chart v-if="tab === 'channels'" :api="api" :job-id="job.id" :start-ms="startMs" :events="events"
-						:raw-pruned="job.rawPruned" :default-channels="defaultChannels" />
+						:raw-pruned="job.rawPruned" :default-channels="defaultChannels" :reload-key="reloadKey" />
 				</v-window-item>
 				<v-window-item value="events">
 					<event-list :events="events" :start-ms="startMs" />
@@ -148,7 +148,7 @@ export default defineComponent({
 			this.load();
 		},
 		reloadKey() {
-			this.load();
+			this.load(true);
 		}
 	},
 	mounted() {
@@ -158,8 +158,9 @@ export default defineComponent({
 		fileName,
 		formatDateTime,
 		resultColor,
-		async load() {
-			this.loading = true;
+		/** ``quiet`` keeps the shown job without a progress bar (reloads while it runs) */
+		async load(quiet = false) {
+			this.loading = !quiet;
 			this.error = null;
 			try {
 				const [job, layers, events] = await Promise.all([

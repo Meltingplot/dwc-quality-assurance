@@ -41,6 +41,9 @@ import type { HostAdapter } from "./core/host";
 import { LiveClient, type LiveFrame, type LiveState } from "./core/ws";
 import { createHost } from "./host";
 
+/** A running job's detail reloads on its layer changes, at most this often */
+const RUNNING_RELOAD_MS = 30000;
+
 /** QA page of the classic DWC: job list, job detail, trends, settings, live state */
 export default defineComponent({
 	components: { BackendBanner, JobDetail, JobList, LivePanel, SettingsForm, TrendsView },
@@ -57,7 +60,9 @@ export default defineComponent({
 			status: null as StatusAnswer["collector"],
 			connection: "closed" as LiveState,
 			jobsVersion: 0,
-			jobVersion: 0
+			jobVersion: 0,
+			lastJobReload: 0,
+			jobReloadTimer: null as ReturnType<typeof setTimeout> | null
 		};
 	},
 	mounted() {
@@ -65,17 +70,47 @@ export default defineComponent({
 			url: () => this.host.webSocketUrl(`machine/${PLUGIN_ID}/live`),
 			onFrame: (frame) => this.onFrame(frame),
 			onState: (state) => { this.connection = state; },
-			poll: async () => { this.status = (await this.api.status()).collector; }
+			poll: async () => {
+				const collector = (await this.api.status()).collector;
+				if (collector?.layer !== this.status?.layer) {
+					this.onLayer(collector?.currentJobId ?? null);
+				}
+				this.status = collector;
+			}
 		}));
 		this.live.start();
 	},
 	beforeUnmount() {
 		this.live?.stop();
+		if (this.jobReloadTimer !== null) {
+			clearTimeout(this.jobReloadTimer);
+		}
 	},
 	methods: {
 		openJob(id: string) {
 			this.selectedJob = id;
 			this.tab = "job";
+			this.lastJobReload = Date.now();  // the detail loads it on its own
+		},
+		/** New layer of a running job: reload its open detail now, or once when 30 s since the last reload are over */
+		onLayer(jobId: string | null) {
+			if (jobId === null || jobId !== this.selectedJob || this.jobReloadTimer !== null) {
+				return;
+			}
+			const wait = this.lastJobReload + RUNNING_RELOAD_MS - Date.now();
+			if (wait <= 0) {
+				this.reloadJob();
+			} else {
+				this.jobReloadTimer = setTimeout(() => this.reloadJob(), wait);
+			}
+		},
+		reloadJob() {
+			if (this.jobReloadTimer !== null) {
+				clearTimeout(this.jobReloadTimer);
+				this.jobReloadTimer = null;
+			}
+			this.lastJobReload = Date.now();
+			this.jobVersion++;
 		},
 		onFrame(frame: LiveFrame) {
 			this.frame = frame;
@@ -87,8 +122,10 @@ export default defineComponent({
 				this.status = { state: "idle", currentJobId: null, lastJobId: frame.jobId, layer: null };
 				this.jobsVersion++;
 				if (frame.jobId === this.selectedJob) {
-					this.jobVersion++;
+					this.reloadJob();
 				}
+			} else if (frame.type === "layer") {
+				this.onLayer(frame.jobId ?? null);
 			} else if (frame.type === "event" && frame.event?.type === "job_start") {
 				this.jobsVersion++;
 			}
