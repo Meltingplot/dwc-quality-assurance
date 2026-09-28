@@ -2,7 +2,8 @@
 
 The slicer calls a macro at each layer change that parks the head, sends M240 and returns; or it
 sends M240 alone for a photo in place. QA holds M240 in DSF's code pipeline, takes the photo while
-the machine stands still and resolves the code, so RRF never sees it. Facts (DuetSoftwareFramework
+the machine stands still (once the camera's lagging picture stands still as well: ``Timelapse.photo``)
+and resolves the code, so RRF never sees it. Facts (DuetSoftwareFramework
 v3.7-dev @ cd3ae65f, RepRapFirmware 3.7-dev @ 3638836, dsf-python 3.7.0b1; read 2026-09-28):
 
 - A Pre interceptor holds the code: nothing after it on that channel runs until QA answers, and

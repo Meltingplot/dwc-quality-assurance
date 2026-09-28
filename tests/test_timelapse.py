@@ -82,8 +82,10 @@ class Camera:
 def lapse(rig, settings, writer, data_dir, tools):
     settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0}})
     camera = Camera()
+    # no thumbnails: the fake ffmpeg only knows encoding and extraction
     tl = qa_timelapse.Timelapse(writer, settings, data_dir, on_event=rig.collector.external_event,
-                                ffmpeg=tools["ffmpeg"], ffprobe=tools["ffprobe"], fetch=camera)
+                                ffmpeg=tools["ffmpeg"], ffprobe=tools["ffprobe"], fetch=camera,
+                                thumbnail=lambda _data: None)
     tl.camera = camera
     rig.collector.timelapse = tl
     tl.start()
@@ -212,7 +214,8 @@ def test_snapshot_failure_is_one_event_and_entries_without_frame(rig, lapse):
 
 def test_m240_frames_replace_the_layer_changes(rig, lapse, settings):
     """A slicer macro sends M240 at each layer change (after ;LAYER_CHANGE, so job.layer is already n)"""
-    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0}})
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0,
+                                   "stillMs": 0}})
     rig.start_job()
     key = rig.collector.job.key
     rig.patch({"job": {"layer": 1, "duration": 20}})
@@ -228,7 +231,8 @@ def test_m240_frames_replace_the_layer_changes(rig, lapse, settings):
 
 
 def test_m240_photo_failure_and_no_capture(rig, lapse, settings):
-    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0}})
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0,
+                                   "stillMs": 0}})
     assert lapse.photo(12345, 3, 0).startswith("no capture")
     rig.start_job()
     rig.patch({"job": {"layer": 2, "duration": 20}})
@@ -237,6 +241,86 @@ def test_m240_photo_failure_and_no_capture(rig, lapse, settings):
     assert wait_until(lambda: len((row(rig) or {}).get("layer_frames") or []) == 1)
     assert row(rig)["layer_frames"][0] == {"layer": 1, "frame": None, "ts": rig.t, "reason": "snapshot: HTTP 503"}
     assert [e["subtype"] for e in rig.events("timelapse_failed")] == ["snapshot"]
+
+
+# --- M240: a still picture ----------------------------------------------------------------------
+
+class Film:
+    """A camera on a fake clock: shows ``scenes[i]`` (a grey value for the whole thumbnail) from
+    i × 0.1 s on, a new JPEG every 0.1 s like the CHX 350 camera, the last scene after the end."""
+
+    def __init__(self, *scenes):
+        self.t = 0.0
+        self.scenes = scenes
+        self.fail_after = None
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+    def fetch(self):
+        if self.fail_after is not None and self.t >= self.fail_after:
+            raise qa_timelapse.SnapshotError("timed out")
+        return b"\xff\xd8frame %d\xff\xd9" % min(int(self.t * 10 + 1e-6), len(self.scenes) - 1)
+
+    def thumbnail(self, data):
+        return bytes([self.scenes[int(data[8:-2])]]) * 20
+
+    def run(self, still_s=0.5, until=5.0):
+        data, still = qa_timelapse.still_snapshot(self.fetch, self.thumbnail, still_s, until, self.clock, self.sleep)
+        return int(data[8:-2]), still
+
+
+def test_still_picture_helpers():
+    assert qa_timelapse.changed_pixels(bytes([10, 10, 10]), bytes([10, 34, 35])) == 1   # 24 levels are not more
+    cmd = qa_timelapse.thumbnail_command("ffmpeg")
+    assert cmd[cmd.index("-i") + 1] == "pipe:0" and cmd[-1] == "pipe:1"
+    assert "scale=160:90:flags=area,format=gray" in cmd
+
+
+def test_still_snapshot_waits_until_the_picture_stood_still(monkeypatch):
+    monkeypatch.setattr(qa_timelapse, "STILL_POLL_S", 0.05)  # every frame twice: a repeat does not count
+    # printing, the retract pause before the park move (0.2 s), the move, parked from frame 7 on
+    film = Film(0, 30, 60, 60, 60, 90, 120, 150, 150, 150, 150, 150, 150, 150, 150, 150, 150)
+    frame, still = film.run(still_s=0.45)
+    assert still is True
+    assert frame == 12 and abs(film.t - 1.2) < 0.01   # the first frame 0.45 s after frame 7
+
+
+def test_still_snapshot_gives_up(monkeypatch):
+    monkeypatch.setattr(qa_timelapse, "STILL_POLL_S", 0.1)
+    moving = Film(*range(0, 250, 30))
+    assert moving.run(until=0.55) == (6, False)              # the last snapshot at the deadline
+    parked = Film(150)
+    parked.fail_after = 0.15                                 # the camera stops answering
+    assert parked.run() == (0, False)
+    dead = Film(150)
+    dead.fail_after = 0
+    with pytest.raises(qa_timelapse.SnapshotError):
+        dead.run()
+    blind = Film(0, 30, 60)
+    data, still = qa_timelapse.still_snapshot(blind.fetch, lambda _data: None, 0.5, 5.0, blind.clock, blind.sleep)
+    assert (data, still, blind.t) == (b"\xff\xd8frame 0\xff\xd9", None, 0)   # cannot judge: no waiting
+
+
+def test_m240_photo_keeps_the_wait_in_the_index(rig, lapse, settings, monkeypatch):
+    monkeypatch.setattr(qa_timelapse, "STILL_POLL_S", 0.01)
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0,
+                                   "stillMs": 30}})
+    shots = iter(range(1000))
+    lapse._fetch = lambda _url: b"\xff\xd8%d\xff\xd9" % next(shots)
+    lapse._thumbnail = lambda data: bytes([min(int(data[2:-2]) * 30, 240)]) * 20   # still from the 9th on
+    rig.start_job()
+    rig.patch({"job": {"layer": 2, "duration": 20}})
+    assert lapse.photo(rig.collector.job.key, 2, rig.t).startswith("taken after ")
+    assert wait_until(lambda: len((row(rig) or {}).get("layer_frames") or []) == 1)
+    entry = row(rig)["layer_frames"][0]
+    assert entry["still"] is True and entry["frame"] == 0 and entry["waitMs"] >= 30
+    stored = os.path.join(lapse.job_dir(rig.collector.job.id), "frames", qa_timelapse.frame_name(0))
+    with open(stored, "rb") as handle:
+        assert int(handle.read()[2:-2]) >= 10   # the picture of the parked machine
 
 
 def test_encoder_failure_keeps_frames(rig, lapse, data_dir, monkeypatch):
@@ -447,3 +531,19 @@ def test_real_ffmpeg(tmp_path):
     source = lambda n: str(frames / qa_timelapse.frame_name(n))  # noqa: E731
     assert psnr(out, source(7)) > psnr(out, source(6)) + 5
     assert psnr(out, source(7)) > psnr(out, source(8)) + 5
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg (Debian trixie: apt install ffmpeg)")
+def test_real_ffmpeg_thumbnail(tmp_path, writer, settings, data_dir):
+    shots = []
+    for second in (0, 3):  # the CHX 350 camera's size
+        out = tmp_path / f"{second}.jpg"
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1984x1080:rate=1",
+                        "-ss", str(second), "-frames:v", "1", str(out)], check=True)
+        shots.append(out.read_bytes())
+    tl = qa_timelapse.Timelapse(writer, settings, data_dir)
+    first, again, later = (tl._ffmpeg_thumbnail(shot) for shot in (shots[0], shots[0], shots[1]))
+    assert len(first) == qa_timelapse.THUMB_W * qa_timelapse.THUMB_H
+    assert qa_timelapse.changed_pixels(first, again) == 0
+    assert qa_timelapse.changed_pixels(first, later) > qa_timelapse.STILL_PIXELS
+    assert tl._ffmpeg_thumbnail(b"\xff\xd8 not a JPEG \xff\xd9") is None

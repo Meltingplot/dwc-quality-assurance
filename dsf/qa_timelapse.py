@@ -6,11 +6,25 @@ Capture. The collector thread only queues work; the capture thread fetches
 finished, so it is that layer's frame; the last layer's frame is taken at the job end. A job whose
 G-code sends M240 ("trigger camera", usually from a slicer macro that parks the head first; Tim
 2026-09-28) gets its frames from M240 instead, from the first one on: qa_intercept holds the code,
-``photo`` waits ``settleMs`` for the camera and fetches while the machine stands still, the capture
-thread stores the JPEG. The M240 at the change to layer n is layer n-1's frame as well. Only a
-valid JPEG gets a frame number (``000000.jpg``, ``000001.jpg``, … without gaps: that is the input
-ffmpeg reads); a failed or skipped snapshot is an index entry without a frame. Frames live in
+``photo`` fetches while the machine stands still, the capture thread stores the JPEG. The M240 at
+the change to layer n is layer n-1's frame as well. Only a valid JPEG gets a frame number
+(``000000.jpg``, ``000001.jpg``, … without gaps: that is the input ffmpeg reads); a failed or
+skipped snapshot is an index entry without a frame. Frames live in
 ``<data>/timelapse/<job id>/frames/`` until the video is verified.
+
+The camera's picture lags the machine, so a standing machine is not a standing picture. Measured
+on the CHX 350 on 2026-09-28 (motion on the HMI behind ``/snapshot``, 10 fps; head position from
+DSF's model WebSocket against snapshots at 10 Hz, three park cycles; the overlay clock of the M240
+frames of one job): the picture shows the head 1.3-2.3 s late, drifting within one job, while
+motion's own time stamp is at most 0.3 s old, so the delay is before motion. The park macro's
+``G4 P1000`` plus the fixed 300 ms ``settleMs`` gave pictures of the head on its way to the park
+position. The cause was a backlog in the TCP buffers between the camera's MJPEG server and motion
+4.5.1: motion cannot tell the stream's frame rate, so it read at ``framerate`` = the camera's
+10 fps and never caught up (Recv-Q 620-646 KB on the HMI); ``netcam_params capture_rate=15`` on the
+HMI emptied it (2026-09-28). A camera can lag for many reasons, so after ``settleMs`` ``photo``
+still fetches snapshots until the picture has stood still for
+``stillMs`` (``still_snapshot``), for ``stillMaxMs`` at most; the index entry keeps ``waitMs`` and
+``still``. ``stillMs`` 0 is the fixed wait alone.
 
 Encoding. After the job, while no job prints, one ffmpeg at a time encodes with libsvtav1 into MP4
 with a keyframe every ``keyframeInterval`` frames, so a single frame decodes quickly. The encoder
@@ -56,6 +70,17 @@ PROBE_TIMEOUT_S = 120
 # a frame request must answer well inside the 10 s the HMI's haproxy gives a busy DSF (§5.6)
 EXTRACT_TIMEOUT_S = 8
 _JOB_ID_RE = re.compile(r"^[0-9A-Za-z-]+$")
+
+# Still picture: consecutive snapshots as grey THUMB_W×THUMB_H thumbnails differ in at most
+# STILL_PIXELS pixels by more than STILL_LEVEL. Calibrated on 451 snapshots of the CHX 350 camera
+# over three park cycles (2026-09-28): parked, at most 2 pixels change (noise, the overlay clock);
+# printing, at most 3 snapshots in a row stay under 5, and the pause before the park move (retract,
+# Z lift) lasts 0.2 s, shorter than the default stillMs.
+THUMB_W, THUMB_H = 160, 90
+STILL_LEVEL = 24
+STILL_PIXELS = 5
+STILL_POLL_S = 0.1   # the CHX 350 camera delivers 10 frames/s
+THUMB_TIMEOUT_S = 3
 
 # ioprio_set: syscall numbers from linux-libc-dev 6.8 (asm/unistd_64.h: 251,
 # asm-generic/unistd.h as used by arm64: 30); class and "who" from linux/ioprio.h
@@ -139,6 +164,52 @@ def fetch_snapshot(url, timeout=SNAPSHOT_TIMEOUT_S):
     return data
 
 
+def thumbnail_command(ffmpeg):
+    """ffmpeg arguments: a JPEG on stdin, its grey THUMB_W×THUMB_H thumbnail as raw bytes on stdout."""
+    return [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "jpeg_pipe", "-i", "pipe:0",
+            "-vf", f"scale={THUMB_W}:{THUMB_H}:flags=area,format=gray", "-frames:v", "1",
+            "-f", "rawvideo", "pipe:1"]
+
+
+def changed_pixels(a, b):
+    """Pixels of two thumbnails that differ by more than STILL_LEVEL grey levels."""
+    return sum(1 for x, y in zip(a, b) if abs(x - y) > STILL_LEVEL)
+
+
+def still_snapshot(fetch, thumbnail, still_s, until, clock=time.monotonic, sleep=time.sleep):
+    """Snapshots from ``fetch`` until the picture has stood still for ``still_s``: at least three in a
+    row that ``thumbnail`` shows unchanged, the first and the last ``still_s`` apart. A snapshot equal
+    to the one before, byte for byte, is the same camera frame again and does not count.
+
+    Returns ``(jpeg, still)``: still False when ``until`` (a ``clock`` value) came first or a later
+    snapshot failed, with the last snapshot; None when ``thumbnail`` returned None, with the snapshot
+    at hand. Raises SnapshotError when the first snapshot fails."""
+    data = thumb = first = None
+    unchanged = 0
+    while True:
+        try:
+            new = fetch()
+        except SnapshotError:
+            if data is None:
+                raise
+            return data, False
+        now = clock()
+        if new != data:
+            new_thumb = thumbnail(new)
+            if new_thumb is None:
+                return new, None
+            if thumb is not None and changed_pixels(thumb, new_thumb) <= STILL_PIXELS:
+                unchanged += 1
+            else:
+                first, unchanged = now, 0
+            data, thumb = new, new_thumb
+            if unchanged >= 2 and now - first >= still_s:
+                return data, True
+        if now >= until:
+            return data, False
+        sleep(STILL_POLL_S)
+
+
 def lower_thread_priority():
     """nice 19 and I/O class idle for the calling thread (inherited by processes it starts)."""
     try:
@@ -188,7 +259,8 @@ class Timelapse:
     ``job_finished`` from its thread (``recover`` once after a daemon start); the API reads through
     ``status``, ``video_file``, ``frame_file`` and ``extract_frame``."""
 
-    def __init__(self, writer, settings, data_dir, on_event=None, ffmpeg=None, ffprobe=None, fetch=None):
+    def __init__(self, writer, settings, data_dir, on_event=None, ffmpeg=None, ffprobe=None, fetch=None,
+                 thumbnail=None):
         self.writer = writer
         self.settings = settings
         self.root = os.path.join(data_dir, "timelapse")
@@ -198,6 +270,8 @@ class Timelapse:
         self.ffmpeg = ffmpeg or shutil.which("ffmpeg")
         self.ffprobe = ffprobe or shutil.which("ffprobe")
         self._fetch = fetch or fetch_snapshot
+        self._thumbnail = thumbnail or self._ffmpeg_thumbnail
+        self._thumbnail_warned = False
         self._lock = threading.Lock()
         self._wake = threading.Condition(self._lock)
         self._captures = {}               # job key -> _Capture
@@ -311,8 +385,8 @@ class Timelapse:
     # --- M240 (qa_intercept thread; the print waits until this returns) --------------------------
 
     def photo(self, job_key, layer, ts_ms):
-        """The frame of layer ``layer`` - 1, fetched now; the capture thread stores it. Returns what
-        happened, for the log."""
+        """The frame of layer ``layer`` - 1, fetched once the picture stands still; the capture thread
+        stores it. Returns what happened, for the log."""
         with self._lock:
             capture = self._captures.get(job_key)
         if capture is None:
@@ -322,14 +396,43 @@ class Timelapse:
         if finished < 1:
             return "before the first layer"
         cfg = self.cfg()
+        url = cfg["snapshotUrl"]
+        start = time.monotonic()
         if cfg["settleMs"]:
-            time.sleep(cfg["settleMs"] / 1000.0)   # the camera's picture lags the machine
+            time.sleep(cfg["settleMs"] / 1000.0)
+        extra = {}
         try:
-            result = self._fetch(cfg["snapshotUrl"])
+            if cfg["stillMs"]:
+                result, still = still_snapshot(lambda: self._fetch(url), self._thumbnail, cfg["stillMs"] / 1000.0,
+                                               start + cfg["stillMaxMs"] / 1000.0)
+                extra = {"waitMs": round((time.monotonic() - start) * 1000), "still": still}
+                if still is None and not self._thumbnail_warned:
+                    self._thumbnail_warned = True
+                    logger.warning("timelapse: no thumbnail from ffmpeg, M240 photos wait settleMs only")
+            else:
+                result = self._fetch(url)
         except SnapshotError as exc:
             result = exc
-        self._capture_queue.put(("photo", job_key, finished, ts_ms, result))
-        return f"failed: {result}" if isinstance(result, Exception) else "taken"
+        self._capture_queue.put(("photo", job_key, finished, ts_ms, (result, extra)))
+        if isinstance(result, Exception):
+            return f"failed: {result}"
+        return f"taken after {extra['waitMs']} ms, still: {extra['still']}" if extra else "taken"
+
+    def _ffmpeg_thumbnail(self, data):
+        """The grey thumbnail of a JPEG (``thumbnail_command``), None without ffmpeg or when it fails."""
+        if not self.ffmpeg:
+            return None
+        try:
+            result = subprocess.run(thumbnail_command(self.ffmpeg), input=data, capture_output=True,
+                                    timeout=THUMB_TIMEOUT_S, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("thumbnail: %s", exc)
+            return None
+        if result.returncode != 0 or len(result.stdout) != THUMB_W * THUMB_H:
+            logger.debug("thumbnail: ffmpeg exit %d, %d bytes: %s", result.returncode, len(result.stdout),
+                         result.stderr[-200:].decode("utf-8", errors="replace").strip())
+            return None
+        return result.stdout
 
     def job_finished(self, job, _result):
         """The last layer's frame, then the job goes to the encoder; the encoder may run again."""
@@ -384,8 +487,9 @@ class Timelapse:
             try:
                 if kind == "frame":
                     self._take(capture, layer, ts_ms)
-                elif kind == "photo":             # fetched by photo(): the JPEG or the SnapshotError
-                    self._take(capture, layer, ts_ms, fetched=reason)
+                elif kind == "photo":             # fetched by photo(): (JPEG or SnapshotError, index fields)
+                    fetched, extra = reason
+                    self._take(capture, layer, ts_ms, fetched=fetched, extra=extra)
                 elif kind == "skip":
                     capture.entries.append({"layer": layer, "frame": None, "ts": ts_ms, "reason": reason})
                     self._store(capture)
@@ -394,7 +498,7 @@ class Timelapse:
             except Exception as exc:  # noqa: BLE001
                 logger.error("timelapse capture error: %s", exc)
 
-    def _take(self, capture, layer, ts_ms, fetched=None):
+    def _take(self, capture, layer, ts_ms, fetched=None, extra=None):
         try:
             if isinstance(fetched, SnapshotError):
                 raise fetched
@@ -417,7 +521,7 @@ class Timelapse:
                 self.last_error = f"snapshot: {exc}"
                 self.on_event(capture.key, ts_ms, "timelapse_failed", "snapshot", {"error": str(exc), "layer": layer})
             return
-        capture.entries.append({"layer": layer, "frame": capture.next_frame, "ts": ts_ms})
+        capture.entries.append({"layer": layer, "frame": capture.next_frame, "ts": ts_ms, **(extra or {})})
         capture.next_frame += 1
         self._store(capture)
 

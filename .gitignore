@@ -227,3 +227,6 @@ __marimo__/
 # Browser automation output of UI test sessions (Playwright MCP: page snapshots, screenshots,
 # console logs)
 /.playwright-mcp/
+
+# Claude Code personal settings
+.claude/settings.local.json
