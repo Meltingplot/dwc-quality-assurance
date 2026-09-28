@@ -113,8 +113,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   than `retention.days`, then the size cap removes the oldest.
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
   `temperatureK` of the value before inside `phantomReturnS`.
-- Timelapse: the snapshot at the change to layer n is layer n − 1's frame (the last one at the job
-  end); a job that sends M240 (slicer macro: park, M400, M240, return; Tim 2026-09-28) gets its frames
+- Timelapse: the snapshot at the change to layer n is layer n − 1's frame; the last layer gets none
+  (the job end comes after the end G-code, which lowers the CHX 350's bed; Tim 2026-09-28: suppress
+  it); a job that sends M240 (slicer macro: park, M400, M240, return; Tim 2026-09-28) gets its frames
   from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; the
   photo waits until the camera picture stood still (`stillMs`: the CHX 350 camera shows the machine
   1.3–2.3 s late, measured 2026-09-28; thumbnails via ffmpeg); frames numbered without gaps;

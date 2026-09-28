@@ -80,8 +80,8 @@ program", and it has no `network inet` rule. The timelapse (PLAN.md §5.11) need
    both (Linux keeps them per thread; `dsf/qa_timelapse.py`). Lowering a priority needs no
    capability (ioprio_set(2): the idle class needs none since Linux 2.6.25), so the profile needs
    no rule for it.
-   Memory: SVT-AV1 at the camera's 1984×1080 peaks at about 0.57 GB with the default
-   `timelapse.encoderThreads` 2 (0.95 GB with 4); a paused encoder keeps it during the print.
+   Memory: SVT-AV1 at the camera's 1920×1080 peaks at about 0.55 GB with the default
+   `timelapse.encoderThreads` 2 (0.93 GB with 4); a paused encoder keeps it during the print.
 
 Without these two rules QA records everything else; a denied snapshot or encoder shows as a
 `timelapse_failed` event and in `status.timelapse.lastError`.

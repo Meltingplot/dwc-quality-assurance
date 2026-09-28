@@ -456,7 +456,7 @@ keine Aufnahmen, keine automatische Wahl (Tim 2026-09-27, ersetzt `enabled: "aut
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung
 festlegen (§7). `encoderThreads` (SVT-AV1 `lp`, ergänzt 2026-09-27): ein angehaltener Encoder behält
-seinen Speicher während des Drucks; bei 1984×1080 gemessen 0,57 GB mit 2, 0,95 GB mit 4 Threads
+seinen Speicher während des Drucks; bei 1920×1080 gemessen 0,55 GB mit 2, 0,93 GB mit 4 Threads
 (`dsf/qa_timelapse.py`).
 
 ### 5.10 Integration in die CHX-UI (neu)
@@ -489,7 +489,7 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   2026-09-26). Auf der CHX 350 ist das vom SBC aus **`http://10.42.0.1/snapshot`** (Tim, am
   2026-09-26 vom SBC aus geprüft: 200, `image/jpeg`, 104 888 Bytes in 0,02 s). Dahinter: der haproxy
   des HMI reicht `/snapshot` an `/0/current` von `hmi-motion.service` (motion, `127.0.0.1:8081`)
-  weiter; 1984×1080, ca. 105 KB je Bild.
+  weiter; 1920×1080, ca. 105 KB je Bild (2026-09-28 geprüft; bis dahin skalierte motion auf 1984×1080).
 - **Auslöser:** Lagenwechsel (`job.layer`), Mindestabstand `minIntervalS`; QA selbst parkt nie.
 - **M240 aus dem G-Code** (Entscheidung Tim 2026-09-28, ersetzt „kein Parken“): Wer ein Bild mit
   geparktem Kopf will, lässt den Slicer bei jedem Lagenwechsel ein Makro aufrufen (Orca
@@ -497,7 +497,7 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   („trigger camera“, RepRap-Wiki; RRF implementiert es nicht) sendet und zurückfährt; Profile oder
   Jobs, die das nicht vertragen, lassen es weg (Standard: aus). M240 allein = Foto an Ort und Stelle.
   QA hält M240 per DSF-Code-Interception (Pre, Kanäle File/File2, `auto_flush`), sendet `M400` auf
-  dem SBC-Kanal, wartet `settleMs` (300 ms), holt dann Bilder, bis das Bild `stillMs` (500 ms) still
+  dem SBC-Kanal, wartet `settleMs` (300 ms), holt dann Bilder, bis das Bild `stillMs` (250 ms) still
   steht, höchstens bis `stillMaxMs` (5 s) nach dem M240, und gibt M240 frei — immer, auch bei
   Fehlern, denn DSF kennt keinen Timeout für gehaltene Codes (`qa_intercept.py`). Grund: die Kamera
   der CHX 350 zeigt die Maschine 1,3–2,3 s verspätet, schwankend innerhalb eines Jobs (gemessen
@@ -509,7 +509,9 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   höchstens 5 Pixeln um mehr als 24 Graustufen; kalibriert an 451 Bildern (geparkt ≤ 2, beim Drucken
   höchstens 0,3 s am Stück darunter). Der Index hält je Bild `waitMs` und `still`. Ab dem
   ersten M240 eines Jobs kommen dessen Bilder nur noch von M240 (Lage n−1 beim M240 in Lage n; vor
-  Lage 1 keins), das letzte weiter am Jobende. Braucht `codeInterceptionReadWrite`; ohne laufendes
+  Lage 1 keins). Die letzte Lage bekommt keins, in keinem Modus: das Jobende kommt erst nach dem
+  End-G-Code, und der hat das Bett der CHX 350 dann schon auf Z 947 abgesenkt (Bild am Jobende von
+  20260928-155257-118609a9 zeigte das leere Bett, Tim 2026-09-28: unterdrücken). Braucht `codeInterceptionReadWrite`; ohne laufendes
   QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine
   (chx350-config). Nummernwahl: M240 ist in RepRap-Wiki, Duet-Wiki, Marlin, MK4duo und Octolapse
   „Kamera auslösen“, in RRF/DSF/chx350-config frei (Recherche 2026-09-28).
