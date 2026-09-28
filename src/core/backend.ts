@@ -37,6 +37,18 @@ export function getPluginEntry(model: any): PluginEntry | null | undefined {
 	return plugin ?? null;
 }
 
+/**
+ * A value of this plugin's data in the object model (plugin.json ``data``, written by the
+ * daemon); ``data`` is a Map in DWC 3.7, a plain object in tests
+ */
+export function pluginData(entry: PluginEntry | null | undefined, key: string): unknown {
+	const data = entry?.data;
+	if (!data) {
+		return undefined;
+	}
+	return data instanceof Map ? data.get(key) : data[key];
+}
+
 /** true/false from the pid, null while unknown */
 export function isBackendRunning(entry: PluginEntry | null | undefined): boolean | null {
 	if (!entry || typeof entry.pid !== "number") {

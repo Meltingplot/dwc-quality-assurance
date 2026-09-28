@@ -1,5 +1,6 @@
 import { useMachineStore } from "@/stores/machine";
 
+import { QaApi } from "./core/api";
 import { getPluginEntry, PLUGIN_ID } from "./core/backend";
 import type { HostAdapter } from "./core/host";
 
@@ -29,4 +30,17 @@ export function createHost(): HostAdapter {
 			return `${protocol}//${connector.hostname}${connector.settings?.baseURL ?? "/"}${path}${key}`;
 		}
 	};
+}
+
+let shared: QaApi | null = null;
+
+/**
+ * The API client of components that another plugin's page embeds (registerEmbeddableComponent):
+ * they get no ``api`` prop, so they share one client on DWC's store
+ */
+export function sharedApi(): QaApi {
+	if (shared === null) {
+		shared = new QaApi(createHost());
+	}
+	return shared;
 }

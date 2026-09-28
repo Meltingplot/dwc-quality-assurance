@@ -1,5 +1,5 @@
 <template>
-	<div class="qa-frame">
+	<div class="qa-frame" :class="{ 'qa-frame--fill': fill }">
 		<video v-if="videoSrc" ref="video" :src="videoSrc" muted playsinline preload="auto" class="qa-frame__media"
 			@loadedmetadata="seek" />
 		<img v-else-if="imageSrc" :src="imageSrc" class="qa-frame__media" :alt="caption">
@@ -24,7 +24,9 @@ export default defineComponent({
 		api: { type: Object as PropType<QaApi>, required: true },
 		jobId: { type: String, required: true },
 		meta: { type: Object as PropType<TimelapseMeta | null>, default: null },
-		layer: { type: Number, required: true }
+		layer: { type: Number, required: true },
+		/** Fill the parent's height, the picture scaled to fit, instead of following the width */
+		fill: { type: Boolean, default: false }
 	},
 	data() {
 		return {
@@ -166,5 +168,18 @@ export default defineComponent({
 	aspect-ratio: 16 / 9;
 	border-radius: 4px;
 	background: rgba(128, 128, 128, 0.06);
+}
+.qa-frame--fill {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+.qa-frame--fill .qa-frame__media,
+.qa-frame--fill .qa-frame__empty {
+	flex: 1;
+	min-height: 0;
+	height: 100%;
+	aspect-ratio: auto;
+	object-fit: contain;
 }
 </style>

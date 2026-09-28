@@ -1,8 +1,10 @@
 /**
  * Replay helpers (PLAN.md §5.8): geometry and colours for drawing one layer's toolpath with the
- * measured samples and events on top. Pure functions, no DOM.
+ * measured samples and events on top, shared by the replay tab and the embeddable layer view.
+ * Pure functions plus the toolpath request, no DOM.
  */
-import type { QaEvent, ToolpathAnswer } from "./api";
+import { statusOf, type LayersAnswer, type QaApi, type QaEvent, type ToolpathAnswer } from "./api";
+import { eventColor } from "./format";
 
 export interface Bounds {
 	minX: number;
@@ -177,4 +179,78 @@ export function measuredPoints(channels: Record<string, Array<[number, number]>>
 		}
 	}
 	return points;
+}
+
+/** A layer's toolpath as the replay shows it: the segments, or why there are none */
+export type ToolpathResult =
+	| { state: "ready"; toolpath: ToolpathAnswer }
+	/** 202: the daemon still indexes the G-code file; ask again */
+	| { state: "building" }
+	/** 409: the file is gone or was changed after the job */
+	| { state: "fileGone" }
+	/** 404: the file has no such layer */
+	| { state: "noLayer" }
+	| { state: "error"; message: string };
+
+export async function fetchToolpath(api: QaApi, jobId: string, layer: number): Promise<ToolpathResult> {
+	try {
+		const answer = await api.toolpath(jobId, layer);
+		return "state" in answer ? { state: "building" } : { state: "ready", toolpath: answer };
+	} catch (e) {
+		const status = statusOf(e);
+		if (status === 409) {
+			return { state: "fileGone" };
+		}
+		if (status === 404) {
+			return { state: "noLayer" };
+		}
+		return { state: "error", message: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+/** Ask again this long after a 202 while the daemon indexes the file */
+export const TOOLPATH_RETRY_MS = 2000;
+
+/**
+ * A slider drag or a held arrow on an embedding page passes many layers: the embeddable views
+ * ask for the layer it stops at. The HMI's haproxy queues requests beyond four (PLAN.md §5.6)
+ */
+export const LAYER_SETTLE_MS = 150;
+
+/**
+ * Samples start this much before the layer: fine rows hold only changed values, the coarse row
+ * before the layer has the positions (two intervals at the default sampleIntervalS of 5 s)
+ */
+export const SAMPLE_LEAD_MS = 10000;
+
+/** Time span of a layer from ``job/layers``; one still printing ends now */
+export function layerSpan(layers: LayersAnswer | null | undefined, layer: number): { from: number; to: number } | null {
+	const record = layers?.layers.find((l) => l.layer === layer);
+	if (!record?.startedAt) {
+		return null;
+	}
+	return { from: new Date(record.startedAt).getTime(), to: record.endedAt ? new Date(record.endedAt).getTime() : Date.now() };
+}
+
+/** Nozzle heaters of a job (``job/layers`` meta) */
+export function nozzleHeaters(layers: LayersAnswer | null | undefined): Array<{ index: number; tool: number | null }> {
+	return (layers?.meta.heaters ?? []).filter((h) => h.role === "nozzle");
+}
+
+/** Sample channels of a layer's replay: position and extrusion rate for the measured points, temperature and load per nozzle */
+export function replayChannels(nozzles: Array<{ index: number }>): Array<string> {
+	return ["axis.X.machinePosition", "axis.Y.machinePosition", "move.currentMove.extrusionRate",
+		...nozzles.flatMap((h) => [`heater.${h.index}.current`, `heater.${h.index}.load`])];
+}
+
+const MARKER_COLORS: Record<string, string> = { error: "#E53935", warning: "#FB8C00", info: "#1E88E5", primary: "#1976D2", success: "#43A047", grey: "#9E9E9E" };
+
+/** Ring colour of an event on the canvas (the event's chip colour as RGB) */
+export function markerColor(type: string): string {
+	return MARKER_COLORS[eventColor(type)] ?? MARKER_COLORS.grey;
+}
+
+/** Events a layer's replay marks: the ones of that layer with a position, without job start and end */
+export function layerEvents(events: Array<QaEvent>, layer: number): Array<QaEvent> {
+	return events.filter((e) => e.layer === layer && !["job_start", "job_end"].includes(e.type));
 }
