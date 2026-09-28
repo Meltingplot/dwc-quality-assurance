@@ -112,7 +112,7 @@ when the machine or the file changes later.
 | `file` | `job.file` of the object model (`fileName`, `generatedBy`, `layerHeight`, `numLayers`, `height`, `printTime`, `simulatedTime`, `filament`, `size`, `lastModified`, `customInfo`) and `crc32` |
 | `slicer` | `{source, config}`: selected keys of the OrcaSlicer/BambuStudio `CONFIG_BLOCK` at the end of the file (`filament_settings_id`, `filament_type`, `nozzle_diameter`, …), `source` `none` without one |
 | `extruders` | per extruder `index`, `stepsPerMm`, `factor`, `filament`, `filamentDiameter`, `pressAdv` `{k0, k1, d}`, `nonlinear` |
-| `tools` | `number`, `name`, `heaters`, `extruders`, `filamentExtruder`, `active`, `standby`, `offsets` (axis order) |
+| `tools` | `number`, `name`, `heaters`, `extruders`, `filamentExtruder`, `active`, `standby`, `offsets` (axis order), `retraction` (M207: `length`, `extraRestart` mm, `speed`, `unretractSpeed` mm/s, `zHop` mm) |
 | `filamentMonitors` | `index`, `type`, `enableMode`, `configured`, `calibrated` |
 | `heaters` | `index`, `role` (nozzle, bed, chamber, other), `tool`, `sensor`, `sensorName`, `max`, `model` (`maxPwm`, `heatingRate`, … `pid`), `monitors` |
 | `sensors` | analog sensors `{index, name, type}` |

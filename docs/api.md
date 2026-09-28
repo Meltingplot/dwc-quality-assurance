@@ -124,7 +124,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `mfm_error_tolerated` | – | `count` + the MFM globals |
 | `mfm_recovery` | `requested` / `false_positive` / `real_issue` | `result` + the MFM globals |
 | `mfm_flow_bias` | `detected` | the MFM globals (`mfm_esteps_suggested`, …) |
-| `setpoint_change` | `heater.active`, `heater.standby`, `heater.maxPwm`, `stepsPerMm`, `pressAdv.k0/k1/d`, `nonlinear.a/b/upperLimit`, `fm.configured`, `fm.calibrated` | `setpoint`, `index`, `from`, `to`; `stepsPerMm` also `cause` (`mfm_flow_bias`, `baseline_restore`, null) |
+| `setpoint_change` | `heater.active`, `heater.standby`, `heater.maxPwm`, `stepsPerMm`, `pressAdv.k0/k1/d`, `nonlinear.a/b/upperLimit`, `fm.configured`, `fm.calibrated`, `tool.retraction` (M207 `{length, extraRestart, speed, unretractSpeed, zHop}`, index = tool number) | `setpoint`, `index`, `from`, `to`; `stepsPerMm` also `cause` (`mfm_flow_bias`, `baseline_restore`, null) |
 | `babystep` | – | `axis`, `from`, `to` |
 | `driver_error` | `error` / `warning` / `stall` | `source` `status`: `board`, `canAddress`, `driver`, `status`, `previous`, `bits`; `source` `message`: `canAddress`, `driver`, `text` |
 | `voltage_dip` | – | `board`, `vIn`, `median90s`; end: `recoveredTo` |

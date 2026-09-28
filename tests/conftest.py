@@ -76,7 +76,9 @@ BASE_MODEL = {
     },
     "state": {"status": "idle", "currentTool": 0, "upTime": 1000, "messageBox": None},
     "tools": [{"number": 0, "name": "T0", "heaters": [1], "extruders": [0], "filamentExtruder": 0,
-               "active": [0], "standby": [0]}],
+               "active": [0], "standby": [0],
+               # the CHX 350's M207 with PLA NX2 matt (object model, 2026-09-28)
+               "retraction": {"length": 0.4, "extraRestart": 0, "speed": 20.8, "unretractSpeed": 14, "zHop": 0}}],
     "sbc": {"dsf": {"version": "3.7.0-rc.2+mp.6"}},
     "plugins": {"QualityAssurance": {"id": "QualityAssurance", "pid": 1234}},
 }

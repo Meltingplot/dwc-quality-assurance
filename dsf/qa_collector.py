@@ -797,6 +797,9 @@ class Collector:
             nl = getattr(ext, "nonlinear", None)
             for prop, name in (("a", "a"), ("b", "b"), ("upper_limit", "upperLimit")):
                 values[(f"nonlinear.{name}", i)] = qa_channels.number(getattr(nl, prop, None)) if nl is not None else None
+        for tool in getattr(model, "tools", None) or []:
+            if tool is not None:
+                values[("tool.retraction", getattr(tool, "number", None))] = qa_context.tool_retraction(tool)
         for i, fm in qa_channels.items(getattr(getattr(model, "sensors", None), "filament_monitors", None)):
             configured, calibrated = qa_context.filament_config(fm)
             values[("fm.configured", i)] = configured
