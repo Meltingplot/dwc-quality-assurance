@@ -6,15 +6,22 @@ favour of a fixed profile in which a plugin without its own block cannot read it
 `/opt/dsf/sd` is part of the read-only root. `scripts/sideload.sh` installs QA the way the image
 would bundle it, for a test round of a few seconds instead of release → image → flash.
 
+Only on a beta or rc image. A final image locks its AppArmor policy once it has loaded it, until the
+next boot, so the profile with QA's block cannot be loaded there, by root neither; `install`
+refuses before it changes anything (rpi-image-gen PR #54, 2026-09-28). And only as the SBC's
+administrator `mpadmin`, from the printer network: the Raspberry Pi Connect account `meltingplot`
+has no sudo, and sshd refuses `mpadmin` from the SBC itself (rpi-image-gen PR #52, 2026-09-28).
+
 ## What it does on the SBC
 
 `scripts/sideload.sh` builds the ZIP (`scripts/ci-local.sh build`), sends it with
 `docs/apparmor-QualityAssurance.inc` and `scripts/sideload-remote.sh` through the HMI in one SSH
-connection, checks their SHA-256 there and runs the remote part as root:
+connection, checks their SHA-256 there and runs the remote part as root, through `sudo -n` of the
+SBC account:
 
 | Step | Persists across a reboot? |
 |---|---|
-| refuses unless the machine is idle (it restarts DSF) | – |
+| refuses unless the SBC account has sudo, the AppArmor policy is open (not a final image) and the machine is idle (it restarts DSF) | – |
 | `/opt/dsf/plugins/QualityAssurance.json` (manifest with `dsfFiles`/`dwcFiles`, as mp-dsf-seed writes it), `QualityAssurance/dsf/` | yes (slot-shared) |
 | `QualityAssurance/venv`: a copy of Vigil's (same dsf-python 3.7.0b1 pin; pip is disabled on the image) | yes |
 | web files `QualityAssurance-*` into `/opt/dsf/sd/www` (only QA's files; DWC's directories keep owner and mode) | yes |
@@ -38,10 +45,11 @@ scripts/sideload.sh status       # status, data directory, daemon output, AppArm
 scripts/sideload.sh remove
 ```
 
-Hosts and host keys go into `.sideload.env` in the repository root (not committed):
+Hosts, accounts and host keys go into `.sideload.env` in the repository root (not committed):
 
 ```bash
-QA_SIDELOAD_USER=meltingplot
+QA_SIDELOAD_HMI_USER=meltingplot           # the HMI, only the jump (default)
+QA_SIDELOAD_USER=mpadmin                   # the SBC: its administrator (default)
 QA_SIDELOAD_HMI=192.168.172.143            # the HMI; the SBC is 10.42.0.2 behind it
 QA_SIDELOAD_HMI_HOSTKEY=SHA256:…           # pinned host keys (plink -hostkey)
 QA_SIDELOAD_SBC_HOSTKEY=SHA256:…
@@ -49,7 +57,12 @@ QA_SIDELOAD_PLINK="/mnt/c/Program Files/PuTTY/plink.exe"   # WSL + Pageant; leav
 ```
 
 With `QA_SIDELOAD_PLINK` set, PuTTY's plink authenticates both hops through Pageant (for example
-gpg-agent with PuTTY support and a hardware key): one install asks the key twice.
+gpg-agent with PuTTY support and a hardware key): one install asks the key twice. The key has to be
+listed for `meltingplot` on the HMI and in rpi-image-gen's `meltingplot/keys/mpadmin.keys` for the
+SBC.
+
+An SBC with an image up to 0.1.0-rc.48 has no `mpadmin`; there `meltingplot` still has sudo, so set
+`QA_SIDELOAD_USER=meltingplot` for it.
 
 Then in the classic DWC (HMI › Service › "Klassisches DWC") start the plugin once under Settings ›
 Plugins so its page loads, and set `timelapse.snapshotUrl` and `accelerometer.board` on its

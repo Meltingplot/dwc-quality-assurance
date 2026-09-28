@@ -1,12 +1,13 @@
 #!/bin/bash
 # Test QA on a CHX 350 without an image build (docs/sideload.md): builds the plugin ZIP, sends it
 # with the AppArmor block and scripts/sideload-remote.sh through the HMI to the SBC in one SSH
-# connection, and runs the remote part there as root.
+# connection, and runs the remote part there as root, through sudo of the SBC's administrator.
 #
 #   scripts/sideload.sh [install|status|remove] [--no-build] [--zip FILE]
 #
-# Hosts and host keys come from .sideload.env in the repository root (not committed):
-#   QA_SIDELOAD_USER=meltingplot
+# Hosts, accounts and host keys come from .sideload.env in the repository root (not committed):
+#   QA_SIDELOAD_HMI_USER=meltingplot        # the HMI, only the jump
+#   QA_SIDELOAD_USER=mpadmin                 # the SBC; the one account there that has sudo
 #   QA_SIDELOAD_HMI=192.168.172.143          QA_SIDELOAD_HMI_HOSTKEY=SHA256:…
 #   QA_SIDELOAD_SBC=10.42.0.2                QA_SIDELOAD_SBC_HOSTKEY=SHA256:…
 #   QA_SIDELOAD_PLINK="/mnt/c/Program Files/PuTTY/plink.exe"   # WSL with Pageant; empty: OpenSSH
@@ -27,7 +28,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ -f "$ROOT/.sideload.env" ] && . "$ROOT/.sideload.env"
-: "${QA_SIDELOAD_USER:=meltingplot}" "${QA_SIDELOAD_SBC:=10.42.0.2}" "${QA_SIDELOAD_PLINK:=}"
+: "${QA_SIDELOAD_USER:=mpadmin}" "${QA_SIDELOAD_HMI_USER:=meltingplot}"
+: "${QA_SIDELOAD_SBC:=10.42.0.2}" "${QA_SIDELOAD_PLINK:=}"
 : "${QA_SIDELOAD_HMI:?set it in .sideload.env}"
 
 remote() {  # command on the SBC; stdin goes along
@@ -36,11 +38,11 @@ remote() {  # command on the SBC; stdin goes along
         # runs on Windows, hence its Windows path
         local win proxy
         win=$(wslpath -w "$QA_SIDELOAD_PLINK")
-        proxy="\"$win\" -batch ${QA_SIDELOAD_HMI_HOSTKEY:+-hostkey $QA_SIDELOAD_HMI_HOSTKEY} -l $QA_SIDELOAD_USER -nc $QA_SIDELOAD_SBC:22 $QA_SIDELOAD_HMI"
+        proxy="\"$win\" -batch ${QA_SIDELOAD_HMI_HOSTKEY:+-hostkey $QA_SIDELOAD_HMI_HOSTKEY} -l $QA_SIDELOAD_HMI_USER -nc $QA_SIDELOAD_SBC:22 $QA_SIDELOAD_HMI"
         (cd /tmp && "$QA_SIDELOAD_PLINK" -batch ${QA_SIDELOAD_SBC_HOSTKEY:+-hostkey "$QA_SIDELOAD_SBC_HOSTKEY"} \
             -proxycmd "$proxy" -l "$QA_SIDELOAD_USER" "$QA_SIDELOAD_SBC" "$1")
     else
-        ssh -J "$QA_SIDELOAD_USER@$QA_SIDELOAD_HMI" "$QA_SIDELOAD_USER@$QA_SIDELOAD_SBC" "$1"
+        ssh -J "$QA_SIDELOAD_HMI_USER@$QA_SIDELOAD_HMI" "$QA_SIDELOAD_USER@$QA_SIDELOAD_SBC" "$1"
     fi
 }
 
@@ -60,7 +62,11 @@ if [ "$MODE" = install ]; then
 fi
 sums=$(cd "$bundle" && sha256sum -- *)
 
-# one connection: unpack into ~/qa-sideload, check the checksums, run the remote part as root
-tar -czf - -C "$bundle" . | remote "rm -rf ~/qa-sideload && mkdir -p ~/qa-sideload && tar -xzf - -C ~/qa-sideload \
+# one connection: check for sudo, unpack into ~/qa-sideload, check the checksums, run the remote
+# part as root. sudo -n, so an account without sudo fails at once instead of waiting for a
+# password nobody can type: on the CHX 350 image only the administrator has sudo, never the
+# Raspberry Pi Connect account meltingplot (rpi-image-gen PR #52, 2026-09-28).
+tar -czf - -C "$bundle" . | remote "{ sudo -n true 2>/dev/null || { echo \"sideload: \$(id -un) has no sudo on the SBC; set QA_SIDELOAD_USER to its administrator (mpadmin)\" >&2; exit 1; }; } \
+    && rm -rf ~/qa-sideload && mkdir -p ~/qa-sideload && tar -xzf - -C ~/qa-sideload \
     && cd ~/qa-sideload && printf '%s\n' '$sums' | sha256sum --quiet -c - \
-    && sudo bash ~/qa-sideload/sideload-remote.sh $MODE"
+    && sudo -n bash ~/qa-sideload/sideload-remote.sh $MODE"

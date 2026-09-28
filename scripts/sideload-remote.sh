@@ -7,7 +7,8 @@
 #             (manifest with dsfFiles/dwcFiles, code, venv: Vigil's, which has the same dsf-python
 #             pin, since the image disables pip); web files into /opt/dsf/sd/www; load the plugin
 #             AppArmor profile with QA's block (docs/apparmor-QualityAssurance.inc, what the image
-#             build adds) into the kernel, enforcing; start QA and report status and denials
+#             build adds) into the kernel, enforcing; start QA and report status and denials.
+#             Refused on a final image, whose AppArmor policy is locked: beta and rc images only
 #   status    the report only
 #   remove    stop QA, delete its code and web files (not its data), load the image's profile again
 #
@@ -28,6 +29,7 @@ PROFILE=/etc/apparmor.d/opt.dsf.bin.DuetPluginService
 BLOCK=$HERE/apparmor-$ID.inc
 DROPIN_DIR=/run/systemd/system/duetpluginservice.service.d
 DROPIN=$DROPIN_DIR/qa-sideload.conf
+LOCK=/sys/module/apparmor/parameters/lock_policy
 MODE=${1:-install}
 
 say() { printf '\n== %s\n' "$*"; }
@@ -57,6 +59,13 @@ require_idle() {
     esac
 }
 
+# A final CHX 350 image locks the AppArmor policy once it has loaded it, until the next boot: no
+# profile can be loaded or replaced, by root neither (rpi-image-gen PR #54, 2026-09-28). Sideloading
+# is for beta and rc images only, so install refuses there before it touches anything.
+policy_locked() {
+    [ "$(cat "$LOCK" 2>/dev/null)" = Y ]
+}
+
 wait_pid() {  # until QA runs (pid > 0), up to 30 s
     local pid
     for _ in $(seq 30); do
@@ -72,6 +81,9 @@ wait_pid() {  # until QA runs (pid > 0), up to 30 s
 }
 
 report() {
+    if policy_locked; then
+        say "AppArmor policy locked until the next boot (final image), QA cannot be sideloaded here"
+    fi
     say "plugin"
     wait_pid || true
     say "QA status (GET machine/$ID/status)"
@@ -106,6 +118,7 @@ do_install() {
     local zip=$HERE/$ID.zip stage before after restart=0
     [ -f "$zip" ] || die "no $zip"
     [ -f "$BLOCK" ] || die "no $BLOCK"
+    policy_locked && die "the AppArmor policy is locked: this is a final image, and sideloading is for beta and rc images only"
     require_idle
 
     say "stop $ID"
@@ -190,8 +203,13 @@ do_remove() {
     find "$WWW" -name "$ID-*" -type f -delete
     rm -f "$DROPIN"
     systemctl daemon-reload
-    apparmor_parser -r -K "$PROFILE"
-    echo "the image's profile is loaded again"
+    if policy_locked; then
+        # locked at boot, before any sideload could load its profile: the image's is in force
+        echo "the AppArmor policy is locked, the image's profile has been in force since boot"
+    else
+        apparmor_parser -r -K "$PROFILE"
+        echo "the image's profile is loaded again"
+    fi
     systemctl restart duetcontrolserver
     echo "DSF restarted"
 }
