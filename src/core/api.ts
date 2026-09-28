@@ -74,6 +74,8 @@ export interface LayerRecord {
 		mean: number; max: number; p95: number; maxMean60: number | null; atSetpointS: number;
 		shareAtSetpoint?: number; shareHigh: number; shareLimit: number; setpoint: number | null;
 	} | null>;
+	/** absent until the layer index is ready, null for a layer the file does not have */
+	gcode?: LayerGcodeStats | null;
 }
 
 export interface LayersAnswer {
@@ -84,8 +86,20 @@ export interface LayersAnswer {
 		chamber: ["sensor" | "heater", number] | null;
 		filamentDiameters: Record<string, number | null>;
 		heaterLoad: { high: number; limit: number };
+		/** state of the file's layer index: ready, building, missing, gone, changed or "error: …" */
+		gcode: string;
 	};
 	layers: Array<LayerRecord>;
+}
+
+/** A layer's figures from the file's layer index (docs/api.md, job/layers) */
+export interface LayerGcodeStats {
+	extrudeMm: number;
+	types: Record<string, number>;
+	retracts: number;
+	fwRetracts: number;
+	retractMm: number;
+	macros: Record<string, number>;
 }
 
 export interface QaEvent {

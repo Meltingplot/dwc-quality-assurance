@@ -81,7 +81,9 @@ Errors: `{"error": "..."}` with 400 (bad parameter), 404 (unknown job/layer), 40
 
 `meta`: `sensors` `[{index, name, type}]`, `heaters` `[{index, role (nozzle|bed|chamber|other), tool,
 sensor, sensorName}]`, `chamber` `["sensor"|"heater", index]` or null, `filamentDiameters`,
-`heaterLoad` thresholds `{high, limit}`.
+`heaterLoad` thresholds `{high, limit}`. `gcode`: state of the file's layer index, `ready`, `building`
+(ask again), `missing`, `gone` (file deleted before an index was built), `changed` (file rewritten
+since the job) or `error: …`.
 
 Each layer (`job.layer` numbering, i.e. RRF's):
 
@@ -97,6 +99,7 @@ Each layer (`job.layer` numbering, i.e. RRF's):
 | `fmStats` | per monitor: `lastPercentage` `{min, max, mean, std}`, `avgPercentage`, `mmPerRev` at layer end |
 | `pwmStats` | per heater at a constant, reached setpoint: `avgPwmMean`, `avgPwmStd`, `currentStd` |
 | `loadStats` | per heater: `mean`, `max`, `p95` (load at the setpoint), `maxMean60`, `atSetpointS`, `shareAtSetpoint`, `shareHigh`, `shareLimit` (time share of the 60 s mean ≥ high/limit), `setpoint` |
+| `gcode` | from the file's layer index (absent unless `meta.gcode` is `ready`, null for a layer the file does not have): `extrudeMm` (filament of printing moves), `types` (the same per `;TYPE:`), `retracts` (retractions: negative E or G10/M103, once until E moves forward or G11/M101), `fwRetracts` (of these firmware ones, each the tool's M207 length: context `tools[].retraction`, changes as `setpoint_change` `tool.retraction`), `retractMm` (negative E), `macros` (`M98 P` calls: path → count; their own moves are not in the file) |
 
 Heater load = `avgPwm / model.maxPwm`, clamped to 0…1; counted only while processing, at an
 active setpoint that was reached (the CHX UI banner's definition, PLAN.md §5.4.1).

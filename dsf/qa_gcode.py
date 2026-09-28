@@ -15,9 +15,20 @@ The index stores the byte range of every layer and the modal state at its start 
 feed rate, G90/G91, M82/M83, current object and feature type), so ``toolpath`` reads only the
 bytes of one layer.
 
+Each layer also carries ``stats`` from the same scan (version 2, 2026-09-28): filament extruded by
+printing moves, in total and per ``;TYPE:``, the retractions and the macros it calls. They show
+how often the same filament passes the extruder gear: on the CHX 350 the small cabin layers of a
+Benchy retracted 0.4 mm about every 0.26 mm of filament, and the ground filament made the monitor
+read 35 % (job 20260928-155257-118609a9, Tim 2026-09-28). A retraction is a move with negative E
+or a firmware retraction, counted once until E moves forward or G11/M101 undo it; a firmware
+retraction's length is the tool's M207 setting (``tools[].retraction`` in the job context), not
+in the file. A macro's own moves are not in the file either, hence ``macros``.
+
 G-code semantics from the Duet3D wiki (Gcodes.md, 2026-09-21): G90/G91 switch X/Y/Z only,
 M82/M83 the extruder; G92 sets the user position; G2/G3 take I/J (relative centre) or R;
-M486 S<n> [A"name"] marks the object being printed, S-1 a non-object feature.
+M486 S<n> [A"name"] marks the object being printed, S-1 a non-object feature. G10 without
+parameters retracts and G11 unretracts by M207 (with P, G10 sets tool offsets or temperatures);
+M103/M101 do the same for Simplify3D (wiki-content 2262621, 2026-09-26).
 """
 
 import json
@@ -34,10 +45,11 @@ FIRMWARE_COMMENTS = ("printing object", "MESH", "process", "stop printing object
 START_STRINGS = ("printing object", "MESH", "process", "stop printing object", "layer", "LAYER",
                  "; --- layer", "BEGIN_LAYER_OBJECT z=", "HEIGHT", "PRINTING", "REMAINING_TIME", "LAYER_CHANGE")
 
-INDEX_VERSION = 1
+INDEX_VERSION = 2  # 2: per-layer stats (2026-09-28)
 _WORD_RE = re.compile(r"([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))")
 _INT_RE = re.compile(r"[-+]?\d+")
 _M486_NAME_RE = re.compile(r'A\s*"((?:[^"]|"")*)"')
+_M98_RE = re.compile(r'^M98\s*P\s*"((?:[^"]|"")*)"', re.IGNORECASE)
 _EXCLUDE_NAME_RE = re.compile(r"NAME=(\S+)")
 ARC_SEGMENT_MM = 1.0
 ARC_SEGMENT_DEG = 5.0
@@ -202,6 +214,72 @@ def _comment_object(state, objects, comment):
         state.obj = None
 
 
+def _new_stats():
+    return {"extrudeMm": 0.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0, "macros": {}}
+
+
+def _firmware_code(code):
+    """``"retract"``, ``"unretract"``, ``("macro", path)`` or None for a line that is not a move."""
+    stripped = code.strip()
+    macro = _M98_RE.match(stripped)
+    if macro:
+        return "macro", macro.group(1).replace('""', '"')
+    words = parse_words(stripped)
+    if words in ({"G": 10.0}, {"M": 103.0}):
+        return "retract"
+    if words in ({"G": 11.0}, {"M": 101.0}):
+        return "unretract"
+    return None
+
+
+class _StatsScan:
+    """Per-layer stats while ``build_index`` scans: into the comment layer and the Z layer at once,
+    the index keeps the ones of its source."""
+
+    def __init__(self):
+        self.by_layer = {}
+        self.by_z = []
+        self.current = self.by_layer.setdefault(0, _new_stats())
+        self.retracted = False
+
+    def layer(self, layer):
+        self.current = self.by_layer.setdefault(layer, _new_stats())
+
+    def z_layer(self):
+        self.by_z.append(_new_stats())
+
+    def _targets(self):
+        return (self.current, self.by_z[-1]) if self.by_z else (self.current,)
+
+    def retract(self, mm=None):
+        """``mm`` of a move with negative E; None for a firmware retraction (its length is M207's)."""
+        for stats in self._targets():
+            if not self.retracted:
+                stats["retracts"] += 1
+                if mm is None:
+                    stats["fwRetracts"] += 1
+            if mm is not None:
+                stats["retractMm"] += mm
+        self.retracted = True
+
+    def forward(self, mm, printing, type_):
+        self.retracted = False
+        if printing:
+            for stats in self._targets():
+                stats["extrudeMm"] += mm
+                if type_:
+                    stats["types"][type_] = stats["types"].get(type_, 0.0) + mm
+
+    def macro(self, name):
+        for stats in self._targets():
+            stats["macros"][name] = stats["macros"].get(name, 0) + 1
+
+    @staticmethod
+    def rounded(stats):
+        return {**stats, "extrudeMm": round(stats["extrudeMm"], 3), "retractMm": round(stats["retractMm"], 3),
+                "types": {k: round(v, 3) for k, v in stats["types"].items()}}
+
+
 def build_index(path, crc32=None, progress=None):
     """Scan ``path`` once. Returns the index record (JSON-serialisable)."""
     state = _State()
@@ -214,6 +292,7 @@ def build_index(path, crc32=None, progress=None):
     # Z fallback bookkeeping
     z_layers = []          # [[z, offset, state]]
     last_extrude_z = None
+    stats = _StatsScan()
     with open(path, "rb") as handle:
         for raw in handle:
             line_offset = offset
@@ -231,6 +310,7 @@ def build_index(path, crc32=None, progress=None):
                     layer = new_layer
                     open_range = [line_offset, None, state.to_dict()]
                     ranges.setdefault(layer, []).append(open_range)
+                    stats.layer(layer)
                 continue
             if comment is not None:
                 _comment_object(state, objects, comment)
@@ -239,24 +319,41 @@ def build_index(path, crc32=None, progress=None):
                 cmd, words = move
                 before = state.to_dict()
                 _, _, _, de = _apply_move(state, words, cmd)
-                if de > 0 and ("X" in words or "Y" in words or cmd in (2, 3)):
+                printing = de > 0 and ("X" in words or "Y" in words or cmd in (2, 3))
+                if printing:
                     if last_extrude_z is None or state.z > last_extrude_z + 1e-6:
                         z_layers.append([state.z, line_offset, before])
+                        stats.z_layer()
                     last_extrude_z = state.z if last_extrude_z is None else max(last_extrude_z, state.z)
+                if de < 0:
+                    stats.retract(-de)
+                elif de > 0:
+                    stats.forward(de, printing, state.type)
+            elif code.strip():
+                special = _firmware_code(code)
+                if special == "retract":
+                    stats.retract()
+                elif special == "unretract":
+                    stats.retracted = False
+                elif special is not None:
+                    stats.macro(special[1])
             if progress is not None and (offset & 0xFFFFF) < len(raw):
                 progress(offset / size if size else 1.0)
     if open_range is not None:
         open_range[1] = size
     source = "comments"
+    layer_stats = stats.by_layer
     if not ranges:
         source = "z"
         for i, (z, start, st) in enumerate(z_layers):
             end = z_layers[i + 1][1] if i + 1 < len(z_layers) else size
             ranges[i + 1] = [[start, end, {**st}]]
+        layer_stats = {i + 1: s for i, s in enumerate(stats.by_z)}
     layers = [{"layer": n, "ranges": [[r[0], r[1]] for r in rs], "state": rs[0][2]}
               for n, rs in sorted(ranges.items())]
     for entry, (n, rs) in zip(layers, sorted(ranges.items())):
         entry["states"] = [r[2] for r in rs]
+        entry["stats"] = _StatsScan.rounded(layer_stats.get(n) or _new_stats())
     return {
         "version": INDEX_VERSION,
         "crc32": crc32,
