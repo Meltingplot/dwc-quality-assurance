@@ -80,8 +80,8 @@ def test_layers_samples_and_heater_load(rig):
                    "move": {"axes": [{}, {}, {"machinePosition": 0.2 * layer}], "extruders": [{"position": 10.0 * layer}],
                             "currentMove": {"extrusionRate": 1.0}},
                    "heat": {"heaters": [{"current": 60}, {"current": 220, "avgPwm": 0.5}]},
-                   "sensors": {"filamentMonitors": [{"lastPercentage": 100, "totalExtrusion": 10.0 * layer,
-                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 9.5 * layer}}]}})
+                   "sensors": {"filamentMonitors": [{"lastPercentage": 95, "avgPercentage": 95, "totalExtrusion": 10.0 * layer,
+                                                     "calibrated": {"mmPerRev": 25.0, "totalDistance": 10.0 * layer}}]}})
         for _ in range(20):
             rig.patch({"heat": {"heaters": [{}, {"avgPwm": 0.5}]}}, dt_ms=1000)
     layers = rig.rows("SELECT * FROM job_layers ORDER BY layer")

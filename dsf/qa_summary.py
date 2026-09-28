@@ -62,38 +62,86 @@ def _indices(snapshot, prefix, suffix):
     return sorted(set(out))
 
 
-class _RatioBase:
-    """measured/commanded over the same interval: the base is the first moment both are known
-    (the monitor's ``calibrated`` block is null until RRF has calibrated it, often mid-job)."""
+class _Filament:
+    """Commanded, measured and extruder filament of one interval, summed over the counters' restarts.
+
+    The monitor's counters (Duet3Expansion 3.7-dev @ 806ef34 RotatingMagnetFilamentMonitor.cpp:628-643
+    and RRF 3.7-dev @ 3638836 Duet3DFilamentMonitor.cpp:46 / RotatingMagnetFilamentMonitor.cpp:46,
+    read 2026-09-28): ``totalExtrusion`` and ``calibrated.totalDistance`` are both the *commanded*
+    extrusion since calibration started; the measured movement is only in ``avgPercentage`` =
+    100 × measured / commanded over the same span, so measured = totalExtrusion × avgPercentage / 100
+    (as chx350-config's e-steps and NLE macros use it). While the toolboard calibrates it sends no
+    live data (the object model keeps the old total, avgPercentage is null), and it restarts both
+    whenever the machine does not print (FilamentMonitor.cpp:318-325, Clear → Reset): at every job
+    start and pause. RRF zeroes the extruder positions when a print starts (GCodes.cpp:3861-3864).
+
+    ``avgPercentage`` is an integer, so one step moves the measured total by 1 % of everything since
+    the restart: exact enough for a job, far too coarse for a layer. A layer therefore weights its
+    commanded millimetres with ``lastPercentage`` (the ratio of the monitor's latest check segment).
+    """
 
     def __init__(self, first):
-        self.base = {}
-        self.first = {}
+        self.prev_c = {}      # fm -> last totalExtrusion (also while stale)
+        self.prev_m = {}      # fm -> last measured total, None without live data
+        self.prev_e = {}      # extruder -> last position
+        self.commanded = {}
+        self.measured = {}
+        self.weighted = {}    # fm -> [commanded with a lastPercentage, measured estimated from it]
+        self.extruder = {}
         if first:
             self.observe(first)
 
     def observe(self, snap):
         for i in _indices(snap, "fm.", ".totalExtrusion"):
             c = snap.get(f"fm.{i}.totalExtrusion")
-            m = snap.get(f"fm.{i}.calibrated.totalDistance")
-            if i not in self.base and c is not None and m is not None:
-                self.base[i] = (c, m)
-        for name, value in snap.items():
-            self.first.setdefault(name, value)
+            if c is None:
+                continue
+            a = snap.get(f"fm.{i}.avgPercentage")
+            prev_c, prev_m = self.prev_c.get(i), self.prev_m.get(i)
+            self.prev_c[i] = c
+            m = c * a / 100.0 if a is not None else None
+            self.prev_m[i] = m
+            if prev_c is None or m is None:
+                continue          # the base, or no live data while the monitor calibrates
+            restarted = c < prev_c - 1.0   # the total counts up in whole millimetres until a restart
+            dc = c if restarted else c - prev_c
+            dm = m if restarted else (m - prev_m if prev_m is not None else dc * a / 100.0)
+            self.commanded[i] = self.commanded.get(i, 0.0) + dc
+            self.measured[i] = self.measured.get(i, 0.0) + dm
+            pct = snap.get(f"fm.{i}.lastPercentage")
+            if pct is not None and dc > 0:
+                w = self.weighted.setdefault(i, [0.0, 0.0])
+                w[0] += dc
+                w[1] += dc * pct / 100.0
+        for i in _indices(snap, "extruder.", ".position"):
+            e = snap.get(f"extruder.{i}.position")
+            if e is None:
+                continue
+            prev = self.prev_e.get(i)
+            self.prev_e[i] = e
+            if prev is None:
+                continue
+            # zeroed by a print start (or G92 E0); a retraction or a pause's retract only steps back
+            restarted = e < prev - 5.0 and abs(e) < 0.1 * abs(prev)
+            self.extruder[i] = self.extruder.get(i, 0.0) + (e if restarted else e - prev)
 
-    def delta(self, last, name):
-        a, b = self.first.get(name), (last or {}).get(name)
-        return None if a is None or b is None else round(b - a, 3)
+    def indices(self):
+        return sorted(set(self.prev_c) | set(self.prev_e))
 
-    def entry(self, last, i):
-        commanded = self.delta(last, f"fm.{i}.totalExtrusion")
-        measured = self.delta(last, f"fm.{i}.calibrated.totalDistance")
-        entry = {"commandedMm": commanded, "measuredMm": measured,
-                 "extruderMm": self.delta(last, f"extruder.{i}.position")}
-        base = self.base.get(i)
-        c, m = (last or {}).get(f"fm.{i}.totalExtrusion"), (last or {}).get(f"fm.{i}.calibrated.totalDistance")
-        if base is not None and c is not None and m is not None and c - base[0] > 0:
-            entry["ratio"] = round((m - base[1]) / (c - base[0]), 4)
+    def entry(self, i, per_layer):
+        commanded = self.commanded.get(i)
+        extruder = self.extruder.get(i)
+        entry = {"commandedMm": None if commanded is None else round(commanded, 3), "measuredMm": None,
+                 "extruderMm": None if extruder is None else round(extruder, 3)}
+        if per_layer:
+            covered, measured = self.weighted.get(i, (0.0, 0.0))
+            if covered > 0 and commanded:
+                entry["measuredMm"] = round(commanded * measured / covered, 3)
+                entry["ratio"] = round(measured / covered, 4)
+        elif i in self.measured:
+            entry["measuredMm"] = round(self.measured[i], 3)
+            if commanded and commanded > 0:
+                entry["ratio"] = round(self.measured[i] / commanded, 4)
         return entry
 
 
@@ -120,13 +168,13 @@ class LayerAccumulator:
         self.setpoints = {}      # i -> first setpoint seen in the layer (None: changed)
         self.span_s = 0.0
         self.print_z = None      # Z of the last extruding sample (travel Z hops do not count)
-        self.ratio = _RatioBase(first)
+        self.filament = _Filament(first)
 
     def advance(self, snap, dt):
+        self.filament.observe(snap)  # counters: a gap in the data loses nothing
         if dt <= 0 or dt > MAX_HOLD_S:
             return
         self.span_s += dt
-        self.ratio.observe(snap)
         if (snap.get("move.currentMove.extrusionRate") or 0) > 0 and snap.get("axis.Z.machinePosition") is not None:
             self.print_z = snap["axis.Z.machinePosition"]
         for i in _indices(snap, "heater.", ".current"):
@@ -154,9 +202,9 @@ class LayerAccumulator:
         duration_s = max(0.0, (ended_ms - self.started_ms) / 1000.0)
         filament = {}
         flow = {}
-        self.ratio.observe(last)
-        for i in sorted(set(_indices(last, "extruder.", ".position")) | set(_indices(last, "fm.", ".totalExtrusion"))):
-            entry = self.ratio.entry(last, i)
+        self.filament.observe(last)
+        for i in self.filament.indices():
+            entry = self.filament.entry(i, per_layer=True)
             filament[str(i)] = entry
             commanded, extruder = entry["commandedMm"], entry["extruderMm"]
             basis = commanded if commanded is not None else extruder
@@ -216,10 +264,10 @@ class JobAccumulator:
         self.flow_curve = {}     # fm -> {flow_bin: TW of lastPercentage}
         self.pwm_at_setpoint = {}  # heater -> TW avgPwm while reached
         self.heat_up = {}        # heater -> {"since": ms, "setpoint": v, "seconds": [..]}
-        self.ratio = _RatioBase(first)
+        self.filament = _Filament(first)
 
     def advance(self, snap, dt, now_ms):
-        self.ratio.observe(snap)
+        self.filament.observe(snap)
         if dt <= 0 or dt > MAX_HOLD_S:
             self.last = dict(snap)
             return
@@ -265,9 +313,9 @@ class JobAccumulator:
 
     def filament_totals(self):
         result = {}
-        self.ratio.observe(self.last)
-        for i in sorted(set(_indices(self.last, "fm.", ".totalExtrusion")) | set(_indices(self.last, "extruder.", ".position"))):
-            entry = self.ratio.entry(self.last, i)
+        self.filament.observe(self.last)
+        for i in self.filament.indices():
+            entry = self.filament.entry(i, per_layer=False)
             entry["avgPercentage"] = self.last.get(f"fm.{i}.avgPercentage")
             entry["mmPerRev"] = self.last.get(f"fm.{i}.calibrated.mmPerRev")
             hist = self.percent_hist.get(i)
