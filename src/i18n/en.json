@@ -117,6 +117,7 @@
 		"pause": "Pause",
 		"resume": "Resume",
 		"babystep": "Babystep",
+		"calibration": "Calibration",
 		"machine_mode": "Machine mode",
 		"timelapse_failed": "Timelapse failed",
 		"accelerometer_failed": "Accelerometer failed",
@@ -156,7 +157,7 @@
 			"esteps_suggested": "The correction the machine's flow-bias detector suggested.",
 			"heat_up_s": "Time from a new setpoint to reaching it, first time in each job.",
 			"duration_s": "Job duration as RRF reports it.",
-			"events": "Events of a job without start and end.",
+			"events": "Events of a job without start, end and calibrations.",
 			"spectrum_peak_hz": "Mean peak frequency of a job's accelerometer spectra per axis (from 5 Hz on). A shift points at belt tension, bearings or loose parts.",
 			"spectrum_rms": "Mean vibration RMS of a job's accelerometer recordings per axis, without gravity."
 		}

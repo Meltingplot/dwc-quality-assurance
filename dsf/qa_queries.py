@@ -418,8 +418,8 @@ def trends(con, metric, limit=100, material=None):
                     points.append({**base, "axis": axis, "value": stats[field], "spectra": stats.get("spectra")})
         elif metric == "events":
             counts = {k: v.get("count") for k, v in (summary.get("events") or {}).items()}
-            points.append({**base, "value": sum(c for t, c in counts.items() if t not in ("job_start", "job_end")),
-                           "byType": counts})
+            routine = ("job_start", "job_end", "calibration")   # every job has them
+            points.append({**base, "value": sum(c for t, c in counts.items() if t not in routine), "byType": counts})
     return {"metric": metric, "points": points}
 
 
