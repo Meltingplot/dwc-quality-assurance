@@ -102,6 +102,7 @@ const EVENT_COLORS: Record<string, string> = {
 	mfm_recovery: "warning",
 	mfm_flow_bias: "warning",
 	gear_passes: "warning",
+	gear_passes_forecast: "warning",
 	pause: "info",
 	resume: "info",
 	setpoint_change: "primary",
@@ -167,6 +168,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return formatDuration(p.pausedS);
 		case "mfm_error_tolerated":
 			return `#${p.count ?? "?"}`;
+		case "gear_passes_forecast":   // the runs of layers expected at the threshold or more
+			return (p.runs ?? []).map((r: any) => `L${r.firstLayer}–${r.lastLayer} (${formatNumber(r.max, 1)}×)`).join(", ");
 		case "gear_passes":
 			return `${formatNumber(p.max, 1)}× @ L${p.maxLayer ?? "?"} (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
 		case "babystep":

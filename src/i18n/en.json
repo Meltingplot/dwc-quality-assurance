@@ -101,6 +101,7 @@
 		"filament_percent_level": "Monitor away from its level",
 		"filament_percent_drift": "Monitor drifts away from its level",
 		"gear_passes": "Filament passes the gear often",
+		"gear_passes_forecast": "Forecast: filament will pass the gear often",
 		"heater_fault": "Heater fault",
 		"heater_monitor": "Heater monitor",
 		"heater_load": "Heater load",

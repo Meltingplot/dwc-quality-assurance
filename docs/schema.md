@@ -127,6 +127,7 @@ when the machine or the file changes later.
 | `globalsEnd` | the same at job end (added then) |
 | `macros` | every macro the file calls (`M98 P` argument), read while the job runs once the layer index is ready: `crc32`, `pathMm`, `netMm`, `fwRetracts` (its own E travel, as `qa_gcode.macro_stats` counts it), `approximate`, `calls` (nested M98), `crc32End` when it differed at the job end; null when unreadable |
 | `feedReference` | per extruder the e-steps it first fed filament with inside a layer (after the start G-code and a tool's filament config): `{stepsPerMm, layer}`, added then; the base of the layers' `feed` |
+| `gearForecast` | every layer's gear passes in advance, computed once at the first layer start with the layer index ready: `threshold`, `atLayer`, `retraction` (M207 then), `layers` (layer → gearPasses, as `filamentPath.gearPasses`), `runs` `[{firstLayer, lastLayer, max, maxLayer}]` at the threshold or more, `unknownMacros`; see the event `gear_passes_forecast` |
 | `material` | as the column |
 
 ## Job summary (`jobs.summary`)

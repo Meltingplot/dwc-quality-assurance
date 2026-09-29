@@ -101,6 +101,7 @@
 		"filament_percent_level": "Monitor weicht vom eigenen Niveau ab",
 		"filament_percent_drift": "Monitor driftet vom eigenen Niveau weg",
 		"gear_passes": "Filament oft am Extruderrad",
+		"gear_passes_forecast": "Vorhersage: Filament oft am Extruderrad",
 		"heater_fault": "Heizerfehler",
 		"heater_monitor": "Heizerüberwachung",
 		"heater_load": "Heizlast",
