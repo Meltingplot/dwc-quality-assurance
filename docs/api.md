@@ -138,6 +138,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `mfm_flow_bias` | `detected` | the MFM globals (`mfm_esteps_suggested`, …) |
 | `setpoint_change` | `heater.active`, `heater.standby`, `heater.maxPwm`, `stepsPerMm`, `pressAdv.k0/k1/d`, `nonlinear.a/b/upperLimit`, `fm.configured`, `fm.calibrated`, `tool.retraction` (M207 `{length, extraRestart, speed, unretractSpeed, zHop}`, index = tool number), `shaping` (M593 `{type, frequency, damping, amplitudes, delays}`, index null), `axis.microstepping` (M350 `{value, interpolated}`, index = axis letter), `extruder.microstepping` (the same, index = extruder) | `setpoint`, `index`, `from`, `to`; `stepsPerMm` also `cause` (`mfm_flow_bias`, `baseline_restore`, null) |
 | `babystep` | – | `axis`, `from`, `to` |
+| `calibration` | `mesh` (G29 probed or loaded a mesh), `levelling` (G32), `probe` (M558.1, G31; device = probe), `probeDrive` (M558.2) | the new entry as in the context's `calibration` (without the mesh's `heights`); the height map's `minError`, `maxError`, `points` and M558.1's `rmsError` are added to the event when they arrive; no fine block |
 | `driver_error` | `error` / `warning` / `stall` | `source` `status`: `board`, `canAddress`, `driver`, `status`, `previous`, `bits`; `source` `message`: `canAddress`, `driver`, `text` |
 | `voltage_dip` | – | `board`, `vIn`, `median90s`; end: `recoveredTo` |
 | `phantom_reading` | `heater` / `sensor` | `channel`, `before`, `peak`, `durationMs` |
@@ -215,7 +216,7 @@ for line in gzip.open("qa-<job>-om.jsonl.gz", "rt"):
 
 `metric`: `heater_load_mean` (per nozzle heater and setpoint, with `nozzleDiameter`), `fm_avg_percentage`,
 `filament_ratio`, `mm_per_rev` (per monitor), `esteps_suggested`, `heat_up_s` (per heater), `duration_s`,
-`events` (count without start/end, `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
+`events` (count without start, end and calibrations, `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
 of the job's recordings, from `summary.mechanics`, with `spectra`). Each point carries `jobId`, `ts`,
 `result`, `material`, `value`.
 

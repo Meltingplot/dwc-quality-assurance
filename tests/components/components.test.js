@@ -238,6 +238,15 @@ describe("ContextTable", () => {
 		expect(text).toContain("1, 2");
 		expectNoVueWarnings(warn);
 	});
+
+	it("gives a mesh's heights as their size", () => {
+		const heights = [[-0.115, -0.12, null], [-0.492, 0, 0.2]];
+		const wrapper = mountInDwc(ContextTable, { props: { data: { calibration: { mesh: { points: 5, heights } } } } });
+		const text = wrapper.text();
+		expect(text).toContain("2 × 3");
+		expect(text).not.toContain("-0.492");
+		expectNoVueWarnings(warn);
+	});
 });
 
 describe("ObjectModelView", () => {

@@ -107,6 +107,7 @@ const EVENT_COLORS: Record<string, string> = {
 	resume: "info",
 	setpoint_change: "primary",
 	babystep: "primary",
+	calibration: "primary",
 	job_start: "success",
 	job_end: "success",
 	daemon_started_mid_job: "grey",
@@ -136,6 +137,25 @@ function setpointChange(from: unknown, to: unknown): string {
 	const b = isObject(to) ? to : {};
 	const changed = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 	return changed.map((k) => `${k}: ${plain(a[k])} → ${plain(b[k])}`).join(", ") || "—";
+}
+
+/** A calibration in the terms RRF reports it with (qa_calibration.py): μ mean, σ deviation */
+function calibrationDetail(kind: string | null, p: Record<string, any>): string {
+	const mm = (value: unknown) => formatNumber(value as number, 3);
+	switch (kind) {
+		case "mesh":   // G29: probed points, min … max error
+			return `${p.points !== undefined ? `${p.points}: ` : ""}${p.minError !== undefined ? `${mm(p.minError)} … ${mm(p.maxError)} mm, ` : ""}μ ${mm(p.mean)}, σ ${mm(p.deviation)}`;
+		case "levelling":   // G32: the leadscrew corrections, σ before → after
+			return `${Array.isArray(p.corrections) ? `${p.corrections.map(mm).join(" ")} mm, ` : ""}σ ${mm(p.before?.deviation)} → ${mm(p.after?.deviation)}`;
+		case "probe":   // M558.1: offset at the trigger reading and the fit's rms error; else G31's trigger height
+			return Array.isArray(p.scanCoefficients)
+				? `${mm(p.scanCoefficients[0])} mm @ ${p.threshold ?? "—"}${p.rmsError !== undefined ? `, rms ${mm(p.rmsError)} mm` : ""}`
+				: `Z ${mm(p.triggerHeight)} mm`;
+		case "probeDrive":   // M558.2
+			return `I ${p.current ?? "—"}, offset ${p.offset ?? "—"}`;
+		default:
+			return "";
+	}
 }
 
 export function eventDetail(event: { type: string; subtype: string | null; payload: Record<string, any> | null }): string {
@@ -175,6 +195,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return `${formatNumber(p.max, 1)}× @ L${p.maxLayer ?? "?"} (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
 		case "babystep":
 			return `${p.from ?? "—"} → ${p.to ?? "—"} mm`;
+		case "calibration":
+			return calibrationDetail(event.subtype, p);
 		case "timelapse_failed":
 		case "accelerometer_failed":
 			return p.error ?? "";

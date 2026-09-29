@@ -118,6 +118,7 @@
 		"pause": "Pause",
 		"resume": "Fortsetzen",
 		"babystep": "Babystep",
+		"calibration": "Kalibrierung",
 		"timelapse_failed": "Zeitraffer fehlgeschlagen",
 		"accelerometer_failed": "Beschleunigungssensor fehlgeschlagen",
 		"daemon_started_mid_job": "Aufzeichnung im Job begonnen"
@@ -156,7 +157,7 @@
 			"esteps_suggested": "Die Korrektur, die der Flow-Bias-Detektor der Maschine vorgeschlagen hat.",
 			"heat_up_s": "Zeit von einem neuen Sollwert bis zum Erreichen, jeweils das erste Mal im Job.",
 			"duration_s": "Jobdauer, wie RRF sie meldet.",
-			"events": "Ereignisse eines Jobs ohne Start und Ende.",
+			"events": "Ereignisse eines Jobs ohne Start, Ende und Kalibrierungen.",
 			"spectrum_peak_hz": "Mittlere Spitzenfrequenz der Accelerometer-Spektren eines Jobs je Achse (ab 5 Hz). Eine Verschiebung deutet auf Riemenspannung, Lager oder lose Teile.",
 			"spectrum_rms": "Mittlerer Schwingungs-RMS der Accelerometer-Aufnahmen eines Jobs je Achse, ohne Schwerkraft."
 		}

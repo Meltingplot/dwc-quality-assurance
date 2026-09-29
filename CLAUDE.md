@@ -48,6 +48,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
   qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
+  qa_calibration.py         mesh (G29), levelling (G32), scanning probe (M558.1/.2) per job
   qa_journal.py             object model journal: every DSF patch + snapshots per job, replay
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
@@ -122,6 +123,10 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - `filament_percent_drift`: layer means ≥ `thresholds.filamentDriftPoints` (6) on one side of that level for
   `filamentDriftLayers` (3) layers, for a slow drift. The Benchy "reference" 20260928-134928 was bad too (cabin
   from ≈ L140, chimney; Tim 2026-09-29), and only this rule catches it (L138-194, L236-265).
+- Calibration (G29 mesh, G32 levelling, M558.1/.2 probe) comes from the object model; only what it lacks comes
+  from the height map file it names (min/max, points, heights) and from `messages[]` (M558.1 rms error, M558.2
+  drive current/offset). Tim 2026-09-29: never parse a message for a value the model has. An event per
+  calibration in the job, context `calibration` = what the job prints with (`ts` null: before QA started).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
 - Object model journal (Tim 2026-09-29: every change, so unforeseen problems can be investigated): DSF's patches
