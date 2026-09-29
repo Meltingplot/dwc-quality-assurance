@@ -141,7 +141,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 	const p = event.payload ?? {};
 	switch (event.type) {
 		case "setpoint_change":
-			return `${setpointChange(p.from, p.to)}${p.cause ? ` (${p.cause})` : ""}`;
+			// an axis (M350) is only in the payload; a numeric index is the event's device (#n)
+			return `${typeof p.index === "string" ? `${p.index}: ` : ""}${setpointChange(p.from, p.to)}${p.cause ? ` (${p.cause})` : ""}`;
 		case "heater_load":
 			return `${formatPercent(p.peakMean)} @ ${p.setpoint ?? "—"} °C${p.durationS !== undefined ? `, ${formatDuration(p.durationS)}` : ""}`;
 		case "filament_status":

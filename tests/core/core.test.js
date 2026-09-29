@@ -69,6 +69,10 @@ describe("format", () => {
 			.toBe("length: — → 0.4, zHop: — → 0");
 		expect(eventDetail({ type: "setpoint_change", subtype: "fm.calibrated", payload: { from: true, to: false } })).toBe("true → false");
 		expect(eventDetail({ type: "setpoint_change", subtype: "heater.active", payload: { from: null, to: 220 } })).toBe("— → 220");
+		expect(eventDetail({ type: "setpoint_change", subtype: "axis.microstepping", payload: { index: "Y", from: { value: 16, interpolated: false },
+			to: { value: 64, interpolated: false } } })).toBe("Y: value: 16 → 64");
+		expect(eventDetail({ type: "setpoint_change", subtype: "shaping", payload: { index: null, from: { type: "none", frequency: 32.8 },
+			to: { type: "mzv", frequency: 32.8 } } })).toBe("type: none → mzv");
 		expect(eventDetail({ type: "heater_load", subtype: "high", payload: { peakMean: 0.86, setpoint: 220, durationS: 125 } }))
 			.toBe("86 % @ 220 °C, 2m 05s");
 		expect(eventDetail({ type: "driver_error", subtype: "warning", payload: { source: "status", board: 1, canAddress: 20, driver: 0,
