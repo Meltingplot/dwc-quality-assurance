@@ -27,7 +27,7 @@ def test_schema_and_job_roundtrip(writer, readers):
     assert row["result"] == "completed"
     assert qa_db.loads(row["summary"]) == {"a": 1}
     assert qa_db.loads(row["context"])["file"]["fileName"] == "0:/gcodes/a.gcode"
-    assert readers.get().execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "2"
+    assert readers.get().execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
 
 
 def test_migration_from_version_1(tmp_path):
@@ -43,9 +43,27 @@ def test_migration_from_version_1(tmp_path):
     """)
     qa_db.migrate(con)
     qa_db.migrate(con)   # again: nothing to do
-    row = con.execute("SELECT layer, duration_s, filament_path FROM job_layers").fetchone()
-    assert row == (1, 12.5, None)
-    assert con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "2"
+    row = con.execute("SELECT layer, duration_s, filament_path, feed FROM job_layers").fetchone()
+    assert row == (1, 12.5, None, None)
+    assert con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
+
+
+def test_migration_from_version_2(tmp_path):
+    """Version 2 had no job_layers.feed; its layers and their filament path stay."""
+    con = sqlite3.connect(str(tmp_path / "v2.db"))
+    con.executescript("""
+        CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT);
+        INSERT INTO schema_meta VALUES ('version', '2');
+        CREATE TABLE job_layers (job_key INTEGER NOT NULL, layer INTEGER NOT NULL, started_at INTEGER,
+            ended_at INTEGER, duration_s REAL, height REAL, z REAL, fraction_printed REAL, filament TEXT, flow TEXT,
+            temps TEXT, fm_stats TEXT, pwm_stats TEXT, load_stats TEXT, filament_path TEXT,
+            PRIMARY KEY (job_key, layer)) WITHOUT ROWID;
+        INSERT INTO job_layers (job_key, layer, filament_path) VALUES (1, 1, '{"gearPasses": 2.2}');
+    """)
+    qa_db.migrate(con)
+    row = con.execute("SELECT layer, filament_path, feed FROM job_layers").fetchone()
+    assert row == (1, '{"gearPasses": 2.2}', None)
+    assert con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
 
 
 def test_samples_wait_for_the_commit_interval(data_dir):

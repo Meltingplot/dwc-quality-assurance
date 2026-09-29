@@ -29,7 +29,7 @@ logger = logging.getLogger("qa.db")
 DB_FILE = "qa.db"
 BACKUP_FILES = ("qa.backup.1.db", "qa.backup.2.db")
 
-SCHEMA_VERSION = 2  # 2: job_layers.filament_path (2026-09-28)
+SCHEMA_VERSION = 3  # 2: job_layers.filament_path (2026-09-28), 3: job_layers.feed (2026-09-29)
 
 RESOLUTION_COARSE = 0
 RESOLUTION_FINE = 1
@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS job_layers (
     pwm_stats TEXT,
     load_stats TEXT,
     filament_path TEXT,
+    feed TEXT,
     PRIMARY KEY (job_key, layer)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS channels (
@@ -255,6 +256,8 @@ def migrate(con):
     columns = {row[1] for row in con.execute("PRAGMA table_info(job_layers)")}
     if "filament_path" not in columns:   # version 1
         con.execute("ALTER TABLE job_layers ADD COLUMN filament_path TEXT")
+    if "feed" not in columns:            # version 2
+        con.execute("ALTER TABLE job_layers ADD COLUMN feed TEXT")
     if version < SCHEMA_VERSION:
         con.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)", (str(SCHEMA_VERSION),))
 
@@ -438,11 +441,11 @@ class Writer:
         self._con.execute(f"UPDATE jobs SET {', '.join(columns)} WHERE key=?", values)
 
     def op_layer_upsert(self, job_key, layer):
-        json_cols = ("filament", "flow", "temps", "fm_stats", "pwm_stats", "load_stats", "filament_path")
+        json_cols = ("filament", "flow", "temps", "fm_stats", "pwm_stats", "load_stats", "filament_path", "feed")
         self._con.execute(
             "INSERT OR REPLACE INTO job_layers (job_key, layer, started_at, ended_at, duration_s, height, z, "
-            "fraction_printed, filament, flow, temps, fm_stats, pwm_stats, load_stats, filament_path) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "fraction_printed, filament, flow, temps, fm_stats, pwm_stats, load_stats, filament_path, feed) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (job_key, layer["layer"], layer.get("started_at"), layer.get("ended_at"), layer.get("duration_s"),
              layer.get("height"), layer.get("z"), layer.get("fraction_printed"),
              *(dumps(layer.get(c)) for c in json_cols)))

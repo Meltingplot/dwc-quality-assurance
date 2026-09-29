@@ -69,7 +69,11 @@ const LAYERS = {
 		fmStats: { 0: { min: 90, max: 104, mean: 97, std: 3, avgPercentage: 97, mmPerRev: 25.1 } },
 		pwmStats: {}, loadStats: { 1: { mean: 0.55, max: 0.7, p95: 0.66, maxMean60: 0.6, atSetpointS: 30, shareHigh: 0.1, shareLimit: 0, setpoint: 220 } },
 		filamentPath: layer === 1 ? null : { mm: 12, netMm: 1.6, gearPasses: 2 + 2.5 * layer, stepsPerMm: 801, motorSteps: 9612,
-			retraction: { length: 0.4, extraRestart: 0 } }
+			retraction: { length: 0.4, extraRestart: 0 } },
+		// layer 1 recorded before schema version 3; the MFM's M92 801 → 834.38 in layer 3
+		...(layer === 1 ? {} : { feed: { 0: layer === 2
+			? { factor: 1, min: 1, max: 1, stepsPerMm: 801, extrusionFactor: 1, reference: 801 }
+			: { factor: 1.0208, min: 1, max: 1.0417, stepsPerMm: 817.69, extrusionFactor: 1, reference: 801 } } })
 	}))
 };
 
@@ -249,6 +253,11 @@ describe("LayerCharts", () => {
 		await flush();
 		expect(charts[charts.length - 1].data.datasets[0].data).toEqual([null, 7, 9.5]);
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.layers.gearPassesHint");
+		wrapper.vm.view = "feed";
+		await flush();
+		expect(charts[charts.length - 1].data.datasets.map((d) => [d.label, d.data])).toEqual(
+			[["plugins.QualityAssurance.layers.feed #0 (%)", [null, 100, 102.1]]]);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.layers.feedHint");
 		expectNoVueWarnings(warn);
 	});
 

@@ -101,6 +101,7 @@ Each layer (`job.layer` numbering, i.e. RRF's):
 | `loadStats` | per heater: `mean`, `max`, `p95` (load at the setpoint), `maxMean60`, `atSetpointS`, `shareAtSetpoint`, `shareHigh`, `shareLimit` (time share of the 60 s mean ≥ high/limit), `setpoint` |
 | `gcode` | from the file's layer index (absent unless `meta.gcode` is `ready`, null for a layer the file does not have): `extrudeMm` (filament of printing moves), `types` (the same per `;TYPE:`), `retracts` (retractions: negative E or G10/M103, once until E moves forward or G11/M101), `fwRetracts` (of these firmware ones, each the tool's M207 length: context `tools[].retraction`, changes as `setpoint_change` `tool.retraction`), `retractMm` (negative E), `macros` (`M98 P` calls: path → count; their own moves are not in the file), `pathMm` (E travel of the file's moves both ways, Σ\|ΔE\|), `macrosRetracted` (of the calls, those made while retracted) |
 | `filamentPath` | the filament's path through the extruder gear, counted when the layer ends with the e-steps and M207 valid at its start (null: no index, or the file lacks the layer): `mm` (path both ways: the file's E, firmware retraction cycles of length + length + extraRestart, the macros' own E as in `context.macros`), `netMm` (filament fed), `gearPasses` (`mm` / `netMm`: 1 without retraction, 3 when every piece went back and forth once; null when `netMm` < 0.1), `stepsPerMm`, `motorSteps` (`mm` × `stepsPerMm`), `retraction` `{length, extraRestart}`, `unknownMacros` (called, but unreadable) |
+| `feed` | per extruder that fed filament in the layer (absent in layers recorded before schema version 3): filament pushed per millimetre of the file, relative to the job's start: `factor` (e-steps / `reference` × extrusion factor, over the extruder's forward movement with the values that held meanwhile; 1.0417 after the MFM's M92 801 → 834.38), `min`, `max` (of the factor while feeding), `stepsPerMm` and `extrusionFactor` (M221) as they held for the fed filament, `reference` (context `feedReference`) |
 
 Heater load = `avgPwm / model.maxPwm`, clamped to 0…1; counted only while processing, at an
 active setpoint that was reached (the CHX UI banner's definition, PLAN.md §5.4.1).
@@ -143,7 +144,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 |---|---|
 | `heater.<n>.current`, `.active`, `.standby`, `.avgPwm`, `.state` | state: 0 off, 1 standby, 2 active, 3 fault, 4 tuning, 5 offline |
 | `heater.<n>.load` | derived at read time from `avgPwm` and the `maxPwm` valid then (not stored) |
-| `extruder.<n>.position`, `.rawPosition`, `.factor`; `job.rawExtrusion` | |
+| `extruder.<n>.position`, `.rawPosition`, `.factor`, `.stepsPerMm`; `job.rawExtrusion` | `stepsPerMm` since schema version 3 |
 | `fm.<n>.status`, `.lastPercentage`, `.avgPercentage`, `.minPercentage`, `.maxPercentage`, `.position`, `.totalExtrusion`, `.agc`, `.calibrated.totalDistance`, `.calibrated.mmPerRev` | status: 0 ok, 1 noMonitor, 2 noDataReceived, 3 noFilament, 4 tooLittleMovement, 5 tooMuchMovement, 6 sensorError |
 | `sensor.<n>.lastReading` | every analog sensor |
 | `axis.<L>.machinePosition` | |

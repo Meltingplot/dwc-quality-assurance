@@ -64,6 +64,39 @@ def test_layer_flow_without_a_finished_check_segment():
     assert record["flow"]["0"] == pytest.approx(3 * math.pi * (2.85 / 2) ** 2 / 12, rel=1e-3)
 
 
+
+def feed(e, steps=801.0, factor=1.0, **values):
+    """A snapshot of extruder 0 at position ``e`` with M92 ``steps`` and M221 ``factor``"""
+    return snap(**{"extruder.0.position": e, "extruder.0.stepsPerMm": steps, "extruder.0.factor": factor, **values})
+
+
+def test_layer_feed_factor():
+    """The MFM's M92 801 → 834.38 in the middle of a layer (job 20260928-155257-118609a9, L143), then
+    M221 90 %: the layer's factor is the filament pushed per millimetre of the file, relative to the
+    reference; a retraction, the pause and an extruder that did not feed do not count"""
+    reference = qa_summary.FeedReference()
+    idle = {"extruder.1.position": 5.0, "extruder.1.stepsPerMm": 400.0}
+    acc = qa_summary.LayerAccumulator(143, 0, feed(100.0, **idle), {0: 2.85}, None, {}, reference)
+    for snapshot in (feed(110.0, **idle),                   # 10 mm at 801: the reference
+                     feed(109.6, **idle),                   # retraction
+                     feed(110.0, 834.38, **idle),           # back in at 801; M92 from now on
+                     feed(120.0, 834.38, 0.9, **idle),      # 10 mm at 834.38, M221 90 % from now on
+                     feed(129.0, 834.38, 0.9, **idle)):     # 10 mm of the file, 9 mm at the extruder
+        acc.advance(snapshot, 1)
+    acc.advance(feed(129.0, 834.38, 0.9, **idle), 10)       # pause
+    record = acc.finish(20_000, feed(129.0, 834.38, 0.9, **idle))
+    pushed = 10.4 * 801 + 19 * 834.38                       # position mm × e-steps
+    assert record["feed"] == {"0": {
+        "factor": round(pushed / (801 * 30.4), 4), "min": round(834.38 / 801 * 0.9, 4),
+        "max": round(834.38 / 801, 4), "stepsPerMm": round(pushed / 29.4, 2), "extrusionFactor": round(29.4 / 30.4, 3),
+        "reference": 801.0}}
+    assert reference.changed and reference.to_json() == {"0": {"stepsPerMm": 801.0, "layer": 143}}
+    # the stored reference outlives the collector (job context), a later value does not replace it
+    again = qa_summary.FeedReference(reference.to_json())
+    assert again.get(0, 834.38, 200) == 801.0 and not again.changed
+    assert qa_summary.LayerAccumulator(3, 0, snap(), {}, None, {}).finish(1000, snap())["feed"] == {}
+
+
 def test_job_filament_across_restarts():
     """As on the CHX 350 (job 20260928-075236-bddf0026): the monitor's total is stale from the last job
     until it has calibrated again, the print start zeroes the extruder, a pause restarts the monitor."""

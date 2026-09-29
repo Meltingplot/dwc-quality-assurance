@@ -106,6 +106,7 @@ class _Job:
         self.gear_pending = []      # (layer record, gear inputs) finished before the layer index was ready
         self.macros = None          # M98 argument -> qa_gcode.macro_stats (None: unreadable), read once
         self.gear_stats = None      # layer -> stats of the layer index
+        self.feed_reference = None  # qa_summary.FeedReference, restored from the context on resume
 
 
 class Collector:
@@ -268,6 +269,16 @@ class Collector:
             self.job.layer_acc.advance(self._prev_snapshot, dt)
         if self.job.job_acc is not None:
             self.job.job_acc.advance(self._prev_snapshot, dt, now_ms)
+        self._store_feed_reference()
+
+    def _store_feed_reference(self):
+        """A reference the accumulator has just taken goes into the job context at once."""
+        job = self.job
+        if job is None or job.feed_reference is None or not job.feed_reference.changed:
+            return
+        job.feed_reference.changed = False
+        job.context["feedReference"] = job.feed_reference.to_json()
+        self.writer.submit("job_update", job.key, {"context": dict(job.context)})
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -410,11 +421,13 @@ class Collector:
         self._sensor_names = {i: getattr(s, "name", None)
                               for i, s in qa_channels.items(getattr(getattr(model, "sensors", None), "analog", None))}
         self.job.job_acc = qa_summary.JobAccumulator(snapshot, diameters, self._chamber)
+        self.job.feed_reference = qa_summary.FeedReference(self.job.context.get("feedReference"))
         layer = getattr(getattr(model, "job", None), "layer", None)
         self.job.layer = layer
         self.job.gear_inputs = self._gear_inputs(model)
         self.job.layer_acc = qa_summary.LayerAccumulator(layer, now_ms, snapshot, diameters, self._chamber,
-                                                         self._sensor_names) if layer else None
+                                                         self._sensor_names,
+                                                         self.job.feed_reference) if layer else None
         self._last_coarse_ms = None
 
     def resolve_pending_end(self, now_ms, force=False):
@@ -549,7 +562,8 @@ class Collector:
         if layer is not None:
             self.job.gear_inputs = self._gear_inputs(model)
             self.job.layer_acc = qa_summary.LayerAccumulator(layer, now_ms, snapshot, self._diameters,
-                                                             self._chamber, self._sensor_names)
+                                                             self._chamber, self._sensor_names,
+                                                             self.job.feed_reference)
             self.broadcast({"type": "layer", "ts": now_ms, "jobId": self.job.id, "layer": layer})
             if self.timelapse is not None:
                 self.timelapse.layer_changed(self.job, layer, now_ms)
@@ -579,6 +593,7 @@ class Collector:
                 fraction = round(pos / size, 4)
         record = acc.finish(now_ms, last, height=height, z=z, fraction_printed=fraction,
                             load_stats=self.load.layer_stats(acc.span_s))
+        self._store_feed_reference()
         self._gear_backlog(model)
         path = self._filament_path(acc.layer, self.job.gear_inputs)
         if path is NOT_READY:
@@ -599,6 +614,7 @@ class Collector:
         if acc is None:
             return
         record = acc.finish(now_ms, self._prev_snapshot, load_stats=self.load.layer_stats(acc.span_s))
+        self._store_feed_reference()
         record["partial"] = True
         self.writer.submit("layer_upsert", self.job.key, record)
 

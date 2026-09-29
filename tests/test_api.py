@@ -129,6 +129,8 @@ def test_layers_contract_for_the_chx_analysis(ctx, rig):
     assert "shareHigh" in first["loadStats"]["1"]
     assert first["fmStats"]["0"]["mean"] == pytest.approx(99)
     assert first["flow"]["0"] > 0
+    assert first["feed"] == {"0": {"factor": 1.0, "min": 1.0, "max": 1.0, "stepsPerMm": 790.0, "extrusionFactor": 1.0,
+                                   "reference": 790.0}}
     # the G-code index per layer: the file has two layers, the job reported three
     assert first["gcode"] == {"extrudeMm": 1.0, "types": {}, "retracts": 0, "fwRetracts": 0, "retractMm": 0.0,
                               "macros": {}, "pathMm": 1.0, "macrosRetracted": {}}
