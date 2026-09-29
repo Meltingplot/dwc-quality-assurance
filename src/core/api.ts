@@ -78,6 +78,18 @@ export interface LayerRecord {
 	gcode?: LayerGcodeStats | null;
 	/** the filament's path through the extruder gear, counted at the layer's end (docs/api.md) */
 	filamentPath: FilamentPath | null;
+	/** per extruder that fed filament in the layer; absent in layers recorded before schema version 3 */
+	feed?: Record<string, LayerFeed> | null;
+}
+
+/** Filament pushed per millimetre of the file, relative to the e-steps the job started feeding with */
+export interface LayerFeed {
+	factor: number;
+	min: number;
+	max: number;
+	stepsPerMm: number;
+	extrusionFactor: number;
+	reference: number;
 }
 
 export interface FilamentPath {

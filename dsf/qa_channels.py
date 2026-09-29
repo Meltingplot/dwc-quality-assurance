@@ -73,6 +73,7 @@ def extract(model, include_globals=True):
         put(f"extruder.{i}.position", getattr(extruder, "position", None))
         put(f"extruder.{i}.rawPosition", getattr(extruder, "raw_position", None))
         put(f"extruder.{i}.factor", getattr(extruder, "factor", None))
+        put(f"extruder.{i}.stepsPerMm", getattr(extruder, "steps_per_mm", None))
     for axis in getattr(move, "axes", None) or []:
         letter = axis_letter(axis)
         if letter:

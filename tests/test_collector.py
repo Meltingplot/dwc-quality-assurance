@@ -300,6 +300,55 @@ def test_job_id_format():
     assert len(qa_collector.job_id(0, "a", None).split("-")[-1]) == 8
 
 
+
+# --- feed factor ------------------------------------------------------------------------------------
+
+def feed_layers(rig):
+    return {r["layer"]: qa_db.loads(r["feed"]) for r in rig.rows("SELECT layer, feed FROM job_layers")}
+
+
+def test_feed_factor_relative_to_the_first_feeding(rig):
+    """The start G-code sets the filament's e-steps after the context snapshot (790 → 801); the MFM
+    raises them during layer 2 (801 → 834.38, as in job 20260928-155257-118609a9), M221 90 % in layer 3."""
+    rig.start_job()
+    for data in ({"move": {"extruders": [{"stepsPerMm": 801.0}]}},       # print_start: the filament's M92
+                 {"move": {"extruders": [{"position": 20.0}]}},          # purge line, no layer yet
+                 {"job": {"layer": 1}}, {"move": {"extruders": [{"position": 30.0}]}},
+                 {"job": {"layer": 2}}, {"move": {"extruders": [{"position": 40.0}]}},
+                 {"move": {"extruders": [{"stepsPerMm": 834.38}]}}, {"move": {"extruders": [{"position": 50.0}]}},
+                 {"job": {"layer": 3}}, {"move": {"extruders": [{"factor": 0.9}]}},
+                 {"move": {"extruders": [{"position": 59.0}]}},
+                 {"job": {"layer": 4}}):
+        rig.patch(data)
+    layers = feed_layers(rig)
+    assert layers[1]["0"] == {"factor": 1.0, "min": 1.0, "max": 1.0, "stepsPerMm": 801.0, "extrusionFactor": 1.0,
+                              "reference": 801.0}
+    assert (layers[2]["0"]["factor"], layers[2]["0"]["min"], layers[2]["0"]["max"]) == (
+        round((10 * 801 + 10 * 834.38) / (801 * 20), 4), 1.0, round(834.38 / 801, 4))
+    assert (layers[3]["0"]["factor"], layers[3]["0"]["extrusionFactor"]) == (round(834.38 / 801 * 0.9, 4), 0.9)
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    assert context["extruders"][0]["stepsPerMm"] == 790.0
+    assert context["feedReference"] == {"0": {"stepsPerMm": 801.0, "layer": 1}}
+    assert "extruder.0.stepsPerMm" in {r["name"] for r in rig.rows("SELECT name FROM channels")}
+
+
+def test_feed_reference_survives_a_daemon_restart(rig, writer, settings):
+    """A restart after the MFM's correction keeps comparing with the e-steps the job started with."""
+    rig.start_job()
+    for data in ({"move": {"extruders": [{"stepsPerMm": 801.0}]}}, {"job": {"layer": 1}},
+                 {"move": {"extruders": [{"position": 10.0}]}}, {"job": {"layer": 2}},
+                 {"move": {"extruders": [{"stepsPerMm": 834.38}]}}):
+        rig.patch(data)
+    rig.collector.shutdown(rig.t)
+    rig.collector = qa_collector.Collector(writer, settings, resolve_path=lambda v: str(rig.gcode))
+    rig.collector.init_ids()
+    rig.patch({})
+    rig.patch({"move": {"extruders": [{"position": 20.0}]}})
+    rig.patch({"job": {"layer": 3}})
+    layer = feed_layers(rig)[2]["0"]
+    assert (layer["factor"], layer["reference"]) == (round(834.38 / 801, 4), 801.0)
+
+
 # --- filament path through the extruder gear ------------------------------------------------------
 
 PHOTO = "M83\nG10\nG1 E-2 F2000\nG1 E2 F2000\nG11\n"   # take-photo.g's retraction as of chx350-config 4d2bf0e

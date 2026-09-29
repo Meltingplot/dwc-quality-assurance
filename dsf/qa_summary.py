@@ -145,6 +145,86 @@ class _Filament:
         return entry
 
 
+class FeedReference:
+    """The e-steps each extruder of a job started feeding with: the value that held when it first fed
+    filament inside a layer. Not the job start: the start G-code sets the filament's M92 after QA's
+    context snapshot (800 → 801 in job 20260928-134928-118609a9), and a tool's filament config
+    only at its tool change. Kept in the job context as ``feedReference``, so a daemon restart
+    continues with it instead of taking a value the MFM has corrected meanwhile."""
+
+    def __init__(self, stored=None):
+        self.values = {}      # extruder -> {"stepsPerMm", "layer"}
+        for key, entry in (stored or {}).items():
+            if str(key).isdigit() and isinstance(entry, dict) and entry.get("stepsPerMm"):
+                self.values[int(key)] = dict(entry)
+        self.changed = False  # a new value the collector has not stored yet
+
+    def get(self, extruder, steps_per_mm, layer):
+        """The reference of ``extruder``; the first call with e-steps sets it."""
+        entry = self.values.get(extruder)
+        if entry is None:
+            if not steps_per_mm:
+                return None
+            entry = self.values[extruder] = {"stepsPerMm": steps_per_mm, "layer": layer}
+            self.changed = True
+        return entry["stepsPerMm"]
+
+    def to_json(self):
+        return {str(i): dict(entry) for i, entry in sorted(self.values.items())}
+
+
+class _Feed:
+    """Feed factor per extruder: filament the gear pushed per millimetre the file asked for, relative
+    to the job's ``FeedReference``, i.e. e-steps / reference × extrusion factor (M221); 1.0417 after
+    the MFM's M92 801 → 834.38 (job 20260928-155257-118609a9). Counted over the extruder's forward
+    movement only, with the values that held meanwhile, so pauses and retractions do not count and a
+    change within the layer weighs by the filament fed before and after it.
+
+    ``move.extruders[].position`` is the extruder's machine coordinate, i.e. after the extrusion
+    factor, macros included; ``rawPosition`` leaves the macros out (RRF 3.7-dev @ a4b8080 Move.cpp:304-310,
+    GCodes.cpp:2064-2094, read 2026-09-29). The file's millimetres are therefore position / factor."""
+
+    def __init__(self, layer, reference, first):
+        self.layer = layer
+        self.reference = reference
+        self.prev = {}        # extruder -> (position, stepsPerMm, factor) of the last snapshot
+        self.sums = {}        # extruder -> [Σ position mm, Σ file mm, Σ position mm × e-steps]
+        self.range = {}       # extruder -> [min, max] of the feed factor while feeding
+        if first:
+            self.observe(first)
+
+    def observe(self, snap):
+        for i in _indices(snap, "extruder.", ".position"):
+            e = snap.get(f"extruder.{i}.position")
+            prev = self.prev.get(i)
+            self.prev[i] = (e, snap.get(f"extruder.{i}.stepsPerMm"), snap.get(f"extruder.{i}.factor"))
+            if prev is None or e is None or prev[0] is None or self.reference is None:
+                continue
+            fed = e - prev[0]
+            steps, factor = prev[1], (prev[2] if prev[2] is not None else 1.0)
+            if fed <= 0 or not steps or factor <= 0:
+                continue      # retraction, standstill, zeroed by a print start (or G92 E0)
+            reference = self.reference.get(i, steps, self.layer)
+            feed = steps / reference * factor
+            sums = self.sums.setdefault(i, [0.0, 0.0, 0.0])
+            sums[0] += fed
+            sums[1] += fed / factor
+            sums[2] += fed * steps
+            span = self.range.setdefault(i, [feed, feed])
+            span[0], span[1] = min(span[0], feed), max(span[1], feed)
+
+    def result(self):
+        out = {}
+        for i, (mm, file_mm, steps_mm) in self.sums.items():
+            reference = self.reference.get(i, None, self.layer)
+            steps = steps_mm / mm
+            out[str(i)] = {"factor": round(steps_mm / (reference * file_mm), 4),
+                           "min": round(self.range[i][0], 4), "max": round(self.range[i][1], 4),
+                           "stepsPerMm": round(steps, 2), "extrusionFactor": round(mm / file_mm, 3),
+                           "reference": reference}
+        return out
+
+
 def cross_section(diameter):
     d = diameter if diameter and diameter > 0 else 1.75
     return math.pi * (d / 2) ** 2
@@ -153,7 +233,8 @@ def cross_section(diameter):
 class LayerAccumulator:
     """Aggregates of one layer."""
 
-    def __init__(self, layer, started_ms, first, filament_diameters, chamber_channel, sensor_names):
+    def __init__(self, layer, started_ms, first, filament_diameters, chamber_channel, sensor_names,
+                 feed_reference=None):
         self.layer = layer
         self.started_ms = started_ms
         self.first = dict(first) if first else {}
@@ -169,9 +250,11 @@ class LayerAccumulator:
         self.span_s = 0.0
         self.print_z = None      # Z of the last extruding sample (travel Z hops do not count)
         self.filament = _Filament(first)
+        self.feed = _Feed(layer, feed_reference, first)
 
     def advance(self, snap, dt):
         self.filament.observe(snap)  # counters: a gap in the data loses nothing
+        self.feed.observe(snap)
         if dt <= 0 or dt > MAX_HOLD_S:
             return
         self.span_s += dt
@@ -203,6 +286,7 @@ class LayerAccumulator:
         filament = {}
         flow = {}
         self.filament.observe(last)
+        self.feed.observe(last)
         for i in self.filament.indices():
             entry = self.filament.entry(i, per_layer=True)
             filament[str(i)] = entry
@@ -247,6 +331,7 @@ class LayerAccumulator:
             "fraction_printed": fraction_printed,
             "filament": filament,
             "flow": flow,
+            "feed": self.feed.result(),
             "temps": temps,
             "fm_stats": fm_stats,
             "pwm_stats": pwm_stats,

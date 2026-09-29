@@ -16,6 +16,9 @@
 			<div v-if="view === 'gearPasses'" class="text-caption text-medium-emphasis mt-1">
 				{{ $t("plugins.QualityAssurance.layers.gearPassesHint") }}
 			</div>
+			<div v-if="view === 'feed'" class="text-caption text-medium-emphasis mt-1">
+				{{ $t("plugins.QualityAssurance.layers.feedHint") }}
+			</div>
 		</template>
 	</div>
 </template>
@@ -27,7 +30,7 @@ import type { LayersAnswer } from "../core/api";
 import { layerChartConfig, type LayerSeries } from "../core/charts";
 import ChartCanvas from "./ChartCanvas.vue";
 
-const VIEWS = ["duration", "temperatures", "heaterLoad", "monitor", "filament", "flow", "gearPasses"] as const;
+const VIEWS = ["duration", "temperatures", "heaterLoad", "monitor", "filament", "flow", "gearPasses", "feed"] as const;
 type View = typeof VIEWS[number];
 
 /** Per-layer charts of a job, including the histogram measured vs. commanded (PLAN.md §3) */
@@ -98,6 +101,15 @@ export default defineComponent({
 					series = [{ label: t("gearPasses"), unit: "×", values: layers.map((l) => l.filamentPath?.gearPasses ?? null) }];
 					options = { yMin: 0 };
 					break;
+				case "feed": {
+					const keys = [...new Set(layers.flatMap((l) => Object.keys(l.feed ?? {})))].sort();
+					const percent = (v: number | undefined) => (v === undefined ? null : Math.round(v * 1000) / 10);
+					series = keys.map((k) => ({
+						label: `${t("feed")} #${k}`, unit: "%", type: "line" as const,
+						values: layers.map((l) => percent(l.feed?.[k]?.factor))
+					}));
+					break;
+				}
 			}
 			// a sensor or monitor without a single value in this job is left out
 			return layerChartConfig(this.numbers, series.filter((s) => s.values.some((v) => v !== null && v !== undefined)), options);

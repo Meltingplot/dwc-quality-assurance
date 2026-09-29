@@ -119,7 +119,8 @@ def layers(con, job_id, load_thresholds=None):
     rows = con.execute("SELECT * FROM job_layers WHERE job_key=? ORDER BY layer", (key,)).fetchall()
     result = []
     for row in rows:
-        entry = _loads(row, "filament", "flow", "temps", "fm_stats", "pwm_stats", "load_stats", "filament_path")
+        entry = _loads(row, "filament", "flow", "temps", "fm_stats", "pwm_stats", "load_stats", "filament_path",
+                       "feed")
         entry.pop("job_key", None)
         entry["startedAt"] = iso(entry.pop("started_at"))
         entry["endedAt"] = iso(entry.pop("ended_at"))

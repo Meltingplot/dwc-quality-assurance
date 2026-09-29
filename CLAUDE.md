@@ -111,6 +111,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `filamentPath` is counted at its end with the values from its start, the layer index and the called
   macros as read during the job; `gear_passes` event from `thresholds.gearPasses` 5 (3 = every piece
   of filament back and forth once; Tim 2026-09-28).
+- Feed factor per layer (`feed`): e-steps / reference × M221 over the extruder's forward movement. The
+  reference is the e-steps at the first feeding inside a layer, because `print_start` sets M92 after the
+  context snapshot. It is kept as `context.feedReference` (Tim 2026-09-29).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger

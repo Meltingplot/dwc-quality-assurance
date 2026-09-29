@@ -65,6 +65,8 @@
 		"flow": "Volumenstrom",
 		"gearPasses": "Radpassagen",
 		"gearPassesHint": "Wie oft jedes Stück Filament am Extruderrad vorbeikam: 1 ohne Retract, 3 bei einmal zurück und wieder vor, 5 bei zweimal. Berechnet aus G-Code, aufgerufenen Makros, M207 und den während des Drucks gültigen E-Steps.",
+		"feed": "Förderfaktor",
+		"feedHint": "Filament, das der Extruder je Millimeter G-Code geschoben hat, verglichen mit dem Druckbeginn: E-Steps / E-Steps beim ersten Fördern × Extrusionsfaktor (M221). 104 % nach der M92-Korrektur des Filamentmonitors von 801 auf 834.",
 		"filamentHint": "Befohlen: die Extrusion, die der Filamentmonitor als befohlen sah; gemessen: die Bewegung, die er gemessen hat (calibrated.totalDistance).",
 		"loadMean": "Last bei Sollwert",
 		"loadShareHigh": "Zeit ≥ hoch",

@@ -107,7 +107,7 @@ SBC-CPU/RAM, freier Speicher.
 | Sampling | Ringpuffer im RAM: **jeder Object-Model-Patch**, 90 s zurück; alle **5 s** ein Grobsample in die DB; bei Trigger Puffer + 30 s Nachlauf in voller Auflösung als zusammenhängender Block (Nachlauf verlängert sich bei Folgetrigger) |
 | Trigger für Block | jedes gespeicherte Event; Kanalsprung zwischen zwei Samples: Temperatur 5 K, Monitor-Prozent 15 Punkte, vIn 10 %; jede Sollwert-Änderung |
 | Sollwerte (nur bei Änderung als Event) | `heater.active/standby`, **`heater.model.maxPwm`** (M307, u. a. je Materialprofil), `stepsPerMm` (mit Ursache, §5.4.2), `pressAdv.k0/k1/d`, `nonlinear`, Filamentmonitor `configured`/`calibrated`, `axes[Z].babystep`, `tools[].retraction` (M207, ergänzt 2026-09-28) |
-| Kanäle (5 s + Puffer) | Heizer `current, active, avgPwm, state`; Extruder `position, rawPosition, factor`, `job.rawExtrusion`; Filamentmonitor `status, lastPercentage, avgPercentage, minPercentage, maxPercentage, position, totalExtrusion, calibrated.totalDistance, calibrated.mmPerRev, agc`; `currentMove.topSpeed/requestedSpeed/extrusionRate`, `speedFactor`, Achsen `machinePosition`, Lüfter `actualValue/rpm`; Boards `vIn.current, v12.current, mcuTemp.current`; Maschinen-Globals der MFM-Auswertung (§5.4.2) |
+| Kanäle (5 s + Puffer) | Heizer `current, active, avgPwm, state`; Extruder `position, rawPosition, factor, stepsPerMm` (stepsPerMm seit 2026-09-29), `job.rawExtrusion`; Filamentmonitor `status, lastPercentage, avgPercentage, minPercentage, maxPercentage, position, totalExtrusion, calibrated.totalDistance, calibrated.mmPerRev, agc`; `currentMove.topSpeed/requestedSpeed/extrusionRate`, `speedFactor`, Achsen `machinePosition`, Lüfter `actualValue/rpm`; Boards `vIn.current, v12.current, mcuTemp.current`; Maschinen-Globals der MFM-Auswertung (§5.4.2) |
 | Abgeleitete Kanäle | Heizlast `heater.<n>.load = avgPwm / model.maxPwm` (nicht gespeichert, beim Lesen aus `avgPwm` und dem gültigen `maxPwm` berechnet; in API und Live-Frames wie ein Kanal) |
 | Koordinaten | Immer `machinePosition` aller Achsen + `workplaceNumber` + `axes[].workplaceOffsets[workplaceNumber]` mitschreiben, damit User-Koordinaten später umgerechnet werden können |
 | Filamentmonitor-Events | jeder `status`-Wechsel weg von `ok` (mit Rückkehr und Dauer); `lastPercentage` außerhalb `configured.percentMin/Max` ohne Firmware-Fehler (Mindestdauer konfigurierbar); Maschinensignale aus §5.4.2 |
@@ -417,6 +417,16 @@ Weg `mm`, das Netto `netMm` und `gearPasses` = Weg / Netto: 1 ohne Retract, 3 = 
 vor, zurück, vor, 5 = zweimal. Lagen vor dem fertigen Index werden nachgerechnet. Event `gear_passes`
 für eine Folge von Lagen ≥ `thresholds.gearPasses` (5). Beim Benchy (mit Foto-Makro) lagen 82 von 265
 Lagen bei 5 oder mehr; der Sensor las dort im Referenzlauf im Mittel 80 %, sonst 91–93 %.
+
+**Förderfaktor je Lage** (Schema-Version 3, Tim 2026-09-29): wie viel Filament der Extruder je
+Millimeter der Datei geschoben hat, verglichen mit dem Druckbeginn: E-Steps / Referenz × Extrusionsfaktor
+(M221), gewichtet mit der Vorwärtsbewegung des Extruders und den Werten, die dabei galten (Pausen und
+Retracts zählen nicht). Referenz sind die E-Steps beim ersten Fördern in einer Lage, nicht der
+Kontext-Schnappschuss beim Jobstart: `print_start` setzt M92 erst danach (Job 20260928-134928-118609a9:
+800 → 801). Sie steht als `feedReference` im Job-Kontext und übersteht einen Neustart des Daemons.
+Anlass: Im Job 20260928-155257-118609a9 setzte die MFM-Korrektur ab L143 M92 834,38 (Faktor 1,0417);
+das Dach (L203–211) wurde mit rund 7 % mehr Förderung gedruckt als im Referenzlauf. QA zeichnet den
+Faktor nur auf, bewertet wird er in der Qualitätskontrolle.
 
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
