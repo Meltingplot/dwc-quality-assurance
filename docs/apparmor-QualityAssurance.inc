@@ -15,9 +15,14 @@
     # namespace directory, QA binds one socket per endpoint in it
     /run/dsf/QualityAssurance/{,**/} r,
     /run/dsf/QualityAssurance/** rw,
-    # bed calibration: the height map G29 wrote or loaded (move.compensation.file; RRF puts a name
-    # without a directory into 0:/sys, GCodes6.cpp LoadHeightMap/MakeSysFileName, 3.7-dev @ 32a84d2)
-    /opt/dsf/sd/sys/*.csv r,
+    # 0:/sys, read only, as DSF itself grants readSystem (AppArmorPermissionManager.cs, v3.7-dev
+    # @ 75eb6536, 2026-09-29):
+    # - gear passes: every macro the job calls with M98, for its E travel and CRC (qa_gcode.py
+    #   macro_stats); a relative M98 name lies in 0:/sys and may have no extension
+    #   (0:/sys/meltingplot/print_end on the CHX 350), so no narrower glob covers them
+    # - bed calibration: the height map G29 wrote or loaded (move.compensation.file; RRF puts a name
+    #   without a directory into 0:/sys, GCodes6.cpp LoadHeightMap/MakeSysFileName, 3.7-dev @ 32a84d2)
+    /opt/dsf/sd/sys/** r,
     # accelerometer: read and delete the CSVs of its own M956 recordings (qa-*.csv); RRF writes
     # them through DSF, so the plugin never creates files there
     /opt/dsf/sd/sys/accelerometer/ r,
