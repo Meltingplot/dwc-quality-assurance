@@ -39,9 +39,17 @@ DEFAULTS = {
         # a run of layers whose filament passed the extruder gear this often is one gear_passes
         # event: 1 = no retraction, 3 = every piece back and forth once, 5 = twice (Tim 2026-09-28)
         "gearPasses": 5,
+        # lastPercentage this many points away from the monitor's own level in the job (the median
+        # of its readings so far) is a filament_percent_level event: flags a drop that stays inside
+        # configured.percentMin/Max (91 → 64 % at L140 of job 20260928-155257-118609a9, 2026-09-29)
+        "filamentLevelPoints": 20,
     },
-    # lastPercentage outside configured.percentMin/Max (without a firmware error) this long
+    # lastPercentage outside configured.percentMin/Max (without a firmware error), or away from the
+    # monitor's level, this long
     "filamentPercentWindowMinS": 5,
+    # readings before a monitor's level counts; the first minutes of a job read unsteadily
+    # (job 20260928-155257-118609a9: 72 % against a level of 101 % after 120 s)
+    "filamentLevelMinS": 300,
     # Same constants as the CHX UI heater-load banner (CHX350/stores/heaterLoad.ts, §5.4.1)
     "heaterLoad": {"high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60,
                    "minCoverage": 0.75, "reachedToleranceK": 2},
@@ -81,7 +89,9 @@ BOUNDS = {
     "thresholds.phantomJumpK": (_NUMBER, 1, 1000),
     "thresholds.phantomReturnS": (_NUMBER, 0.1, 60),
     "thresholds.gearPasses": (_NUMBER, 1, 100),
+    "thresholds.filamentLevelPoints": (_NUMBER, 1, 100),
     "filamentPercentWindowMinS": (_NUMBER, 0, 3600),
+    "filamentLevelMinS": (_NUMBER, 0, 36000),
     "heaterLoad.high": (_NUMBER, 0, 1),
     "heaterLoad.limit": (_NUMBER, 0, 1),
     "heaterLoad.hysteresis": (_NUMBER, 0, 0.5),

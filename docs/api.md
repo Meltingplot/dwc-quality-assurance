@@ -123,6 +123,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `resume` | – | `pausedS`, `pauseEvent` |
 | `filament_status` | new status | `monitor`, `status`, `from`, `lastPercentage`; end: `returnedTo`, `durationS` |
 | `filament_percent_window` | `low` / `high` | `monitor`, `since`, `percentMin`, `percentMax`, `lastPercentage`, `side`; end: `extreme` |
+| `filament_percent_level` | `low` / `high` | `lastPercentage` ≥ `thresholds.filamentLevelPoints` (default 20) away from the monitor's own level in the job (time-weighted median of its readings so far, in 2 % classes, once it has `filamentLevelMinS` of them) for `filamentPercentWindowMinS`, until a reading is back within the threshold; a null reading changes nothing: `monitor`, `since`, `level`, `threshold`, `lastPercentage`, `side`; end: `extreme`, `returnedTo` |
 | `gear_passes` | `high` | a run of layers with `filamentPath.gearPasses` ≥ `thresholds.gearPasses` (default 5), from the first one's start to the start of the first layer below: `threshold`, `firstLayer`, `lastLayer`, `max`, `maxLayer` |
 | `heater_fault` | – | `heater`, `previousState`, `current` |
 | `heater_monitor` | `tooHigh` / `tooLow` | `heater`, `monitor`, `limit`, `reading`, `sensor`, `action` |

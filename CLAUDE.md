@@ -114,6 +114,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Feed factor per layer (`feed`): e-steps / reference × M221 over the extruder's forward movement. The
   reference is the e-steps at the first feeding inside a layer, because `print_start` sets M92 after the
   context snapshot. It is kept as `context.feedReference` (Tim 2026-09-29).
+- `filament_percent_level`: the monitor ≥ `thresholds.filamentLevelPoints` (20) away from its own level in the
+  job (median so far, after `filamentLevelMinS` 300 s), for a drop that stays inside percentMin/Max (L140 of the
+  Benchy that broke there; Tim 2026-09-29).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger

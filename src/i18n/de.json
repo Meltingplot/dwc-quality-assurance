@@ -98,6 +98,7 @@
 	"eventTypes": {
 		"filament_status": "Filamentmonitor",
 		"filament_percent_window": "Monitor außerhalb des Fensters",
+		"filament_percent_level": "Monitor weicht vom eigenen Niveau ab",
 		"gear_passes": "Filament oft am Extruderrad",
 		"heater_fault": "Heizerfehler",
 		"heater_monitor": "Heizerüberwachung",
@@ -182,7 +183,9 @@
 			"vInPercent": "Sprung/Einbruch der Versorgungsspannung",
 			"phantomJumpK": "Sprung einer Phantommessung",
 			"gearPasses": "Radpassagen: Ereignis ab",
-			"filamentPercentWindowMinS": "Monitor mindestens außerhalb seines Fensters",
+			"filamentLevelPoints": "Monitor weicht vom eigenen Niveau im Job ab um",
+			"filamentPercentWindowMinS": "Monitor mindestens außerhalb seines Fensters oder Niveaus",
+			"filamentLevelMinS": "Monitor-Niveau gilt nach Messwerten von",
 			"loadHigh": "Heizlast: hoch ab",
 			"loadLimit": "Heizlast: Grenze ab",
 			"retentionJobs": "Rohdaten der neuesten Jobs behalten",

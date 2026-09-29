@@ -259,7 +259,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   älter als 90 s. 5-s-Tick schreibt den jüngsten Zustand als `resolution=coarse`.
   Trigger → Puffer als Block `resolution=fine` in DB, `fine_until = now + 30 s`,
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
-- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `heater_fault`,
+- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
   `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
@@ -428,6 +428,17 @@ Anlass: Im Job 20260928-155257-118609a9 setzte die MFM-Korrektur ab L143 M92 834
 das Dach (L203–211) wurde mit rund 7 % mehr Förderung gedruckt als im Referenzlauf. QA zeichnet den
 Faktor nur auf, bewertet wird er in der Qualitätskontrolle.
 
+**Monitor gegen sein eigenes Niveau** (Tim 2026-09-29): Die Kabine des Benchys brach bei z ≈ 25,3 mm
+ab, zwischen L139 und L140. In L140 fiel der Monitor von 91 auf 64 %, blieb aber über `percentMin` 60,
+also gab es kein Event; das erste kam bei L143 (41 %). Event `filament_percent_level`, wenn
+`lastPercentage` mindestens `thresholds.filamentLevelPoints` (20) Punkte vom Niveau des Monitors im
+Job abweicht (zeitgewichteter Median seiner bisherigen Werte, gültig nach `filamentLevelMinS` = 300 s
+Messwerten) und das `filamentPercentWindowMinS` lang; es endet, wenn ein Wert wieder innerhalb der
+Schwelle liegt; ein null-Wert ändert nichts. Nachgespielt auf den 5-s-Samples: Im Fehllauf meldet es
+L140 (95 → 35 %, 6 min), L177 und L183; im Referenzlauf 20260928-134928-118609a9 L163–188 und L236
+(Tiefstwerte 46–70 %, 41–152 s), wo er milder schliff. Nach 120 s wäre das Niveau noch unruhig gewesen
+(ein Event in L1, 72 gegen 101 %).
+
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
 Kopf aus, und der Webserver des SBC kennt keine HTTP-Range-Anfragen. `qa_slicer.py` übernimmt
@@ -462,8 +473,9 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 ```jsonc
 {
   "sampleIntervalS": 5, "ringBufferS": 90, "postTriggerS": 30,
-  "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5 },
-  "filamentPercentWindowMinS": 5,
+  "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5,
+                  "filamentLevelPoints": 20 },
+  "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300,
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },
   "contextGlobals": ["nozzle_type", "nozzle_diameter", "filament_diameter", "bed_surface",

@@ -381,6 +381,20 @@ class JobAccumulator:
                 self.pwm_at_setpoint.setdefault(i, TW()).add(snap.get(f"heater.{i}.avgPwm"), dt)
         self.last = dict(snap)
 
+    def percent_level(self, monitor, min_s):
+        """The monitor's own level in the job: the median of its lastPercentage so far, time-weighted,
+        as the centre of its PERCENT_CLASS; None before ``min_s`` seconds of readings."""
+        hist = self.percent_hist.get(monitor)
+        total = sum(hist.values()) if hist else 0.0
+        if total <= 0 or total < min_s:
+            return None
+        seen = 0.0
+        for cls, seconds in sorted(hist.items()):
+            seen += seconds
+            if seen >= total / 2:
+                return cls + PERCENT_CLASS / 2
+        return None
+
     def heater_setpoints(self, snap, now_ms):
         """Heat-up time per heater: from a new setpoint (state active) to current >= setpoint - 2 K."""
         for i in _indices(snap, "heater.", ".current"):
