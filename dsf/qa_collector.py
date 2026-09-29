@@ -160,6 +160,7 @@ class Collector:
         self._fm_status = {}
         self._fm_window = {}        # monitor -> {"since": ms, "event": id or None}
         self._fm_level = {}         # monitor -> {"since": ms, "level", "extreme", "event": id or None}
+        self._fm_drift = {}         # monitor -> run of layers on one side of its level: {"side", "ts_ms", "payload", "event"}
         self.model = None
 
     # --- helpers ---------------------------------------------------------------------------
@@ -606,6 +607,7 @@ class Collector:
         self.writer.submit("layer_upsert", self.job.key, record)
         if path is not NOT_READY:
             self._gear_passes_event(model, record, path)
+        self._fm_drift_check(model, record)
         self.job.layers_written += 1
         self.job.layer_acc = None
         self.broadcast({"type": "layer", "ts": now_ms, "jobId": self.job.id, "layer": acc.layer, "finished": True,
@@ -785,6 +787,7 @@ class Collector:
         self._fm_status = {}
         self._fm_window = {}
         self._fm_level = {}
+        self._fm_drift = {}
         self._vin_low = set()
 
     def _detect(self, model, patch, snapshot, status, now_ms):
@@ -955,6 +958,56 @@ class Collector:
                            "lastPercentage": pct, "side": side}
                 state["event"] = self._event(model, now_ms, "filament_percent_level", side, device=i, payload=payload)
                 self._ongoing[key] = {"id": state["event"], "ts_ms": state["since"], "payload": payload}
+
+    def _fm_drift_check(self, model, record):
+        """A run of ``filamentDriftLayers`` or more layers whose monitor mean (``fmStats``) lies
+        ``thresholds.filamentDriftPoints`` or more on one side of the monitor's level in the job: one
+        ``filament_percent_drift`` event from the first one's start to the start of the first layer back.
+        It catches what drifts too slowly for ``filament_percent_level``: job 20260928-134928-118609a9
+        fell from 91 to 79 % over L136-150 without a jump, and its cabin and chimney came out
+        under-extruded (Tim 2026-09-29). Replayed on its layers, 6 points over 3 layers give L138-194 and
+        L236-265 there (low), and nothing in job 20260928-075236-bddf0026. A layer without readings of
+        the monitor changes nothing."""
+        cfg = self.cfg()
+        points = cfg["thresholds"].get("filamentDriftPoints")
+        need = cfg.get("filamentDriftLayers")
+        acc = self.job.job_acc
+        if not points or not need or acc is None:
+            return
+
+        def side_of(mean, level):
+            if mean is None or level is None or abs(mean - level) < points:
+                return None
+            return "low" if mean < level else "high"
+
+        for index, stats in (record.get("fm_stats") or {}).items():
+            i = int(index)
+            mean = stats.get("mean")
+            key = ("filament_percent_drift", i)
+            run = self._fm_drift.get(i)
+            # a run keeps the level it left: its own layers would pull the job's median towards them
+            if run is not None and side_of(mean, run["payload"]["level"]) != run["side"]:
+                if run["event"] is not None:
+                    self._end_event(key, record["started_at"])
+                del self._fm_drift[i]
+                run = None
+            level = run["payload"]["level"] if run is not None else acc.percent_level(i, cfg["filamentLevelMinS"])
+            side = side_of(mean, level)
+            if side is None:
+                continue
+            if run is None:
+                payload = {"monitor": i, "level": level, "threshold": points, "side": side,
+                           "firstLayer": record["layer"], "lastLayer": record["layer"], "layers": 0, "extreme": mean}
+                run = self._fm_drift[i] = {"side": side, "ts_ms": record["started_at"], "payload": payload, "event": None}
+            payload = run["payload"]
+            payload["lastLayer"] = record["layer"]
+            payload["layers"] += 1
+            if abs(mean - payload["level"]) > abs(payload["extreme"] - payload["level"]):
+                payload["extreme"] = mean
+            if run["event"] is None and payload["layers"] >= need:
+                run["event"] = self._event(model, run["ts_ms"], "filament_percent_drift", side, device=i,
+                                           payload=payload, trigger_block=False, layer=payload["firstLayer"])
+                self._ongoing[key] = {"id": run["event"], "ts_ms": run["ts_ms"], "payload": payload}
 
     def _mfm_events(self, model, now_ms):
         if not self.cfg().get("machineSignals", {}).get("mfm", True):

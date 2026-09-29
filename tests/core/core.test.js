@@ -83,6 +83,8 @@ describe("format", () => {
 			durationS: 365 } })).toBe("95 % → 35 %, 6m 05s");
 		expect(eventDetail({ type: "filament_percent_level", subtype: "low", payload: { level: 95, lastPercentage: 64 } }))
 			.toBe("95 % → 64 %");
+		expect(eventDetail({ type: "filament_percent_drift", subtype: "low", payload: { level: 95, threshold: 6, firstLayer: 138,
+			lastLayer: 194, layers: 57, extreme: 45.73 } })).toBe("95 % → 46 % (L138–194)");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });

@@ -197,6 +197,31 @@ def test_level_event_for_a_drop_inside_the_window(rig):
     assert rig.events("filament_percent_window") == []
 
 
+
+def test_drift_event_for_a_slow_drop_over_layers(rig):
+    """As in job 20260928-134928-118609a9 (L136-150: 91 → 79 %, never a jump): layers whose monitor
+    mean stays 6 points or more below its level, three in a row, are one filament_percent_drift event
+    from the first one's start to the start of the first layer back; two such layers are none."""
+    def layer(n, pct, seconds=100):
+        rig.patch({"job": {"layer": n}, "sensors": {"filamentMonitors": [{"lastPercentage": pct}]}})
+        for _ in range(seconds // 5):
+            rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": pct}]}}, dt_ms=5000)
+
+    rig.start_job()
+    for n, pct in enumerate((90, 90, 90, 90, 82, 82, 90, 83, 84, 82, 80, 90, 90), 1):
+        layer(n, pct)
+    layer(14, 90)                # finishes layer 13
+    events = rig.events("filament_percent_drift")
+    assert len(events) == 1
+    event = events[0]
+    started = {r["layer"]: r["started_at"] for r in rig.rows("SELECT layer, started_at FROM job_layers")}
+    assert (event["subtype"], event["layer"], event["ts_ms"], event["block_id"]) == ("low", 8, started[8], None)
+    payload = event["payload"]
+    assert (payload["level"], payload["threshold"], payload["firstLayer"], payload["lastLayer"], payload["layers"],
+            payload["extreme"]) == (91.0, 6, 8, 11, 4, 80.0)
+    assert event["end_ms"] == started[12] and payload["durationS"] == (started[12] - started[8]) / 1000
+
+
 def test_mfm_correction_and_pause_cause(rig):
     rig.start_job()
     rig.patch({"global": {"mfm_error_count": 1}})
