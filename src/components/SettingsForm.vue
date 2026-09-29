@@ -39,6 +39,8 @@
 				:label="$t('plugins.QualityAssurance.settings.fields.contextGlobals')" :error-messages="fieldErrors('contextGlobals')" @update:model-value="set('contextGlobals', $event)" />
 			<v-switch :model-value="get('machineSignals.mfm')" color="primary" density="compact" hide-details
 				:label="$t('plugins.QualityAssurance.settings.fields.mfm')" @update:model-value="set('machineSignals.mfm', !!$event)" />
+			<v-switch :model-value="get('journal.enabled')" color="primary" density="compact" hide-details
+				:label="$t('plugins.QualityAssurance.settings.fields.journal')" @update:model-value="set('journal.enabled', !!$event)" />
 
 			<div class="text-subtitle-2 mb-1 mt-2">{{ $t("plugins.QualityAssurance.settings.timelapse") }}</div>
 			<v-row density="compact">
@@ -114,7 +116,8 @@ const NUMBER_FIELDS = [
 	{ key: "loadHigh", path: "heaterLoad.high", unit: "" },
 	{ key: "loadLimit", path: "heaterLoad.limit", unit: "" },
 	{ key: "retentionJobs", path: "retention.jobs", unit: "" },
-	{ key: "retentionDays", path: "retention.days", unit: "d" }
+	{ key: "retentionDays", path: "retention.days", unit: "d" },
+	{ key: "journalSnapshotMin", path: "journal.snapshotIntervalMin", unit: "min" }
 ];
 
 const TIMELAPSE_FIELDS = [

@@ -182,6 +182,7 @@ dsf/
   qa_db.py                       SQLite: Schema, Migrationen, Writer-Thread, Durability, Backup/Restore, Retention
   qa_timelapse.py                Snapshot bei Lagenwechsel, Frame-Index, Encoder-Worker, Frame-Extraktion (§5.11)
   qa_accel.py                    M956-Scheduler, CSV-Reader, FFT (reines Python), Referenzspektrum
+  qa_journal.py                  Objektmodell-Journal je Job: DSFs Patches + Schnappschüsse, Replay
   qa_gcode.py                    G-Code-Parser: Lagenindex, Segmente, Fluss, Objekte
   qa_api.py                      HTTP-Handler-Registry + WebSocket-Broadcaster
   qa_settings.py                 settings.json laden/speichern/validieren, Defaults
@@ -508,6 +509,7 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
                  "keepFramesOnFailure": true, "retention": { "jobs": 50, "maxBytes": 10737418240 } },
   "accelerometer": { "board": null, "intervalMin": 15, "samples": 1000, "axes": "XYZ", "referenceAutoCount": 5 },
   "retention": { "jobs": 50, "days": 90, "maxDbBytes": 2147483648 },
+  "journal": { "enabled": true, "snapshotIntervalMin": 10, "maxBytes": 2147483648 },
   "commitIntervalS": 30
 }
 ```
@@ -595,6 +597,23 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   (dav1d) extrahiertes JPEG; während des Drucks die aufgenommene JPEG-Datei.
 - **Download:** `job/timelapse?id` liefert das Video (`HttpResponseType.File`).
 - **Retention:** eigene Grenze (Default 50 Jobs oder 10 GB, ältestes Video zuerst).
+
+### 5.13 Objektmodell-Journal (neu 2026-09-29)
+
+Tim 2026-09-29: jede Änderung des Objektmodells aufzeichnen, notfalls wenigstens stündlich einen
+Schnappschuss, damit sich später auch Probleme untersuchen lassen, an die vorher keiner gedacht hat.
+Gemessen auf der CHX 350 (Benchy, Lagen 13-27): 12,5 Patches/s, 11 KB/s JSON; jede Wertänderung
+einzeln 342/s. DSFs Patches unverändert und komprimiert: 5 MB je Druckstunde, 0,02 % eines Kerns
+(Desktop-CPU). Also alles, ohne Relevanzliste: `dsf/qa_journal.py` schreibt während eines Jobs jeden
+Patch als Text, wie DSF ihn schickt, dazu Schnappschüsse von DSF (`GetObjectModel`) bei Start, alle
+`journal.snapshotIntervalMin` (10; kostet ≈ 2 % und begrenzt ein Replay auf 10 min Patches) und am
+Ende, nach `journal/<job id>/journal.jsonl.gz` (eine gzip-Datei, ein Member je Minute, Index daneben).
+Nicht in der Datenbank: deren Backup nach jedem Job (`VACUUM INTO`) hätte das Journal jedes Mal kopiert.
+Aufbewahrung wie die Rohdaten des Jobs, zusätzlich `journal.maxBytes`. API `job/om` (Modell oder Pfad zu
+einer Zeit), `job/om/history` (jede Änderung eines Pfads), `job/om/journal` (Download); Reiter
+„Objektmodell" im Job. DSFs Patch-Regeln (Objekte nur Geändertes, Listen mit neuer Länge und `{}`,
+`messages` nur neue) gegen die CHX 350 geprüft: 734 Patches auf das Anfangsmodell ergaben das Modell,
+das DSF danach meldete, in allen 2071 Werten.
 
 ### 5.12 Auslieferung über das Image (neu)
 

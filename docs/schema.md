@@ -16,6 +16,8 @@ uses the API, not the database (PLAN.md §8).
 | `index/<crc32>.json` | G-code layer index per job file (byte ranges and modal state per layer), rebuilt when missing |
 | `timelapse/<job id>/frames/NNNNNN.jpg` | snapshots while a job prints and until its video is verified (kept after a failed encoding with `keepFramesOnFailure`) |
 | `timelapse/<job id>/timelapse.mp4` | the AV1 video; `encode.log` beside it only after a failed encoding |
+| `journal/<job id>/journal.jsonl.gz` | the object model journal: DSF's patches and snapshots, one gzip member per minute, each snapshot a member of its own (api.md "Object model journal") |
+| `journal/<job id>/index.jsonl` | its members: `{start, end, offset, length, snapshot}`, written after the member; a daemon start cuts the data file back to the last indexed member |
 | `tmp/export-<job>.json`, `tmp/frame-<job>-<n>.jpg` | files DSF sends for `job/export` and `job/timelapse/frame`; removed after an hour |
 
 The accelerometer CSVs are RRF's: `0:/sys/accelerometer/qa-<job id>-<epoch s>.csv`, deleted once read.
@@ -35,6 +37,7 @@ a new database.
 | samples, blocks (raw data) | while the job is one of the newest `retention.jobs` (50) **or** younger than `retention.days` (90); then, while the database is larger than `retention.maxDbBytes` (2 GB), the oldest go. `jobs.raw_pruned` = 1 afterwards |
 | jobs, job_layers, events, spectra, reference_spectra | always |
 | timelapse files | the newest `timelapse.retention.jobs` (50), then oldest first while all of them exceed `timelapse.retention.maxBytes` (10 GB); the `timelapse` row stays with status `pruned` |
+| object model journal | as long as the job has its raw data (`jobs.raw_pruned` = 0) and the running job's always; then oldest first while all of them exceed `journal.maxBytes` (2 GB). Not in the backups: in the database, each backup after a job would copy it |
 | layer index cache | 8 in memory; the files are not cleaned up (one per distinct job file, typically well under 1 MB) |
 
 ## Tables

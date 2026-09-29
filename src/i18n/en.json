@@ -53,7 +53,8 @@
 		"distribution": "Filament monitor reading, time per 2 % class (s)",
 		"tabReplay": "Replay",
 		"tabTimelapse": "Timelapse",
-		"tabSpectra": "Spectra"
+		"tabSpectra": "Spectra",
+		"tabObjectModel": "Object model"
 	},
 	"layers": {
 		"none": "No layers recorded for this job.",
@@ -210,7 +211,9 @@
 			"keepFramesOnFailure": "Keep the frames when encoding fails",
 			"accelBoard": "Accelerometer board (CAN address, empty = none)",
 			"accelIntervalMin": "Every",
-			"accelSamples": "Samples per recording"
+			"accelSamples": "Samples per recording",
+			"journal": "Record every change of the object model (journal)",
+			"journalSnapshotMin": "Journal snapshot every"
 		},
 		"accelerometer": "Accelerometer",
 		"accelHint": "Spectra are recorded only from the accelerometer on this board (CHX 350: the SZP, 60).",
@@ -285,5 +288,18 @@
 		"layerReplay": "Layer replay (QA)",
 		"layerTimelapse": "Layer camera frame (QA)",
 		"noJob": "Quality assurance has not recorded a job yet."
+	},
+	"om": {
+		"none": "No object model journal for this job: it ran before the journal existed, or with the journal switched off in the settings.",
+		"path": "Path, e.g. move.compensation or global.machine_mode",
+		"show": "Show",
+		"history": "History",
+		"download": "Journal ({size})",
+		"replayed": "At {time}, replayed from the snapshot at {snapshot}",
+		"noSnapshot": "At {time}, without a snapshot: only what the patches carried",
+		"changes": "{n} values",
+		"truncated": "only the first ones",
+		"time": "Time",
+		"value": "Value"
 	}
 }

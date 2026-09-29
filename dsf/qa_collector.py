@@ -111,7 +111,7 @@ class _Job:
 
 class Collector:
     def __init__(self, writer, settings, resolve_path=None, broadcast=None, plugin_version="unknown",
-                 index_cache=None, timelapse=None, accel=None, on_status=None):
+                 index_cache=None, timelapse=None, accel=None, on_status=None, journal=None):
         self.writer = writer
         self.settings = settings
         self.resolve_path = resolve_path or (lambda _virtual: None)
@@ -120,6 +120,7 @@ class Collector:
         self.index_cache = index_cache
         self.timelapse = timelapse
         self.accel = accel
+        self.journal = journal
         self.on_status = on_status or (lambda _status: None)
 
         cfg = settings.current()
@@ -260,6 +261,8 @@ class Collector:
         if self.job is not None:
             self._flush_layer_partial(now_ms)
             self._close_block(now_ms)
+        if self.journal is not None:
+            self.journal.shutdown(now_ms)
 
     # --- time-weighted accumulation ----------------------------------------------------------
 
@@ -347,6 +350,8 @@ class Collector:
                             payload={"resumed": True, "lastRecordMs": gap})
                 if self.timelapse is not None:
                     self.timelapse.job_started(self.job)
+                if self.journal is not None:
+                    self.journal.job_started(self.job.id, now_ms)
                 self.on_status(self.status())
             else:
                 self._start_job(model, now_ms, partial=True)
@@ -412,6 +417,8 @@ class Collector:
             self.index_cache.ensure(path, crc)
         if self.timelapse is not None:
             self.timelapse.job_started(self.job)
+        if self.journal is not None:
+            self.journal.job_started(jid, now_ms)
         self.on_status(self.status())
 
     def _begin_accumulators(self, model, now_ms):
@@ -475,6 +482,8 @@ class Collector:
         self.writer.submit("backup", urgent=True)
         if self.timelapse is not None:
             self.timelapse.job_finished(job, result)
+        if self.journal is not None:
+            self.journal.job_finished(ended_ms)
         self.broadcast({"type": "job", "ts": ended_ms, "event": "end", "jobId": job.id, "result": result})
         self.job = None
         self.load.reset_job()

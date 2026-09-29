@@ -36,6 +36,7 @@
 				<v-tab value="events">{{ $t("plugins.QualityAssurance.job.tabEvents") }} ({{ events.length }})</v-tab>
 				<v-tab value="summary">{{ $t("plugins.QualityAssurance.job.tabSummary") }}</v-tab>
 				<v-tab value="context">{{ $t("plugins.QualityAssurance.job.tabContext") }}</v-tab>
+				<v-tab value="om">{{ $t("plugins.QualityAssurance.job.tabObjectModel") }}</v-tab>
 			</v-tabs>
 			<!-- gap inside the window, see QualityAssurance.vue -->
 			<v-window v-model="tab" class="pt-2">
@@ -68,6 +69,9 @@
 				<v-window-item value="context">
 					<context-table :data="job.context" />
 				</v-window-item>
+				<v-window-item value="om">
+					<object-model-view v-if="tab === 'om'" :api="api" :job="job" />
+				</v-window-item>
 			</v-window>
 		</template>
 	</div>
@@ -84,6 +88,7 @@ import ChartCanvas from "./ChartCanvas.vue";
 import ContextTable from "./ContextTable.vue";
 import EventList from "./EventList.vue";
 import LayerCharts from "./LayerCharts.vue";
+import ObjectModelView from "./ObjectModelView.vue";
 import ReplayView from "./ReplayView.vue";
 import SpectrumView from "./SpectrumView.vue";
 import TimelapseViewer from "./TimelapseViewer.vue";
@@ -91,7 +96,7 @@ import TimelapseViewer from "./TimelapseViewer.vue";
 const QUIET_EVENTS = new Set(["job_start", "job_end", "setpoint_change", "pause", "resume", "babystep", "daemon_started_mid_job"]);
 
 export default defineComponent({
-	components: { ChannelChart, ChartCanvas, ContextTable, EventList, LayerCharts, ReplayView, SpectrumView, TimelapseViewer },
+	components: { ChannelChart, ChartCanvas, ContextTable, EventList, LayerCharts, ObjectModelView, ReplayView, SpectrumView, TimelapseViewer },
 	props: {
 		api: { type: Object as PropType<QaApi>, required: true },
 		jobId: { type: String, required: true },

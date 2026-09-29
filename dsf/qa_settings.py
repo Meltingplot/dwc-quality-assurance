@@ -80,6 +80,10 @@ DEFAULTS = {
     "accelerometer": {"board": None, "intervalMin": 15, "samples": 1000, "axes": "XYZ",
                       "referenceAutoCount": 5},
     "retention": {"jobs": 50, "days": 90, "maxDbBytes": 2 * 1024 ** 3},
+    # object model journal (qa_journal): a job's lives as long as its raw data, all together at most maxBytes;
+    # about 5 MB per printing hour on the CHX 350 (2026-09-29). A snapshot every 10 min costs about 2 % more
+    # and bounds a replay to 10 min of patches (a whole hour took 2 s on a desktop CPU)
+    "journal": {"enabled": True, "snapshotIntervalMin": 10, "maxBytes": 2 * 1024 ** 3},
 }
 
 # key path -> (type(s), min, max); None = no bound. Anything not listed only has to match the
@@ -130,6 +134,8 @@ BOUNDS = {
     "retention.jobs": (int, 1, 1000000),
     "retention.days": (_NUMBER, 1, 100000),
     "retention.maxDbBytes": (int, 1024 * 1024, None),
+    "journal.snapshotIntervalMin": (_NUMBER, 1, 1440),
+    "journal.maxBytes": (int, 0, None),
 }
 
 ENUMS = {

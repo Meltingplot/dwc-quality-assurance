@@ -53,7 +53,8 @@
 		"distribution": "Messwert des Filamentmonitors, Zeit je 2-%-Klasse (s)",
 		"tabReplay": "Replay",
 		"tabTimelapse": "Zeitraffer",
-		"tabSpectra": "Spektren"
+		"tabSpectra": "Spektren",
+		"tabObjectModel": "Objektmodell"
 	},
 	"layers": {
 		"none": "Für diesen Job sind keine Lagen aufgezeichnet.",
@@ -210,7 +211,9 @@
 			"keepFramesOnFailure": "Bilder behalten, wenn das Encoding fehlschlägt",
 			"accelBoard": "Accelerometer-Board (CAN-Adresse, leer = keins)",
 			"accelIntervalMin": "Alle",
-			"accelSamples": "Samples je Aufnahme"
+			"accelSamples": "Samples je Aufnahme",
+			"journal": "Jede Änderung des Objektmodells aufzeichnen (Journal)",
+			"journalSnapshotMin": "Journal-Schnappschuss alle"
 		},
 		"accelerometer": "Accelerometer",
 		"accelHint": "Spektren nimmt QA nur vom Accelerometer auf diesem Board auf (CHX 350: das SZP, 60).",
@@ -285,5 +288,18 @@
 		"layerReplay": "Lagen-Replay (QA)",
 		"layerTimelapse": "Kamerabild der Lage (QA)",
 		"noJob": "Die Qualitätssicherung hat noch keinen Job aufgezeichnet."
+	},
+	"om": {
+		"none": "Für diesen Job gibt es kein Objektmodell-Journal: er lief, bevor es das Journal gab, oder mit ausgeschaltetem Journal.",
+		"path": "Pfad, z. B. move.compensation oder global.machine_mode",
+		"show": "Anzeigen",
+		"history": "Verlauf",
+		"download": "Journal ({size})",
+		"replayed": "Bei {time}, nachgespielt ab dem Schnappschuss bei {snapshot}",
+		"noSnapshot": "Bei {time}, ohne Schnappschuss: nur was die Patches enthielten",
+		"changes": "{n} Werte",
+		"truncated": "nur die ersten",
+		"time": "Zeit",
+		"value": "Wert"
 	}
 }

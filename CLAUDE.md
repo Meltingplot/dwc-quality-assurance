@@ -48,6 +48,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
   qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
+  qa_journal.py             object model journal: every DSF patch + snapshots per job, replay
 tests/                      pytest (test_*.py, real dsf-python) + vitest (*.test.js)
 scripts/                    ci-local.sh, verify-package.sh, version.js
 docs/                       image.md (work order for the image build), …
@@ -123,6 +124,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   from ≈ L140, chimney; Tim 2026-09-29), and only this rule catches it (L138-194, L236-265).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
+- Object model journal (Tim 2026-09-29: every change, so unforeseen problems can be investigated): DSF's patches
+  as raw text (dsf-python's `json.dumps` writes floats with `%g`, 6 digits) plus DSF snapshots every 10 min, in
+  `journal/<job>/` files, not the DB (the backup after each job would copy them); ≈ 5 MB per printing hour.
+  DSF patch rules (ModelSubscription.cs): objects carry what changed, lists their new length with `{}`, `messages`
+  only new ones; `GetObjectModel` answers `{"success":true,"result":<model>}` raw (Command.cs:106-113).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger
   than `retention.days`, then the size cap removes the oldest.
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within

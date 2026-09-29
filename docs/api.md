@@ -38,7 +38,7 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `settings` | – | `{settings, errors}` |
 | POST | `settings` | body: settings object (partial is fine, ≤ 32 KiB) | always 200: `{saved, settings, errors}`; nothing is stored when `errors` is not empty (DWC's REST connector drops the body of a 4xx answer) |
 | GET | `jobs` | `limit` (50, ≤ 1000), `offset`, `result` (`finished`/`completed`, `cancelled`, `aborted`, `running`, `unknown`), `material` | `{total, offset, jobs: [JobEntry]}` newest first |
-| GET | `job` | `id` | JobEntry + `context`, `summary`, `fileCrc32`, `startLayer`, `durationS`, `warmupS`, `pauseS` |
+| GET | `job` | `id` | JobEntry + `context`, `summary`, `fileCrc32`, `startLayer`, `durationS`, `warmupS`, `pauseS`, `journal` (`{bytes, start, end, snapshots}` of the object model journal, null without one) |
 | GET | `job/layers` | `id` | `{jobId, meta, layers: [Layer]}` |
 | GET | `job/events` | `id`, `type` (comma list) | `{jobId, events: [Event]}` |
 | GET | `job/samples` | `id`, `channels` (comma list, ≤ 50), `from`, `to` (epoch ms), `resolution` (`coarse`, `fine`, `auto`) | `{jobId, from, to, resolution, downsampled, channels: {name: [[ts_ms, value]]}}` |
@@ -46,6 +46,9 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/spectra` | `id` | `{jobId, spectra: [Spectrum]}`, see "Spectra" |
 | GET | `job/toolpath` | `id`, `layer` | segments of the layer; 202 while the index is built; 409 when the file is gone or changed |
 | GET | `job/export` | `id` | the job as one JSON file (`application/octet-stream`) |
+| GET | `job/om` | `id`, `at` (epoch ms, default the journal's end), `path` (e.g. `move.compensation`, `boards[2].drivers[0]`; default the whole model) | `{at, snapshotAt, path, value}`: the object model or the value at `path` as it was then, see "Object model journal"; 404 without a journal |
+| GET | `job/om/history` | `id`, `path`, `from`, `to` (epoch ms), `limit` (1000, ≤ 10000) | `{path, points: [{t, value}], truncated}`: the value at `from` (or at the first snapshot), then every change; `path` `messages` gives each new message |
+| GET | `job/om/journal` | `id` | the journal as one gzip file of JSON lines (`application/octet-stream`) |
 | GET | `job/timelapse/meta` | `id` | status and layer → frame index, see "Timelapse" |
 | GET | `job/timelapse` | `id` | the AV1/MP4 video (`application/octet-stream`, no Range); 404 until it is verified |
 | GET | `job/timelapse/frame` | `id`, `layer` | JPEG of the layer's frame (`application/octet-stream`); 404 when the layer has none |
@@ -190,6 +193,23 @@ support, and each extraction costs the SBC CPU.
 Encoding runs after the job, one at a time and never while a job prints (a job that starts pauses
 it). `status.timelapse`: `{enabled, reason, capturing: [jobId], encoder: {state: idle|encoding|paused,
 jobId, queued}, lastError}`.
+
+## Object model journal
+
+Every change of the object model during a job (`dsf/qa_journal.py`, Tim 2026-09-29), so that problems nobody
+thought of can still be looked into. The file (`job/om/journal`) is gzip, one JSON object per line:
+`{"t": <epoch ms>, "snapshot": <the whole model>}` or `{"t": <epoch ms>, "patch": <DSF's patch>}`, both as DSF sent
+them (no float rounded). Snapshots come at the job start, every `journal.snapshotIntervalMin` (10) and at the job
+end. A patch follows DSF's rules: an object carries what changed, a list its new length with `{}` for an unchanged
+object, `messages` only the new messages. To rebuild the model at a time, start from the last snapshot before it
+and merge the patches up to it (`qa_journal.merge`; `job/om` does that). About 5 MB per printing hour on the
+CHX 350.
+
+```python
+import gzip, json
+for line in gzip.open("qa-<job>-om.jsonl.gz", "rt"):
+    entry = json.loads(line)   # {"t": ..., "snapshot": {...}} or {"t": ..., "patch": {...}}
+```
 
 ## Trends
 
