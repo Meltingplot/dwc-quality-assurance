@@ -108,6 +108,7 @@ const EVENT_COLORS: Record<string, string> = {
 	setpoint_change: "primary",
 	babystep: "primary",
 	calibration: "primary",
+	machine_mode: "warning",
 	job_start: "success",
 	job_end: "success",
 	daemon_started_mid_job: "grey",
@@ -197,6 +198,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return `${p.from ?? "—"} → ${p.to ?? "—"} mm`;
 		case "calibration":
 			return calibrationDetail(event.subtype, p);
+		case "machine_mode":
+			return `${p.from ?? "—"} → ${p.to ?? "—"}`;
 		case "timelapse_failed":
 		case "accelerometer_failed":
 			return p.error ?? "";

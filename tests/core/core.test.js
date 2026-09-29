@@ -103,6 +103,8 @@ describe("format", () => {
 			threshold: 8924, rmsError: 0.003 } })).toBe("-0.006 mm @ 8924, rms 0.003 mm");
 		expect(eventDetail({ type: "calibration", subtype: "probe", payload: { scanCoefficients: null, triggerHeight: 0.7 } })).toBe("Z 0.700 mm");
 		expect(eventDetail({ type: "calibration", subtype: "probeDrive", payload: { current: 16, offset: 133919 } })).toBe("I 16, offset 133919");
+		expect(eventDetail({ type: "machine_mode", subtype: "default", payload: { from: "automatic", to: "default" } }))
+			.toBe("automatic → default");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });
