@@ -25,13 +25,12 @@ def test_partial_file_is_merged(data_dir):
 
 def test_invalid_values_fall_back_and_are_reported(data_dir):
     with open(os.path.join(data_dir, "settings.json"), "w") as handle:
-        json.dump({"sampleIntervalS": 0, "chamber": {"mode": "window"}, "bogus": 1,
+        json.dump({"sampleIntervalS": 0, "chamber": {"mode": "window"},
                    "heaterLoad": {"high": 0.95, "limit": 0.9}}, handle)
     s = qa_settings.Settings(data_dir)
     errors = s.load()
     assert any(e.startswith("sampleIntervalS") for e in errors)
     assert any(e.startswith("chamber.mode") for e in errors)
-    assert any(e.startswith("bogus") for e in errors)
     assert any(e.startswith("heaterLoad.limit") for e in errors)
     assert s.current()["sampleIntervalS"] == 5
     assert s.current()["chamber"]["mode"] == "auto"
@@ -57,6 +56,29 @@ def test_update_validates_and_persists(settings, data_dir):
     with open(os.path.join(data_dir, "settings.json")) as handle:
         assert json.load(handle)["contextGlobals"] == ["nozzle_type"]
     assert stored["postTriggerS"] == 45
+
+
+def test_update_refuses_unknown_keys(settings):
+    _, errors = settings.update({"bogus": 1, "thresholds": {"typo": 2}})
+    assert errors == ["thresholds.typo: unknown setting", "bogus: unknown setting"]
+
+
+def test_another_versions_keys_are_kept(data_dir):
+    """A newer QA's settings survive an older QA that saves (a downgrade to the image's QA)."""
+    path = os.path.join(data_dir, "settings.json")
+    with open(path, "w") as handle:
+        json.dump({"sampleIntervalS": 10, "newer": {"a": 1}, "thresholds": {"newerK": 7, "temperatureK": 6}}, handle)
+    s = qa_settings.Settings(data_dir)
+    assert s.load() == []
+    assert "newer" not in s.current() and "newerK" not in s.current()["thresholds"]
+    _, errors = s.update({**s.current(), "postTriggerS": 45})
+    assert errors == []
+    with open(path) as handle:
+        stored = json.load(handle)
+    assert stored["newer"] == {"a": 1}
+    assert stored["thresholds"]["newerK"] == 7
+    assert stored["thresholds"]["temperatureK"] == 6
+    assert stored["sampleIntervalS"] == 10 and stored["postTriggerS"] == 45
 
 
 def test_snapshot_is_a_copy(settings):

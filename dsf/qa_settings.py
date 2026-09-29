@@ -4,6 +4,10 @@ The file may hold only the values that differ from the defaults, or a complete c
 or invalid values fall back to the defaults and are reported. Written atomically. Changing a
 setting through the API takes effect without a restart: readers take ``Settings.current()``
 (an immutable snapshot) each time they need it.
+
+Keys in the file that this version does not know are another version's (a newer QA's before a
+downgrade to the image's, qa_db docstring): they are kept and written back with every save, so the
+newer QA finds its settings again. The API still refuses unknown keys.
 """
 
 import copy
@@ -173,7 +177,8 @@ def _check(path, value, default):
     return None
 
 
-def _merge(defaults, given, prefix, errors):
+def _merge(defaults, given, prefix, errors, unknown=None):
+    """``unknown``: a dict that collects keys the defaults lack (same nesting) instead of reporting them."""
     result = {}
     for key, default in defaults.items():
         path = f"{prefix}{key}"
@@ -182,7 +187,10 @@ def _merge(defaults, given, prefix, errors):
             continue
         value = given[key]
         if isinstance(default, dict) and path not in BOUNDS:
-            result[key] = _merge(default, value if isinstance(value, dict) else {}, path + ".", errors)
+            inner = None if unknown is None else {}
+            result[key] = _merge(default, value if isinstance(value, dict) else {}, path + ".", errors, inner)
+            if inner:
+                unknown[key] = inner
             if not isinstance(value, dict):
                 errors.append(f"{path}: must be an object")
             continue
@@ -194,15 +202,31 @@ def _merge(defaults, given, prefix, errors):
             result[key] = copy.deepcopy(value)
     if isinstance(given, dict):
         for key in given:
-            if key not in defaults:
+            if key in defaults:
+                continue
+            if unknown is None:
                 errors.append(f"{prefix}{key}: unknown setting")
+            else:
+                unknown[key] = copy.deepcopy(given[key])
     return result
 
 
-def validate(given):
-    """Merge ``given`` over the defaults. Returns ``(settings, errors)``."""
+def _with_unknown(settings, unknown):
+    """``settings`` plus the kept keys of another version (they never collide with known ones)."""
+    result = copy.deepcopy(settings)
+    for key, value in unknown.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _with_unknown(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def validate(given, unknown=None):
+    """Merge ``given`` over the defaults. Returns ``(settings, errors)``; with ``unknown`` (a dict),
+    unknown keys land there instead of in the errors."""
     errors = []
-    settings = _merge(DEFAULTS, given if isinstance(given, dict) else {}, "", errors)
+    settings = _merge(DEFAULTS, given if isinstance(given, dict) else {}, "", errors, unknown)
     load = settings["heaterLoad"]
     if load["limit"] < load["high"]:
         errors.append("heaterLoad.limit: must be >= heaterLoad.high")
@@ -222,6 +246,7 @@ class Settings:
         self._dir = directory or data_dir()
         self._lock = threading.Lock()
         self._current = _freeze(DEFAULTS)
+        self._unknown = {}   # another version's keys from the file, written back on save
         self.errors = []
 
     @property
@@ -243,9 +268,11 @@ class Settings:
             pass
         except (OSError, ValueError) as exc:
             errors.append(f"settings.json unreadable, using defaults: {exc}")
-        settings, problems = validate(given)
+        unknown = {}
+        settings, problems = validate(given, unknown)
         with self._lock:
             self._current = _freeze(settings)
+            self._unknown = unknown
             self.errors = errors + problems
         return self.errors
 
@@ -256,8 +283,10 @@ class Settings:
             return settings, errors
         os.makedirs(self._dir, exist_ok=True)
         tmp = self.path + ".tmp"
+        with self._lock:
+            unknown = self._unknown
         with open(tmp, "w", encoding="utf-8") as handle:
-            json.dump(settings, handle, indent=2)
+            json.dump(_with_unknown(settings, unknown), handle, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, self.path)

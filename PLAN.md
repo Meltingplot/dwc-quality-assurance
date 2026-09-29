@@ -342,7 +342,11 @@ Pfad `/opt/dsf/sd/QualityAssurance/qa.db`, Backups `qa.backup.1.db`, `qa.backup.
 `PRAGMA journal_mode=WAL; synchronous=FULL; foreign_keys=ON`. Beim Start `quick_check`;
 Fehler → Datei nach `qa.db.corrupt.<epoch>` verschieben, jüngstes Backup mit bestandenem
 `quick_check` zurückkopieren, sonst leere DB. Nach Jobende `integrity_check` → `VACUUM INTO`
-neues Backup, Rotation auf 2. `schema_meta.version` mit Migrationen.
+neues Backup, Rotation auf 2. `schema_meta.version` = älteste QA, die die DB nutzen kann,
+`schema_meta.layout` = ihr Layout; Migrationen, die nur ergänzen, lassen `version` stehen, damit die
+QA des Images nach einem Sideload und Neustart weiterläuft. Eine DB, die diese QA nicht nutzen kann →
+`qa.db.newer.<epoch>`, jüngstes nutzbares Backup zurück (Tim 2026-09-29: Downgrade aufs Image möglich,
+kein Absturz; docs/schema.md „Versions and downgrades“).
 
 Tabellen:
 - `jobs(id PK, file_name, started_at, ended_at, result, partial, start_layer, num_layers, duration_s, warmup_s, pause_s, material, context JSON, summary JSON, raw_pruned)`
