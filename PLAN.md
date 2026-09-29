@@ -122,7 +122,7 @@ SBC-CPU/RAM, freier Speicher.
 | Job-Zusammenfassung | Filament: Verhältnis gemessen/befohlen aus dem Integral des Sensors, Σ Δ(`totalExtrusion` × `avgPercentage` / 100) über seine Neustarts (wie die E-Steps- und NLE-Makros, Tim 2026-09-28), `avgPercentage` und `calibrated.mmPerRev` am Jobende, Prozentwert-Verteilung (2 %-Klassen), Kennlinie Fluss vs. Prozent (gebinnt); Thermik: Aufheizzeit je Heizer, **Heizlast je Düsenheizer** (§5.4.1), Kammer min/max/mean; MFM der Maschine: tolerierte Fehler, Recoveries mit Ergebnis, vorgeschlagene/angewandte E-Steps; Ereignisse: Anzahl je Typ, erste/letzte Lage, Abbruchursache; Spulenverbrauch (g) aus `spool_remaining` Start − Ende; Mechanik: Peak-Frequenz und RMS je Achse je Spektrum, Job-Mittel |
 | Accelerometer | **bedingt**: nur wenn ein Board `accelerometer != null` meldet (2026-09-26 auf der CHX 350 bei keinem der 7 Boards). Dann: **alle 15 min** im Zustand `processing` `M956 P<M955-Nummer> S1000 A0 F"qa-<job>-<ts>.csv"` (RRF 3.7: P ist die logische Nummer aus M955 ohne Boardadresse, rc.1 kann nur P0; nur ein Sensor gleichzeitig), bei Pause angehalten; CSV aus `0:/sys/accelerometer/` lesen, letzte Zeile (Datenrate, Overflows) prüfen und bei Overflows > 0 verwerfen, FFT in reinem Python wie @duet3d/motionanalysis (seit 2026-09-27, vorher numpy), Spektrum in DB, CSV löschen. Referenz: automatisch (Median der ersten N) mit manueller Übersteuerung |
 | Histogramm | je Lage: gemessen vs. befohlen je Extruder |
-| Filamentsensor-Zähler | RRF liefert **keinen gemessenen Weg**: `totalExtrusion` und `calibrated.totalDistance` sind beide der *befohlene* Weg seit Kalibrierbeginn, gemessen steckt nur in `avgPercentage` = 100 × gemessen / befohlen (Duet3Expansion 3.7-dev @ 806ef34 `RotatingMagnetFilamentMonitor.cpp:628-643`, RRF 3.7-dev @ 3638836 `Duet3DFilamentMonitor.cpp:46`; 2026-09-28). Das Toolboard setzt beide zurück, sobald nicht gedruckt wird (`FilamentMonitor.cpp:318-325`: Druckstart, Pause) und sendet während der 10 mm Kalibrierung nichts (das OM behält die alte Summe, `avgPercentage` null); RRF nullt die Extruderpositionen beim Druckstart (`GCodes.cpp:3861-3864`) |
+| Filamentsensor-Zähler | RRF liefert **keinen gemessenen Weg**: `totalExtrusion` und `calibrated.totalDistance` sind beide der *befohlene* Weg seit Kalibrierbeginn, gemessen steckt nur in `avgPercentage` = 100 × gemessen / befohlen. Das Toolboard sendet den gemessenen Weg nicht einmal über CAN; RRF rechnet ihn für `calibrated.mmPerRev` aus `avgPercentage` zurück (= konfiguriertes mmPerRev × 100 / `avgPercentage`) (Duet3Expansion 3.7-dev @ 913c761 `RotatingMagnetFilamentMonitor.cpp:628-650`, RRF 3.7-dev @ 32a84d2 `Duet3DFilamentMonitor.cpp:46, 292-304`, `RotatingMagnetFilamentMonitor.cpp:46, 697-711`, CANlib 3.7-dev @ cb52d69; in den Meltingplot-Forks identisch; 2026-09-28, erneut geprüft 2026-09-29). Das Toolboard setzt beide zurück, sobald nicht gedruckt wird (`FilamentMonitor.cpp:318-325`: Druckstart, Pause) und sendet während der 10 mm Kalibrierung nichts (das OM behält die alte Summe, `avgPercentage` null); RRF nullt die Extruderpositionen beim Druckstart (`GCodes.cpp:3861-3864`) |
 | Replay | Lage für Lage: Toolpath aus der G-Code-Datei (**on demand im Daemon geparst, nichts gespeichert**, CRC32-Prüfung), Bahn eingefärbt nach befohlener Volumenflussrate (E-Delta × Querschnitt / Segmentdauer), `extrusionRate`-Samples als Marker darüber (die von RRF geplante Rate des gerade ausgeführten Moves bei seiner Top-Speed, nicht gemessen; RRF 3.7-dev @ 32a84d2 `DDA::GetTotalExtrusionRate`, 2026-09-29), Events als Marker, `currentObject` je Segment/Event, Temperatur- und Heizlastkurven der Lage, Zeitraffer-Frame der Lage. Slicer: PrusaSlicer/Orca/SuperSlicer, Cura, Simplify3D, Z-Heuristik als Fallback |
 | Zeitraffer | Snapshot von einer konfigurierbaren Kamera-URL je Lagenwechsel, nach Jobende als AV1-Video (nur AV1, SVT-AV1 über ffmpeg); Frame je Lage in Analyse/Replay, Video als Download (§5.11) |
 | QC-Zugriff | ausschließlich HTTP-API (JSON); Notizen/Bewertung/Befunde/Prüfbericht gehören in QC, QA hat keine Eingabefelder |
@@ -259,7 +259,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   älter als 90 s. 5-s-Tick schreibt den jüngsten Zustand als `resolution=coarse`.
   Trigger → Puffer als Block `resolution=fine` in DB, `fine_until = now + 30 s`,
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
-- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `heater_fault`,
+- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
   `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
@@ -439,6 +439,18 @@ L140 (95 → 35 %, 6 min), L177 und L183; im Referenzlauf 20260928-134928-118609
 (Tiefstwerte 46–70 %, 41–152 s), wo er milder schliff. Nach 120 s wäre das Niveau noch unruhig gewesen
 (ein Event in L1, 72 gegen 101 %).
 
+**Monitor-Drift über Lagen** (Tim 2026-09-29): Auch der Referenzlauf 20260928-134928-118609a9 war kein
+Gutfall. Er war ab derselben Lage (≈ L140) massiv unterextrudiert; das Dach blieb nur hängen, und der
+Schornstein war ebenfalls massiv unterextrudiert. Sein Monitor fiel über L136–150 langsam von 91 auf 79 %,
+ohne Sprung; `filament_percent_level` meldete sich deshalb erst bei L163. Event `filament_percent_drift`:
+Lagenmittel (`fmStats` mean) mindestens `thresholds.filamentDriftPoints` (6) Punkte auf einer Seite des
+Niveaus, `filamentDriftLayers` (3) Lagen in Folge; eine laufende Folge behält das Niveau, bei dem sie
+begann. Nachgespielt auf den Lagen: Referenzlauf L138–194 und L236–265 (low), also Kabine und
+Schornstein; Fehllauf L127–129, L133–137, L140–165, L176–185 (low), L199–201 und L204–221 (high, die
+Mehrförderung nach der M92-Korrektur), L246–265 (low); PO-Job 20260928-075236-bddf0026 nichts. Eine
+kleinere Schwelle für `filament_percent_level` taugte nicht: Mit 10 Punkten kam die Referenz erst ab L142,
+dafür schon mit einem Event in L13 im intakten Rumpf.
+
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
 Kopf aus, und der Webserver des SBC kennt keine HTTP-Range-Anfragen. `qa_slicer.py` übernimmt
@@ -474,8 +486,8 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 {
   "sampleIntervalS": 5, "ringBufferS": 90, "postTriggerS": 30,
   "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5,
-                  "filamentLevelPoints": 20 },
-  "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300,
+                  "filamentLevelPoints": 20, "filamentDriftPoints": 6 },
+  "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300, "filamentDriftLayers": 3,
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },
   "contextGlobals": ["nozzle_type", "nozzle_diameter", "filament_diameter", "bed_surface",

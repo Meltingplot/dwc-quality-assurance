@@ -96,6 +96,7 @@ const EVENT_COLORS: Record<string, string> = {
 	filament_status: "warning",
 	filament_percent_window: "warning",
 	filament_percent_level: "warning",
+	filament_percent_drift: "warning",
 	heater_load: "warning",
 	mfm_error_tolerated: "warning",
 	mfm_recovery: "warning",
@@ -146,6 +147,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 		case "filament_status":
 		case "filament_percent_window":
 			return `${p.lastPercentage ?? "—"} %${p.durationS !== undefined ? `, ${formatDuration(p.durationS)}` : ""}`;
+		case "filament_percent_drift":   // the level, the layer mean farthest from it, the run of layers
+			return `${p.level ?? "—"} % → ${formatNumber(p.extreme, 0)} % (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
 		case "filament_percent_level":   // from the monitor's level in the job to its farthest reading
 			return `${p.level ?? "—"} % → ${p.extreme ?? p.lastPercentage ?? "—"} %${p.durationS !== undefined ? `, ${formatDuration(p.durationS)}` : ""}`;
 		case "voltage_dip":
