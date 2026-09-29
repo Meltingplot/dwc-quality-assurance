@@ -259,7 +259,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   älter als 90 s. 5-s-Tick schreibt den jüngsten Zustand als `resolution=coarse`.
   Trigger → Puffer als Block `resolution=fine` in DB, `fine_until = now + 30 s`,
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
-- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `heater_fault`,
+- **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
   `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
@@ -439,6 +439,18 @@ L140 (95 → 35 %, 6 min), L177 und L183; im Referenzlauf 20260928-134928-118609
 (Tiefstwerte 46–70 %, 41–152 s), wo er milder schliff. Nach 120 s wäre das Niveau noch unruhig gewesen
 (ein Event in L1, 72 gegen 101 %).
 
+**Monitor-Drift über Lagen** (Tim 2026-09-29): Auch der Referenzlauf 20260928-134928-118609a9 war kein
+Gutfall. Er war ab derselben Lage (≈ L140) massiv unterextrudiert; das Dach blieb nur hängen, und der
+Schornstein war ebenfalls massiv unterextrudiert. Sein Monitor fiel über L136–150 langsam von 91 auf 79 %,
+ohne Sprung; `filament_percent_level` meldete sich deshalb erst bei L163. Event `filament_percent_drift`:
+Lagenmittel (`fmStats` mean) mindestens `thresholds.filamentDriftPoints` (6) Punkte auf einer Seite des
+Niveaus, `filamentDriftLayers` (3) Lagen in Folge; eine laufende Folge behält das Niveau, bei dem sie
+begann. Nachgespielt auf den Lagen: Referenzlauf L138–194 und L236–265 (low), also Kabine und
+Schornstein; Fehllauf L127–129, L133–137, L140–165, L176–185 (low), L199–201 und L204–221 (high, die
+Mehrförderung nach der M92-Korrektur), L246–265 (low); PO-Job 20260928-075236-bddf0026 nichts. Eine
+kleinere Schwelle für `filament_percent_level` taugte nicht: Mit 10 Punkten kam die Referenz erst ab L142,
+dafür schon mit einem Event in L13 im intakten Rumpf.
+
 **Slicer-Einstellungen:** OrcaSlicer/BambuStudio schreiben ihre komplette Konfiguration zwischen
 `; CONFIG_BLOCK_START` und `; CONFIG_BLOCK_END` ans Dateiende; DSF wertet `;customInfo` nur im
 Kopf aus, und der Webserver des SBC kennt keine HTTP-Range-Anfragen. `qa_slicer.py` übernimmt
@@ -474,8 +486,8 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 {
   "sampleIntervalS": 5, "ringBufferS": 90, "postTriggerS": 30,
   "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5,
-                  "filamentLevelPoints": 20 },
-  "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300,
+                  "filamentLevelPoints": 20, "filamentDriftPoints": 6 },
+  "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300, "filamentDriftLayers": 3,
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },
   "contextGlobals": ["nozzle_type", "nozzle_diameter", "filament_diameter", "bed_surface",

@@ -117,6 +117,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - `filament_percent_level`: the monitor ≥ `thresholds.filamentLevelPoints` (20) away from its own level in the
   job (median so far, after `filamentLevelMinS` 300 s), for a drop that stays inside percentMin/Max (L140 of the
   Benchy that broke there; Tim 2026-09-29).
+- `filament_percent_drift`: layer means ≥ `thresholds.filamentDriftPoints` (6) on one side of that level for
+  `filamentDriftLayers` (3) layers, for a slow drift. The Benchy "reference" 20260928-134928 was bad too (cabin
+  from ≈ L140, chimney; Tim 2026-09-29), and only this rule catches it (L138-194, L236-265).
 - Filament monitor `configured` is a setpoint (event on change); `calibrated` only as appearing /
   disappearing, its values are channels (they change continuously).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger
