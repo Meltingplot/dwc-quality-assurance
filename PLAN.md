@@ -182,6 +182,7 @@ dsf/
   qa_db.py                       SQLite: Schema, Migrationen, Writer-Thread, Durability, Backup/Restore, Retention
   qa_timelapse.py                Snapshot bei Lagenwechsel, Frame-Index, Encoder-Worker, Frame-Extraktion (§5.11)
   qa_accel.py                    M956-Scheduler, CSV-Reader, FFT (reines Python), Referenzspektrum
+  qa_calibration.py              Kalibrierung je Job: Mesh (G29), Nivellierung (G32), Scan-Sonde (M558.1/.2)
   qa_gcode.py                    G-Code-Parser: Lagenindex, Segmente, Fluss, Objekte
   qa_api.py                      HTTP-Handler-Registry + WebSocket-Broadcaster
   qa_settings.py                 settings.json laden/speichern/validieren, Defaults
@@ -262,10 +263,17 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
 - **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
   `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `gear_passes_forecast`, `job_start`, `job_end`,
-  `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
+  `pause`, `resume`, `babystep`, `calibration`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
 - **Sollwert-Änderung**: Vergleich alter/neuer Wert je Patch für die definierten Felder.
+- **Kalibrierung** (neu 2026-09-29, `qa_calibration.py`): Mesh (G29), Nivellierung (G32), Scan-Sonde (M558.1)
+  und ihr Antriebsstrom (M558.2), jeweils ein Event `calibration` im Job; der Kontext `calibration` hält, womit
+  der Job druckt (bei Start der Stand davor, jede Kalibrierung im Job ersetzt ihn). Werte aus dem
+  Objektmodell (`move.compensation`, `move.calibration`, `kinematics.tiltCorrection`, `sensors.probes[]`);
+  nur was dort fehlt, aus der Höhenkarte, die das Modell nennt (min/max, Punkte, Höhen), und aus den
+  Antworten in `messages[]` (rms-Fehler von M558.1, Strom/Offset von M558.2). Tim 2026-09-29: keine Meldung
+  parsen, wenn das Objektmodell den Wert hat.
 - **Pause-Ursache**: `global.mfm_recovery_requested` gesetzt → `filament_monitor`; sonst
   nächstes Event innerhalb 10 s vor der Pause (`filament_*`, `mfm_*`, `heater_*`,
   `driver_error`), sonst `messageBox`-Titel, sonst `user`.

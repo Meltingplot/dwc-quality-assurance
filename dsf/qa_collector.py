@@ -20,6 +20,7 @@ import time
 import zlib
 
 import qa_accel
+import qa_calibration
 import qa_channels
 import qa_context
 import qa_db
@@ -125,6 +126,8 @@ class Collector:
         cfg = settings.current()
         self.load = qa_heaterload.HeaterLoadTracker(cfg)
         self.mfm = qa_machine.MfmWatcher()
+        self.calibration = qa_calibration.Tracker(self._real_path)
+        self._calibration_events = {}   # (kind, probe) -> id of the job's latest calibration event
         self.job = None
         self.last_job_id = None
         self._first = True
@@ -211,11 +214,13 @@ class Collector:
         while self._ring and self._ring[0][0] < horizon:
             self._ring.popleft()
 
+        calibrations = self.calibration.update(model, patch, now_ms)
         self._lifecycle(model, status, now_ms)
         if self.accel is not None:
             self.accel.observe(qa_accel.from_model(model))
         if self.job is not None and not self._simulating:
             self._track_layer(model, snapshot, now_ms)
+            self._calibrations(model, calibrations, now_ms)
             self._accelerometer(status, now_ms)
             if self.job.job_acc is not None:
                 self.job.job_acc.heater_setpoints(snapshot, now_ms)
@@ -235,7 +240,9 @@ class Collector:
             return
         self._advance(now_ms)
         self._prev_ms = now_ms
+        calibrations = self.calibration.tick(now_ms)
         if self.job is not None and not self._simulating:
+            self._calibrations(self.model, calibrations, now_ms)
             status = qa_channels.enum_value(getattr(getattr(self.model, "state", None), "status", None))
             self._heater_load(self.model, status, now_ms)
             self._fm_window_check(self.model, now_ms)
@@ -390,6 +397,7 @@ class Collector:
         path = self._real_path(file_name)
         crc = self._crc(path)
         context = qa_context.snapshot(model, cfg, self.plugin_version, path, crc)
+        context["calibration"] = self.calibration.snapshot()
         start_layer = getattr(job_model, "layer", None) if partial else None
         jid = job_id(now_ms, file_name, crc)
         record = {"id": jid, "file_name": file_name, "file_crc32": crc, "started_at": now_ms, "result": "running",
@@ -780,6 +788,24 @@ class Collector:
 
     # --- events ----------------------------------------------------------------------------
 
+    def _calibrations(self, model, changes, now_ms):
+        """Mesh, levelling and probe calibrations while the job runs (qa_calibration): an event for each,
+        and the context's ``calibration`` holds what the job prints with. Values that arrive later (the
+        height map, an M558.1 reply) complete the job's latest event of that kind."""
+        if not changes:
+            return
+        job = self.job
+        for change in changes:
+            key = (change.kind, change.index)
+            payload = qa_calibration.event_payload(change.entry)
+            if change.new:
+                self._calibration_events[key] = self._event(model, now_ms, "calibration", change.kind,
+                                                            device=change.index, payload=payload, trigger_block=False)
+            elif change.entry is not None and key in self._calibration_events:
+                self.writer.submit("event_update", self._calibration_events[key], {"payload": payload}, urgent=True)
+        job.context["calibration"] = self.calibration.snapshot()
+        self.writer.submit("job_update", job.key, {"context": dict(job.context)})
+
     def _event(self, model, ts_ms, type_, subtype=None, payload=None, device=None, trigger_block=True, layer=None):
         job = self.job
         if job is None:
@@ -832,6 +858,7 @@ class Collector:
 
     def _reset_detectors(self, model):
         self._ongoing = {}
+        self._calibration_events = {}
         self._setpoints = self._read_setpoints(model)
         self._heater_states = {}
         self._monitor_violations = set()

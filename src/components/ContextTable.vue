@@ -19,8 +19,15 @@ interface Row {
 	depth: number;
 }
 
+/** Rows of numbers (the mesh's heights): too many to list */
+function isMatrix(value: unknown): value is Array<Array<unknown>> {
+	return Array.isArray(value) && value.length > 0 && value.every((row) => Array.isArray(row) && row.every((v) => v === null || typeof v === "number"));
+}
+
 function flatten(value: unknown, label: string, key: string, depth: number, rows: Array<Row>) {
-	if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+	if (isMatrix(value)) {
+		rows.push({ key, label, value: `${value.length} × ${Math.max(...value.map((row) => row.length))}`, depth });
+	} else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
 		rows.push({ key, label, value: "", depth });
 		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
 			flatten(v, k, `${key}.${k}`, depth + 1, rows);

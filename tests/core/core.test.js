@@ -92,6 +92,17 @@ describe("format", () => {
 		expect(eventDetail({ type: "gear_passes_forecast", subtype: "high", payload: { threshold: 5, layers: 82, max: 13.94, maxLayer: 262,
 			runs: [{ firstLayer: 137, lastLayer: 175, max: 7.55, maxLayer: 150 }, { firstLayer: 223, lastLayer: 265, max: 13.94, maxLayer: 262 }] } }))
 			.toBe("L137–175 (7.5×), L223–265 (13.9×)");
+		// the CHX 350's print_start of 2026-09-29: G29, G32, M558.1, M558.2
+		expect(eventDetail({ type: "calibration", subtype: "mesh", payload: { mean: -0.121, deviation: 0.145, minError: -0.492,
+			maxError: 0.2, points: 840 } })).toBe("840: -0.492 … 0.200 mm, μ -0.121, σ 0.145");
+		expect(eventDetail({ type: "calibration", subtype: "mesh", payload: { mean: -0.121, deviation: 0.145 } })).toBe("μ -0.121, σ 0.145");
+		expect(eventDetail({ type: "calibration", subtype: "levelling", payload: { corrections: [-0.00721, -0.0345, 0.0354, -0.0249],
+			before: { mean: -0.00742, deviation: 0.021 }, after: { mean: 0, deviation: 4.258e-18 } } }))
+			.toBe("-0.007 -0.035 0.035 -0.025 mm, σ 0.021 → 0.000");
+		expect(eventDetail({ type: "calibration", subtype: "probe", payload: { scanCoefficients: [-0.00613104, -0.00215073, 1.02833e-6, -4.41466e-10],
+			threshold: 8924, rmsError: 0.003 } })).toBe("-0.006 mm @ 8924, rms 0.003 mm");
+		expect(eventDetail({ type: "calibration", subtype: "probe", payload: { scanCoefficients: null, triggerHeight: 0.7 } })).toBe("Z 0.700 mm");
+		expect(eventDetail({ type: "calibration", subtype: "probeDrive", payload: { current: 16, offset: 133919 } })).toBe("I 16, offset 133919");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });
