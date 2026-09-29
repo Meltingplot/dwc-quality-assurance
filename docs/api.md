@@ -130,6 +130,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `filament_percent_drift` | `low` / `high` | a run of `filamentDriftLayers` (default 3) or more layers whose monitor mean (`fmStats` mean) lies `thresholds.filamentDriftPoints` (default 6) or more on one side of the monitor's level in the job (as `filament_percent_level`; a run keeps the level it started at), from the first one's start to the start of the first layer back; for a drift too slow for `filament_percent_level`: `monitor`, `level`, `threshold`, `side`, `firstLayer`, `lastLayer`, `layers`, `extreme` (the layer mean farthest from the level) |
 | `gear_passes` | `high` | a run of layers with `filamentPath.gearPasses` ≥ `thresholds.gearPasses` (default 5), from the first one's start to the start of the first layer below: `threshold`, `firstLayer`, `lastLayer`, `max`, `maxLayer` |
 | `gear_passes_forecast` | `high` | once per job, when a layer has started (print_start has set M207) and the layer index is ready: the file's runs of layers expected at `thresholds.gearPasses` or more, with the M207 and the macros valid then (context `gearForecast` holds every layer); none when no layer reaches it: `threshold`, `runs` `[{firstLayer, lastLayer, max, maxLayer}]`, `layers` (how many reach it), `max`, `maxLayer`, `retraction` |
+| `frame_change` | `layer` / `pause` (a pause lay between the run's first frame and the one before) | a run of M240 timelapse frames whose thumbnail differs from the M240 frame before in `thresholds.frameChangePixels` (default 8) pixels or more (see "Timelapse"), from the first one's photo to the photo of the first frame below; written at the first frame, so a reader can react while the job prints: `threshold`, `firstLayer`, `lastLayer`, `max`, `maxLayer`, `box` (of the max frame); end: `durationS`, `closedBy` `job_end` when the job ended first; written by the timelapse thread, so no position, tool or object |
 | `heater_fault` | – | `heater`, `previousState`, `current` |
 | `heater_monitor` | `tooHigh` / `tooLow` | `heater`, `monitor`, `limit`, `reading`, `sensor`, `action` |
 | `heater_load` | `high` / `limit` | `heater`, `tool`, `setpoint`, `level`, `peakMean`, `levels`, `volumetricFlow`, `speedFactor` |
@@ -174,7 +175,8 @@ rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without ex
 
 ## Timelapse
 
-`job/timelapse/meta`: `{jobId, status, codec, fps, frames, sizeBytes, error, video, layers: [{layer, frame, ts, reason?}]}`.
+`job/timelapse/meta`: `{jobId, status, codec, fps, frames, sizeBytes, error, video, layers: [{layer, frame, ts, reason?,
+waitMs?, still?, changedPx?, changedBox?, afterPause?}]}`.
 `status`: `none` (nothing recorded; `reason` says why, e.g. `no snapshotUrl set`), `capturing`, `queued`,
 `encoding`, `done`, `failed`, `pruned` (files removed by `timelapse.retention`). `video` is true once
 `job/timelapse` has the file. `layers` is in capture order:
@@ -185,6 +187,13 @@ rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without ex
 - `frame` null: skipped (`reason: "interval"`, `timelapse.minIntervalS`) or failed (`reason: "snapshot: …"`).
   Show the latest earlier frame then. A layer taken twice (daemon restart) counts with its last frame.
 - Frame numbers ascend without gaps; frame n of the video is at `(n + 0.5) / fps` for a `<video>`.
+- M240 frames: `waitMs` from the M240 to the snapshot, `still` whether the picture had stood still (null:
+  not judged). From the second M240 frame of a job on, against the M240 frame before it: `changedPx`
+  pixels of the grey 160×90 thumbnails differ by more than 24 levels, `changedBox` where
+  (`[left, top, right, bottom]` as fractions of the picture, null when none), `afterPause: true` when
+  the job paused between the two. Both photos show the head parked, so a change beyond the new layer
+  means something moved (a part that came loose, spaghetti) — provided the park macro puts the head
+  in the same place every time. Frames taken at layer changes are not compared.
 
 `job/timelapse/frame` answers from the captured JPEG while it exists (during the print, until the
 video is verified, or kept after a failed encoding), else extracts the frame from the video

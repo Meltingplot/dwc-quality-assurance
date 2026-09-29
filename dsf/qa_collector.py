@@ -550,6 +550,8 @@ class Collector:
             eid = self._event(model, now_ms, "pause", cause, payload={"cause": cause})
             # a pause starts the heater load over: _heater_load sees status != processing
             job.pause = {"event": eid, "since": now_ms}
+            if self.timelapse is not None:
+                self.timelapse.paused(job)
         elif job.pause is not None and status not in PAUSED and status is not None:
             paused_s = round((now_ms - job.pause["since"]) / 1000.0, 1)
             job.pause_s += paused_s

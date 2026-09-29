@@ -103,6 +103,7 @@ const EVENT_COLORS: Record<string, string> = {
 	mfm_flow_bias: "warning",
 	gear_passes: "warning",
 	gear_passes_forecast: "warning",
+	frame_change: "warning",
 	pause: "info",
 	resume: "info",
 	setpoint_change: "primary",
@@ -194,6 +195,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return (p.runs ?? []).map((r: any) => `L${r.firstLayer}–${r.lastLayer} (${formatNumber(r.max, 1)}×)`).join(", ");
 		case "gear_passes":
 			return `${formatNumber(p.max, 1)}× @ L${p.maxLayer ?? "?"} (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
+		case "frame_change":   // timelapse frames that differ from the one before: something moved
+			return `${p.max ?? "?"} px @ L${p.maxLayer ?? "?"} (L${p.firstLayer ?? "?"}–${p.lastLayer ?? "?"})`;
 		case "babystep":
 			return `${p.from ?? "—"} → ${p.to ?? "—"} mm`;
 		case "calibration":
