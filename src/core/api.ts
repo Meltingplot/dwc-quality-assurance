@@ -44,6 +44,31 @@ export interface JobDetail extends Omit<JobEntry, "summary"> {
 	pauseS: number | null;
 	context: Record<string, any> | null;
 	summary: Record<string, any> | null;
+	/** The object model journal (qa_journal.py), null without one */
+	journal?: JournalInfo | null;
+}
+
+export interface JournalInfo {
+	bytes: number;
+	/** epoch ms of its first and last entry */
+	start: number;
+	end: number;
+	snapshots: number;
+}
+
+export interface ObjectModelAnswer {
+	/** epoch ms */
+	at: number;
+	/** epoch ms of the snapshot it was replayed from, null: none, only what the patches carried */
+	snapshotAt: number | null;
+	path: string;
+	value: unknown;
+}
+
+export interface ObjectModelHistory {
+	path: string;
+	points: Array<{ t: number; value: unknown }>;
+	truncated: boolean;
 }
 
 export interface Stats {
@@ -278,6 +303,8 @@ export interface TimelapseMeta {
 const TIMEOUT_MS = 15000;
 /** A video of a long job is tens of MB */
 const VIDEO_TIMEOUT_MS = 180000;
+/** The daemon replays the journal: up to 10 min of patches for a model, the whole job for a history */
+const REPLAY_TIMEOUT_MS = 60000;
 
 /**
  * HTTP status of a failed request. DWC's REST connector (@duet3d/connectors RestConnector.request)
@@ -412,6 +439,35 @@ export class QaApi {
 	 */
 	timelapseVideo(id: string) {
 		return this.get<Blob>("job/timelapse", { id }, "blob", VIDEO_TIMEOUT_MS);
+	}
+
+	/** The object model (or the value at ``path``) as it was at ``at`` (epoch ms; null: the journal's end) */
+	objectModel(id: string, at: number | null, path = "") {
+		const params: Record<string, string | number> = { id };
+		if (at !== null) {
+			params.at = Math.round(at);
+		}
+		if (path) {
+			params.path = path;
+		}
+		return this.get<ObjectModelAnswer>("job/om", params, "json", REPLAY_TIMEOUT_MS);
+	}
+
+	/** Every change of the value at ``path`` (from the value it had at ``from``) */
+	objectModelHistory(id: string, path: string, from: number | null = null, to: number | null = null) {
+		const params: Record<string, string | number> = { id, path };
+		if (from !== null) {
+			params.from = Math.round(from);
+		}
+		if (to !== null) {
+			params.to = Math.round(to);
+		}
+		return this.get<ObjectModelHistory>("job/om/history", params, "json", REPLAY_TIMEOUT_MS);
+	}
+
+	/** The journal as a Blob: one gzip file of JSON lines */
+	journalBlob(id: string) {
+		return this.get<Blob>("job/om/journal", { id }, "blob", VIDEO_TIMEOUT_MS);
 	}
 
 	/** JPEG of a layer's frame as a Blob */

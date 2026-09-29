@@ -38,6 +38,7 @@ const ChannelChart = (await import("../../src/components/ChannelChart.vue")).def
 const TrendsView = (await import("../../src/components/TrendsView.vue")).default;
 const SettingsForm = (await import("../../src/components/SettingsForm.vue")).default;
 const LivePanel = (await import("../../src/components/LivePanel.vue")).default;
+const ObjectModelView = (await import("../../src/components/ObjectModelView.vue")).default;
 const QualityAssurance = (await import("../../src/QualityAssurance.vue")).default;
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -244,6 +245,54 @@ describe("ContextTable", () => {
 		const text = wrapper.text();
 		expect(text).toContain("2 × 3");
 		expect(text).not.toContain("-0.492");
+		expectNoVueWarnings(warn);
+	});
+});
+
+describe("ObjectModelView", () => {
+	const start = Date.parse(JOB.startedAt);
+	const journal = { bytes: 5_300_000, start, end: start + 3_600_000, snapshots: 7 };
+
+	it("says when a job has no journal", () => {
+		const wrapper = mountInDwc(ObjectModelView, { props: { api: fakeApi(), job: { ...DETAIL, journal: null } } });
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.om.none");
+		expectNoVueWarnings(warn);
+	});
+
+	it("shows the model at a time and the history of a value", async () => {
+		const api = fakeApi({
+			objectModel: vi.fn(async (id, at, path) => ({ at, snapshotAt: start + 3_000_000, path,
+				value: { meshDeviation: { mean: -0.121, deviation: 0.145 } } })),
+			objectModelHistory: vi.fn(async (id, path) => ({ path, truncated: false, points: [
+				{ t: start, value: "automatic" }, { t: start + 65_000, value: "default" }] })),
+			journalBlob: vi.fn(async () => new Blob(["x"]))
+		});
+		const wrapper = mountInDwc(ObjectModelView, { props: { api, job: { ...DETAIL, journal } } });
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.om.download");
+		wrapper.vm.path = "move.compensation";
+		await wrapper.vm.show();
+		expect(api.objectModel).toHaveBeenCalledWith(JOB.id, start + 3_600_000, "move.compensation");
+		await flush();
+		expect(wrapper.text()).toContain("meshDeviation");
+		expect(wrapper.text()).toContain("-0.121");
+
+		wrapper.vm.path = "global.machine_mode";
+		await wrapper.vm.loadHistory();
+		await flush();
+		const rows = wrapper.findAll(".qa-om-point");
+		expect(rows.map((r) => r.text())).toEqual(["0:00automatic", "1:05default"]);
+		await rows[1].trigger("click");
+		expect(wrapper.vm.at).toBe(start + 65_000);
+		expect(api.objectModel).toHaveBeenLastCalledWith(JOB.id, start + 65_000, "global.machine_mode");
+		expectNoVueWarnings(warn);
+	});
+
+	it("reports a failed replay", async () => {
+		const api = fakeApi({ objectModel: vi.fn(async () => { throw new Error("no object model journal for this job"); }) });
+		const wrapper = mountInDwc(ObjectModelView, { props: { api, job: { ...DETAIL, journal } } });
+		await wrapper.vm.show();
+		await flush();
+		expect(wrapper.text()).toContain("no object model journal for this job");
 		expectNoVueWarnings(warn);
 	});
 });

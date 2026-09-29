@@ -42,6 +42,7 @@ import qa_collector  # noqa: E402
 import qa_db  # noqa: E402
 import qa_gcode  # noqa: E402
 import qa_intercept  # noqa: E402
+import qa_journal  # noqa: E402
 import qa_settings  # noqa: E402
 import qa_timelapse  # noqa: E402
 
@@ -172,10 +173,16 @@ def main():
 
     accel = qa_accel.Recorder(writer, settings, send_code, resolve_path)
     ctx.accel = accel
+
+    def model_snapshot():
+        with ctx.cmd_lock:
+            return cmd.get_serialized_object_model()
+
+    journal = qa_journal.Writer(data_dir, settings, model_snapshot)
     plugin_data = PluginData(cmd, ctx.cmd_lock)
     collector = qa_collector.Collector(writer, settings, resolve_path=resolve_path, broadcast=ctx.live.publish,
                                        plugin_version=ctx.version, index_cache=ctx.index_cache, timelapse=timelapse,
-                                       accel=accel)
+                                       accel=accel, journal=journal)
     ctx.collector = collector
     collector.init_ids()
     timelapse.on_event = collector.external_event
@@ -210,13 +217,18 @@ def main():
         last_data = 0.0
         while not _shutdown.is_set():
             try:
-                patch = json.loads(sub.get_object_model_patch())
+                raw = sub.get_object_model_patch()
+                patch = json.loads(raw)
                 model.update_from_json(patch)
-                collector.update(model, patch, now_ms())
+                now = now_ms()
+                collector.update(model, patch, now)
+                journal.patch(raw, now)   # the text as DSF sent it (qa_journal)
                 errors = 0
             except TimeoutError:
                 # the 3 s subscription timeout is the heartbeat
-                collector.tick(now_ms())
+                now = now_ms()
+                collector.tick(now)
+                journal.tick(now)
             except Exception as exc:  # noqa: BLE001
                 if _shutdown.is_set():
                     break
@@ -234,6 +246,11 @@ def main():
                 writer.submit("retention", retention["jobs"], retention["days"], retention["maxDbBytes"])
                 writer.submit("checkpoint")
                 timelapse.request_retention()
+                try:
+                    kept = {row[0] for row in ctx.readers.get().execute("SELECT id FROM jobs WHERE raw_pruned=0")}
+                    journal.retention(kept, settings.current()["journal"]["maxBytes"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("journal retention failed: %s", exc)
             if mono - last_data >= PLUGIN_DATA_INTERVAL_S:
                 last_data = mono
                 status = collector.status()

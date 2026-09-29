@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 
 import qa_db
 import qa_gcode
+import qa_journal
 import qa_queries
 from qa_log import PLUGIN_ID, logger
 
@@ -233,7 +234,53 @@ def handle_jobs(ctx, request):
 
 
 def handle_job(ctx, request):
-    return _found(qa_queries.job(_con(ctx), _job_id(request)))
+    job_id = _job_id(request)
+    job = qa_queries.job(_con(ctx), job_id)
+    if job is not None:
+        job["journal"] = qa_journal.info(_journal_dir(ctx, job_id))
+    return _found(job)
+
+
+def _journal_dir(ctx, job_id):
+    try:
+        return qa_journal.job_dir(ctx.data_dir, job_id)
+    except ValueError as exc:
+        raise ApiError(400, str(exc))
+
+
+def _journal(ctx, request):
+    directory = _journal_dir(ctx, _job_id(request))
+    if not qa_journal.read_index(directory):
+        raise ApiError(404, "no object model journal for this job")
+    return directory
+
+
+def _ms(request, key):
+    value = query(request, key)
+    try:
+        return int(value) if value not in (None, "") else None
+    except ValueError:
+        raise ApiError(400, f"'{key}' is epoch milliseconds")
+
+
+def handle_om(ctx, request):
+    """The object model (or the value at ``path``) as it was at ``at`` (epoch ms; default the journal's end)."""
+    result = qa_journal.state_at(_journal(ctx, request), _ms(request, "at"), query(request, "path", ""))
+    return _found(result, "object model")
+
+
+def handle_om_history(ctx, request):
+    """Every change of the value at ``path`` between ``from`` and ``to`` (epoch ms)."""
+    path = query(request, "path")
+    if not path:
+        raise ApiError(400, "missing 'path'")
+    return json_response(qa_journal.history(_journal(ctx, request), path, _ms(request, "from"), _ms(request, "to"),
+                                            _int(request, "limit", 1000, 1, 10000)))
+
+
+def handle_om_journal(ctx, request):
+    """The journal as one gzip file of JSON lines (DSF streams it as application/octet-stream)."""
+    return Response(200, os.path.join(_journal(ctx, request), qa_journal.DATA_FILE), "file")
 
 
 def handle_layers(ctx, request):
@@ -500,6 +547,9 @@ ENDPOINTS = {
     ("GET", "job/spectra"): handle_spectra,
     ("GET", "job/toolpath"): handle_toolpath,
     ("GET", "job/export"): handle_export,
+    ("GET", "job/om"): handle_om,
+    ("GET", "job/om/history"): handle_om_history,
+    ("GET", "job/om/journal"): handle_om_journal,
     ("GET", "job/timelapse"): handle_timelapse_video,
     ("GET", "job/timelapse/meta"): handle_timelapse_meta,
     ("GET", "job/timelapse/frame"): handle_timelapse_frame,

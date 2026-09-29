@@ -84,6 +84,10 @@ class FakeCommand:
             result = "/nonexistent" + path[2:]
         return R()
 
+    def get_serialized_object_model(self):
+        # DSF's raw answer (IPC/Connection.cs:698-703)
+        return '{"success":true,"result":' + json.dumps(BASE_MODEL) + "}"
+
 
 def fake_subscribe(patches, daemon, error=None):
     class FakeSubscribe:
@@ -130,6 +134,12 @@ def test_main_records_a_job_and_publishes_status(daemon, data_dir, monkeypatch):
     assert con.execute("SELECT result FROM jobs").fetchone()[0] == "running"  # resumed on the next start
     assert con.execute("SELECT COUNT(*) FROM events WHERE type='job_start'").fetchone()[0] == 1
     assert set(cmd.plugin_data) <= set(daemon.PLUGIN_DATA_KEYS)
+    # the object model journal: DSF's snapshot at the job start, then the patches as they came
+    import qa_journal
+    job_id = con.execute("SELECT id FROM jobs").fetchone()[0]
+    state = qa_journal.state_at(qa_journal.job_dir(data_dir, job_id))
+    assert state["snapshotAt"] is not None and state["value"]["job"]["layer"] == 1
+    assert qa_journal.history(qa_journal.job_dir(data_dir, job_id), "job.duration")["points"][-1]["value"] == 3
 
 
 def test_main_gives_up_after_repeated_errors(daemon, monkeypatch):
