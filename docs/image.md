@@ -47,8 +47,11 @@ directory, e.g. for a test.) In the image since rc.49 (1d2fdee).
 The rules are in [apparmor-QualityAssurance.inc](apparmor-QualityAssurance.inc), indented to be
 pasted into `dsf_plugin_py` after the CHX350 block: QA's code and manifest, its data directory
 `/opt/dsf/sd/QualityAssurance/`, the job files (read), its endpoint sockets under
-`/run/dsf/QualityAssurance/`, its own accelerometer CSVs, the height maps in `0:/sys` (read, for the
-mesh's min/max and heights; added 2026-09-29), and for the timelapse the camera and ffmpeg (below). `scripts/sideload.sh` loads this same file on a test machine (docs/sideload.md);
+`/run/dsf/QualityAssurance/`, its own accelerometer CSVs (read and delete), all of `0:/sys` (read,
+the rule DSF itself writes for `readSystem`: the macros a job calls with `M98`, for the gear passes,
+and the height maps, for the mesh's min/max and heights; 2026-09-29), and for the timelapse the camera
+and ffmpeg (below). Because every bundled plugin runs in `dsf_plugin_py`, Vigil and CHX350 can read
+`0:/sys` then too. `scripts/sideload.sh` loads this same file on a test machine (docs/sideload.md);
 on the lab machine (image 0.1.0-rc.46) QA started and ran idle with it in enforce mode without a
 denial (2026-09-27); a print job with camera and accelerometer is still to run.
 
