@@ -67,7 +67,7 @@
 		"gearPassesHint": "How often each piece of filament passed the extruder gear: 1 without retraction, 3 when it went back and forth once, 5 twice. Counted from the G-code, the macros it calls, M207 and the e-steps valid during the print.",
 		"feed": "Feed factor",
 		"feedHint": "Filament the extruder pushed per millimetre of the G-code, compared with the start of the print: e-steps / e-steps when it first fed × extrusion factor (M221). 104 % after the filament monitor's M92 correction from 801 to 834.",
-		"filamentHint": "Commanded: extrusion the filament monitor saw commanded; measured: movement it measured (calibrated.totalDistance).",
+		"filamentHint": "Commanded: filament the monitor saw commanded. Measured: commanded × the monitor's reading of each check segment (lastPercentage); RRF reports no measured distance.",
 		"loadMean": "Load at setpoint",
 		"loadShareHigh": "Time ≥ high",
 		"percentMean": "Mean",

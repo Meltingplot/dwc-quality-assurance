@@ -65,11 +65,14 @@ def _indices(snapshot, prefix, suffix):
 class _Filament:
     """Commanded, measured and extruder filament of one interval, summed over the counters' restarts.
 
-    The monitor's counters (Duet3Expansion 3.7-dev @ 806ef34 RotatingMagnetFilamentMonitor.cpp:628-643
-    and RRF 3.7-dev @ 3638836 Duet3DFilamentMonitor.cpp:46 / RotatingMagnetFilamentMonitor.cpp:46,
-    read 2026-09-28): ``totalExtrusion`` and ``calibrated.totalDistance`` are both the *commanded*
-    extrusion since calibration started; the measured movement is only in ``avgPercentage`` =
-    100 × measured / commanded over the same span, so measured = totalExtrusion × avgPercentage / 100
+    The monitor's counters (Duet3Expansion 3.7-dev @ 913c761 RotatingMagnetFilamentMonitor.cpp:628-650,
+    RRF 3.7-dev @ 32a84d2 Duet3DFilamentMonitor.cpp:46, 292-304 / RotatingMagnetFilamentMonitor.cpp:46,
+    697-711, CANlib 3.7-dev @ cb52d69 CanMessageFormats.h:1183-1201, the same in the Meltingplot forks;
+    read 2026-09-28, checked again 2026-09-29): ``totalExtrusion`` and ``calibrated.totalDistance`` are
+    both the *commanded* extrusion since calibration started (the toolboard sends it as whole mm); the
+    measured movement is only in ``avgPercentage`` = 100 × measured / commanded over the same span (the
+    toolboard does not send the measured distance, RRF reconstructs it from avgPercentage for
+    ``calibrated.mmPerRev``), so measured = totalExtrusion × avgPercentage / 100
     (as chx350-config's e-steps and NLE macros use it). While the toolboard calibrates it sends no
     live data (the object model keeps the old total, avgPercentage is null), and it restarts both
     whenever the machine does not print (FilamentMonitor.cpp:318-325, Clear → Reset): at every job
