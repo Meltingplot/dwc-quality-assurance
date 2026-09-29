@@ -261,7 +261,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
 - **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
-  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `job_start`, `job_end`,
+  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `gear_passes_forecast`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
@@ -417,6 +417,15 @@ Weg `mm`, das Netto `netMm` und `gearPasses` = Weg / Netto: 1 ohne Retract, 3 = 
 vor, zurück, vor, 5 = zweimal. Lagen vor dem fertigen Index werden nachgerechnet. Event `gear_passes`
 für eine Folge von Lagen ≥ `thresholds.gearPasses` (5). Beim Benchy (mit Foto-Makro) lagen 82 von 265
 Lagen bei 5 oder mehr; der Sensor las dort im Referenzlauf im Mittel 80 %, sonst 91–93 %.
+
+**Gear-Passes-Vorhersage** (Tim 2026-09-29): Die Gear-Passes hängen nur an G-Code, aufgerufenen Makros und
+M207 und sind damit vor dem Druck bekannt. In beiden Benchy-Läufen vom 2026-09-28 kamen Kabine und
+Schornstein unterextrudiert heraus, genau die Lagen mit 5 oder mehr Passes (L137–175, L223–265 mit dem
+2-mm-Foto-Makro). QA rechnet deshalb einmal je Job alle Lagen vorab, sobald eine Lage begonnen hat
+(`print_start` hat M207 gesetzt) und der Lagenindex fertig ist, und legt sie als Kontext `gearForecast` ab;
+Folgen ≥ `thresholds.gearPasses` ergeben ein Event `gear_passes_forecast`, das DWC oder das spätere
+Quality-Control-Plugin als Warnung zeigen kann. Die Warnung vor Druckbeginn (je Datei) gehört ins
+Quality-Control-Plugin.
 
 **Förderfaktor je Lage** (Schema-Version 3, Tim 2026-09-29): wie viel Filament der Extruder je
 Millimeter der Datei geschoben hat, verglichen mit dem Druckbeginn: E-Steps / Referenz × Extrusionsfaktor

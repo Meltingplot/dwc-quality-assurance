@@ -85,6 +85,9 @@ describe("format", () => {
 			.toBe("95 % → 64 %");
 		expect(eventDetail({ type: "filament_percent_drift", subtype: "low", payload: { level: 95, threshold: 6, firstLayer: 138,
 			lastLayer: 194, layers: 57, extreme: 45.73 } })).toBe("95 % → 46 % (L138–194)");
+		expect(eventDetail({ type: "gear_passes_forecast", subtype: "high", payload: { threshold: 5, layers: 82, max: 13.94, maxLayer: 262,
+			runs: [{ firstLayer: 137, lastLayer: 175, max: 7.55, maxLayer: 150 }, { firstLayer: 223, lastLayer: 265, max: 13.94, maxLayer: 262 }] } }))
+			.toBe("L137–175 (7.5×), L223–265 (13.9×)");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });

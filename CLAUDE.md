@@ -110,7 +110,8 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - Gear passes: M207 and e-steps are known only while printing and change during it, so each layer's
   `filamentPath` is counted at its end with the values from its start, the layer index and the called
   macros as read during the job; `gear_passes` event from `thresholds.gearPasses` 5 (3 = every piece
-  of filament back and forth once; Tim 2026-09-28).
+  of filament back and forth once; Tim 2026-09-28). `gearForecast` (context) and the `gear_passes_forecast`
+  event give every layer in advance, at the first layer start (after print_start's M207; Tim 2026-09-29).
 - Feed factor per layer (`feed`): e-steps / reference × M221 over the extruder's forward movement. The
   reference is the e-steps at the first feeding inside a layer, because `print_start` sets M92 after the
   context snapshot. It is kept as `context.feedReference` (Tim 2026-09-29).

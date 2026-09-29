@@ -569,6 +569,7 @@ class Collector:
                                                              self._chamber, self._sensor_names,
                                                              self.job.feed_reference)
             self.broadcast({"type": "layer", "ts": now_ms, "jobId": self.job.id, "layer": layer})
+            self._gear_forecast(model, now_ms)
             if self.timelapse is not None:
                 self.timelapse.layer_changed(self.job, layer, now_ms)
         else:
@@ -652,12 +653,64 @@ class Collector:
         stats = job.gear_stats.get(layer)
         if stats is None or inputs is None:
             return None
+        return qa_gcode.filament_path(stats, inputs["stepsPerMm"], inputs["retraction"], self._known_macros(index))
+
+    def _known_macros(self, index):
+        """The macros the file calls, read once per job and kept in the context; unreadable ones left out."""
+        job = self.job
         if job.macros is None:
             job.macros = self._read_macros(index)
             job.context["macros"] = job.macros
             self.writer.submit("job_update", job.key, {"context": dict(job.context)})
-        known = {name: info for name, info in job.macros.items() if info is not None}
-        return qa_gcode.filament_path(stats, inputs["stepsPerMm"], inputs["retraction"], known)
+        return {name: info for name, info in job.macros.items() if info is not None}
+
+    def _gear_forecast(self, model, now_ms):
+        """Every layer's gear passes in advance, once per job: at the first layer start with the layer
+        index ready, when print_start has set the filament's M207. Kept as context ``gearForecast``; its
+        runs of layers at ``thresholds.gearPasses`` or more give one ``gear_passes_forecast`` event, so DWC
+        or the Quality Control plugin can warn while the job still runs. In both Benchy runs of
+        2026-09-28 the cabin and the chimney came out under-extruded (Tim 2026-09-29), exactly the
+        forecast's runs L137-175 and L223-265. A layer without net feed (no gearPasses) neither extends
+        nor breaks a run, as in ``_gear_passes_event``."""
+        job = self.job
+        if "gearForecast" in job.context or not job.layer or self.index_cache is None or not job.file_crc:
+            return
+        index, _state = self.index_cache.get(job.file_crc)
+        if index is None:
+            return
+        inputs = self._gear_inputs(model)
+        known = self._known_macros(index)
+        threshold = self.cfg()["thresholds"].get("gearPasses")
+        layers, runs, unknown, current = {}, [], set(), None
+        for entry in index["layers"]:
+            if not entry.get("stats"):
+                continue
+            path = qa_gcode.filament_path(entry["stats"], inputs["stepsPerMm"], inputs["retraction"], known)
+            unknown.update(path.get("unknownMacros", []))
+            passes = path["gearPasses"]
+            if passes is None:
+                continue
+            layers[str(entry["layer"])] = passes
+            if not threshold or passes < threshold:
+                current = None
+            elif current is None:
+                current = {"firstLayer": entry["layer"], "lastLayer": entry["layer"], "max": passes, "maxLayer": entry["layer"]}
+                runs.append(current)
+            else:
+                current["lastLayer"] = entry["layer"]
+                if passes > current["max"]:
+                    current["max"], current["maxLayer"] = passes, entry["layer"]
+        forecast = {"threshold": threshold, "atLayer": job.layer, "retraction": inputs["retraction"], "layers": layers,
+                    "runs": runs}
+        if unknown:
+            forecast["unknownMacros"] = sorted(unknown)
+        job.context["gearForecast"] = forecast
+        self.writer.submit("job_update", job.key, {"context": dict(job.context)})
+        if runs:
+            top = max(runs, key=lambda run: run["max"])
+            payload = {"threshold": threshold, "runs": runs, "layers": sum(1 for p in layers.values() if p >= threshold),
+                       "max": top["max"], "maxLayer": top["maxLayer"], "retraction": inputs["retraction"]}
+            self._event(model, now_ms, "gear_passes_forecast", "high", payload=payload, trigger_block=False)
 
     def _read_macros(self, index):
         """Every macro the file calls, as it is while the job runs (it may change later)."""

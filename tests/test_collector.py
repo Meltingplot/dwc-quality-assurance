@@ -510,3 +510,39 @@ def test_gear_passes_wait_for_the_layer_index(rig, tmp_path, monkeypatch):
     layers = {r["layer"]: qa_db.loads(r["filament_path"]) for r in rig.rows("SELECT * FROM job_layers")}
     assert [layers[n]["gearPasses"] for n in (1, 2, 3, 4)] == [2.2, 9.0, 9.0, 2.2]
     assert [(e["payload"]["firstLayer"], e["payload"]["lastLayer"]) for e in rig.events("gear_passes")] == [(2, 3)]
+
+
+def test_gear_passes_forecast_at_the_first_layer(rig, tmp_path):
+    """Every layer in advance, with the M207 valid at the first layer: layers 2-3 at 9 passes are one
+    forecast run, before they print. A later M207 change does not touch it."""
+    gear_rig(rig, tmp_path)
+
+    def change(layer):
+        if layer == 1:
+            forecasts = rig.events("gear_passes_forecast")
+            assert len(forecasts) == 1 and forecasts[0]["layer"] == 1 and forecasts[0]["block_id"] is None
+            assert forecasts[0]["payload"] == {"threshold": 5, "runs": [
+                {"firstLayer": 2, "lastLayer": 3, "max": 9.0, "maxLayer": 2}], "layers": 2, "max": 9.0, "maxLayer": 2,
+                "retraction": {"length": 0.4, "extraRestart": 0, "speed": 20.8, "unretractSpeed": 14, "zHop": 0}}
+        if layer == 2:
+            rig.patch({"tools": [{"retraction": {"length": 0.8}}]})
+    gear_print(rig, change)
+    assert len(rig.events("gear_passes_forecast")) == 1
+    forecast = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])["gearForecast"]
+    assert (forecast["atLayer"], forecast["layers"], forecast["runs"][0]["lastLayer"]) == (
+        1, {"1": 2.2, "2": 9.0, "3": 9.0, "4": 2.2}, 3)
+
+
+def test_gear_passes_forecast_waits_for_the_layer_index(rig, tmp_path, monkeypatch):
+    gear_rig(rig, tmp_path)
+    real = rig.index.get
+    building = {"on": True}
+    monkeypatch.setattr(rig.index, "get", lambda crc: (None, "building") if building["on"] else real(crc))
+
+    def release(layer):
+        if layer == 1:
+            assert rig.events("gear_passes_forecast") == []
+            building["on"] = False
+    gear_print(rig, release)
+    forecasts = rig.events("gear_passes_forecast")
+    assert [(e["layer"], e["payload"]["runs"][0]["firstLayer"]) for e in forecasts] == [(2, 2)]
