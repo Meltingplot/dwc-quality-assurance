@@ -41,7 +41,14 @@ between frames with the head in the same place 1-4 pixels changed in the whole p
 which came loose at L37, changed 12, 14, 24 and 32 pixels in its own area at L37-40. That needs the
 head parked in the same place for every photo: that job's take-photo.g parked only the beam (X), the
 head's Y varied and changed about 250 pixels per frame. Frames taken at layer changes (no M240) show
-the head printing and are not compared.
+the head printing and are not compared. Why the thumbnail and not the full picture: at 1920×1080 the
+edges shift by a pixel between two photos (the head, the beam, reflections), and averaging 12×12
+pixels takes that out while a part that moves still changes whole thumbnail pixels. 33 pairs of
+original JPEGs with the head in the same place (job 20260929-100722-adb6b4f6, 2026-09-29): median /
+most changed pixels 1236 / 12855 at 1920×1080, 44 / 469 at 480×270, 15 / 142 at 320×180, 1 / 4 at
+160×90; the hull of 20260929-085035 changed 46-113 at 320×180, so only the thumbnail tells the two
+apart. The price: one thumbnail pixel is about 7 mm at the far end of the CHX 350's bed, so a thin
+strand or a lifting corner goes unseen.
 
 Encoding. After the job, while no job prints, one ffmpeg at a time encodes with libsvtav1 into MP4
 with a keyframe every ``keyframeInterval`` frames, so a single frame decodes quickly. The encoder
