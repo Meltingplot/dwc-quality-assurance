@@ -48,6 +48,10 @@ DEFAULTS = {
         # that never jumps (job 20260928-134928-118609a9 fell from 91 to 79 % over L136-150, and its
         # cabin and chimney came out under-extruded; Tim 2026-09-29)
         "filamentDriftPoints": 6,
+        # two M240 timelapse frames (head parked) whose 160×90 thumbnails differ in this many pixels or
+        # more: something between them moved, a frame_change event (qa_timelapse docstring; with the head
+        # in place at most 5 pixels changed, the spaghetti of job 20260929-085035-adb6b4f6 11-40)
+        "frameChangePixels": 8,
     },
     # lastPercentage outside configured.percentMin/Max (without a firmware error), or away from the
     # monitor's level, this long
@@ -101,6 +105,7 @@ BOUNDS = {
     "thresholds.phantomReturnS": (_NUMBER, 0.1, 60),
     "thresholds.gearPasses": (_NUMBER, 1, 100),
     "thresholds.filamentLevelPoints": (_NUMBER, 1, 100),
+    "thresholds.frameChangePixels": (int, 1, 160 * 90),
     "filamentPercentWindowMinS": (_NUMBER, 0, 3600),
     "filamentLevelMinS": (_NUMBER, 0, 36000),
     "thresholds.filamentDriftPoints": (_NUMBER, 1, 100),

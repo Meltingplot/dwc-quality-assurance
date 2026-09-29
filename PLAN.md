@@ -263,7 +263,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   Folgetrigger verlängert; Block-ID an alle Samples und auslösenden Events.
 - **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
-  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `gear_passes_forecast`, `job_start`, `job_end`,
+  `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `gear_passes_forecast`, `frame_change`, `job_start`, `job_end`,
   `pause`, `resume`, `babystep`, `calibration`, `machine_mode`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
@@ -506,7 +506,7 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 {
   "sampleIntervalS": 5, "ringBufferS": 90, "postTriggerS": 30,
   "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5,
-                  "filamentLevelPoints": 20, "filamentDriftPoints": 6 },
+                  "filamentLevelPoints": 20, "filamentDriftPoints": 6, "frameChangePixels": 8 },
   "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300, "filamentDriftLayers": 3,
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },
@@ -588,6 +588,20 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   QA führt RRF `/sys/M240.g` aus, daher gehört ein leeres `/sys/M240.g` auf die Maschine
   (chx350-config). Nummernwahl: M240 ist in RepRap-Wiki, Duet-Wiki, Marlin, MK4duo und Octolapse
   „Kamera auslösen“, in RRF/DSF/chx350-config frei (Recherche 2026-09-28).
+- **Veränderung zwischen den Lagen** (Tim 2026-09-29, „einfache Spaghetti-Erkennung“): Zwei M240-Bilder
+  zeigen beide den geparkten Kopf; was sich zwischen ihnen über die neue Lage hinaus ändert, hat sich
+  bewegt (ein losgerissenes Teil, Spaghetti). Das Vorschaubild jedes M240-Bilds (das aus der
+  Stillstandsprüfung) wird mit dem des M240-Bilds davor verglichen: `changedPx` (Pixel mit mehr als 24
+  Graustufen Unterschied), `changedBox`, `afterPause`. Eine Folge von Bildern ab
+  `thresholds.frameChangePixels` (8) ist ein Event `frame_change`, geschrieben beim ersten Bild, damit
+  Quality Control reagieren kann. Gemessen an Bildpaaren mit dem Kopf an derselben Stelle (Jobs
+  20260929-085035-adb6b4f6, Rumpf bei L37 gelöst, bei L59 abgebrochen, und 20260929-100722, gut): ohne
+  Fehler höchstens 5 Pixel, auch gegen 2, 3 oder 5 Bilder zurück; der mitgeschleifte Klumpen 11–40
+  Pixel von Bild zu Bild (L49–55). Das Umkippen des Rumpfs bei L37–39 änderte nur 3–8 Pixel (dunkles
+  Teil auf dunklem Bett); ab 12 Graustufen wären es 20–61, aber auch Rauschen bis 42 (Kopf minimal
+  anders, ein Reflex): die Stufe wird mit fest geparktem Kopf nachkalibriert. Setzt
+  voraus, dass das Park-Makro den Kopf immer an dieselbe Stelle fährt: das take-photo.g dieses Jobs
+  parkte nur den Balken (X), das Y des Kopfes wechselte und änderte ≈ 250 Pixel je Bild.
 - **Während des Drucks:** Frames als JPEG nach `/opt/dsf/sd/QualityAssurance/timelapse/<job>/frames/`,
   Index Lage → Frame (Zeitstempel, Lage). Ein fehlender Snapshot wird im Index vermerkt, kein Abbruch.
   Beispiel laufender Job: 1019 Lagen × 105 KB ≈ 107 MB temporär.

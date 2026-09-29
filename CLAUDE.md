@@ -144,6 +144,10 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   from M240 only, QA holds the code (`qa_intercept.py`, always resolved) and never parks itself; the
   photo waits until the camera picture stood still (`stillMs`: the CHX 350 camera shows the machine
   1.3–2.3 s late, measured 2026-09-28; thumbnails via ffmpeg); frames numbered without gaps;
+  each M240 frame's thumbnail against the M240 frame before (`changedPx`; a run ≥
+  `thresholds.frameChangePixels` 8 = `frame_change` event: something moved, e.g. the spaghetti of 20260929-085035
+  from L49 (its hull tipping over at L37 changed only 3-8 px); needs the head parked in the same place every
+  photo; Tim 2026-09-29);
   encoding only while no job prints (SIGSTOP/SIGCONT), with nice 19 + I/O idle set on the encoder
   thread and inherited by ffmpeg; verified video (packets = frames) before the JPEGs go. Tested against trixie's ffmpeg 7.1.5 in a container
   (`test_real_ffmpeg` runs where ffmpeg has libsvtav1).

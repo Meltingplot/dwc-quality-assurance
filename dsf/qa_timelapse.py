@@ -29,6 +29,31 @@ still fetches snapshots until the picture has stood still for
 ``stillMs`` (``still_snapshot``), for ``stillMaxMs`` at most; the index entry keeps ``waitMs`` and
 ``still``. ``stillMs`` 0 is the fixed wait alone.
 
+Change between layers. Two M240 frames both show the machine parked, so what differs between them
+beyond the new layer has moved: a part that came loose and is dragged along, spaghetti. Each M240
+frame's grey thumbnail (the one ``still_snapshot`` judged, or one made for it) is compared with the
+frame before's: ``changedPx`` pixels differ by more than STILL_LEVEL, ``changedBox`` says where,
+``afterPause`` marks a pause between the two (a recovery purge or the operator's hand changes the
+picture too). A run of frames at ``thresholds.frameChangePixels`` or more is one ``frame_change``
+event, written at its first frame so the Quality Control plugin can react. Measured 2026-09-29 on
+pairs with the head in the same place (unchanged in a band at the top of the picture where only the
+head is): job 20260929-085035-adb6b4f6 (Benchy on the CHX 350, frames decoded from its AV1 video;
+the hull came loose at L37, the job was cancelled at L59) and the original JPEGs of the fine job
+20260929-100722-adb6b4f6. Without a failure at most 5 pixels changed, against the frame before as
+against 2, 3 or 5 frames back. The lump dragged along changed 11-40 from one frame to the next where
+it moved (L49-55). The hull tipping over at L37-39 changed only 3-8: dark on a dark bed, averaged
+over 12×12 pixels it rarely moves a thumbnail pixel by more than 24 levels. At 12 levels it showed
+(20-61), but so did a head standing a little differently and a reflection (up to 42), so the level
+is to be calibrated again once the head parks in the same place. That needs the
+head parked in the same place for every photo: that job's take-photo.g parked only the beam (X), the
+head's Y varied and changed about 250 pixels per frame. Frames taken at layer changes (no M240) show
+the head printing and are not compared. Why the thumbnail and not the full picture: at 1920×1080 the
+edges shift by a pixel between two photos (the head, the beam, reflections), and averaging 12×12
+pixels takes that out while a part that moves still changes whole thumbnail pixels. 33 pairs of
+original JPEGs whose thumbnails agree (job 20260929-100722-adb6b4f6, 2026-09-29): median / most
+changed pixels 1236 / 12855 at 1920×1080, 44 / 469 at 480×270, 15 / 142 at 320×180. The price: one thumbnail pixel is about 7 mm at the far end of the CHX 350's bed, so a thin
+strand or a lifting corner goes unseen.
+
 Encoding. After the job, while no job prints, one ffmpeg at a time encodes with libsvtav1 into MP4
 with a keyframe every ``keyframeInterval`` frames, so a single frame decodes quickly. The encoder
 thread lowers its own priority to nice 19 and I/O class idle, and every ffmpeg it starts inherits
@@ -180,14 +205,34 @@ def changed_pixels(a, b):
     return sum(1 for x, y in zip(a, b) if abs(x - y) > STILL_LEVEL)
 
 
+def frame_change(a, b):
+    """``(pixels, box)``: the pixels of two THUMB_W-wide thumbnails that differ by more than
+    STILL_LEVEL, and their bounding box as fractions of the picture ``[left, top, right, bottom]``
+    (None when none differ)."""
+    count = 0
+    left, top, right, bottom = THUMB_W, len(a) // THUMB_W, -1, -1
+    for i, (x, y) in enumerate(zip(a, b)):
+        if abs(x - y) > STILL_LEVEL:
+            count += 1
+            row, col = divmod(i, THUMB_W)
+            left, right = min(left, col), max(right, col)
+            top, bottom = min(top, row), max(bottom, row)
+    if not count:
+        return 0, None
+    rows = len(a) // THUMB_W
+    return count, [round(left / THUMB_W, 3), round(top / rows, 3), round((right + 1) / THUMB_W, 3),
+                   round((bottom + 1) / rows, 3)]
+
+
 def still_snapshot(fetch, thumbnail, still_s, until, clock=time.monotonic, sleep=time.sleep):
     """Snapshots from ``fetch`` until the picture has stood still for ``still_s``: at least three in a
     row that ``thumbnail`` shows unchanged, the first and the last ``still_s`` apart. A snapshot equal
     to the one before, byte for byte, is the same camera frame again and does not count.
 
-    Returns ``(jpeg, still)``: still False when ``until`` (a ``clock`` value) came first or a later
-    snapshot failed, with the last snapshot; None when ``thumbnail`` returned None, with the snapshot
-    at hand. Raises SnapshotError when the first snapshot fails."""
+    Returns ``(jpeg, still, thumb)``: still False when ``until`` (a ``clock`` value) came first or a
+    later snapshot failed, with the last snapshot; None when ``thumbnail`` returned None, with the
+    snapshot at hand. ``thumb`` is the jpeg's thumbnail (None with still None). Raises SnapshotError
+    when the first snapshot fails."""
     data = thumb = first = None
     unchanged = 0
     while True:
@@ -196,21 +241,21 @@ def still_snapshot(fetch, thumbnail, still_s, until, clock=time.monotonic, sleep
         except SnapshotError:
             if data is None:
                 raise
-            return data, False
+            return data, False, thumb
         now = clock()
         if new != data:
             new_thumb = thumbnail(new)
             if new_thumb is None:
-                return new, None
+                return new, None, None
             if thumb is not None and changed_pixels(thumb, new_thumb) <= STILL_PIXELS:
                 unchanged += 1
             else:
                 first, unchanged = now, 0
             data, thumb = new, new_thumb
             if unchanged >= 2 and now - first >= still_s:
-                return data, True
+                return data, True, thumb
         if now >= until:
-            return data, False
+            return data, False, thumb
         sleep(STILL_POLL_S)
 
 
@@ -256,12 +301,16 @@ class _Capture:
         self.last_queued = None           # collector thread, monotonic
         self.snapshot_failed = False
         self.marker = False               # frames come from M240 (set by the interceptor thread)
+        self.pauses = 0                   # pauses so far (collector thread), read at each M240
+        self.ref_thumb = None             # the last M240 frame's thumbnail and pauses (capture thread)
+        self.ref_pauses = 0
+        self.change = None                # the open frame_change event {"id", "ts", "payload"} (capture thread)
 
 
 class Timelapse:
-    """Capture thread + encoder thread. The collector calls ``job_started``, ``layer_changed`` and
-    ``job_finished`` from its thread (``recover`` once after a daemon start); the API reads through
-    ``status``, ``video_file``, ``frame_file`` and ``extract_frame``."""
+    """Capture thread + encoder thread. The collector calls ``job_started``, ``layer_changed``,
+    ``paused`` and ``job_finished`` from its thread (``recover`` once after a daemon start); the API
+    reads through ``status``, ``video_file``, ``frame_file`` and ``extract_frame``."""
 
     def __init__(self, writer, settings, data_dir, on_event=None, ffmpeg=None, ffprobe=None, fetch=None,
                  thumbnail=None):
@@ -386,6 +435,13 @@ class Timelapse:
         capture.last_queued = mono
         self._capture_queue.put(("frame", job.key, finished, now_ms, None))
 
+    def paused(self, job):
+        """The job paused: the next M240 frame is compared across the pause (``afterPause``)."""
+        with self._lock:
+            capture = self._captures.get(job.key)
+        if capture is not None:
+            capture.pauses += 1
+
     # --- M240 (qa_intercept thread; the print waits until this returns) --------------------------
 
     def photo(self, job_key, layer, ts_ms):
@@ -405,10 +461,12 @@ class Timelapse:
         if cfg["settleMs"]:
             time.sleep(cfg["settleMs"] / 1000.0)
         extra = {}
+        thumb = None
+        pauses = capture.pauses
         try:
             if cfg["stillMs"]:
-                result, still = still_snapshot(lambda: self._fetch(url), self._thumbnail, cfg["stillMs"] / 1000.0,
-                                               start + cfg["stillMaxMs"] / 1000.0)
+                result, still, thumb = still_snapshot(lambda: self._fetch(url), self._thumbnail,
+                                                      cfg["stillMs"] / 1000.0, start + cfg["stillMaxMs"] / 1000.0)
                 extra = {"waitMs": round((time.monotonic() - start) * 1000), "still": still}
                 if still is None and not self._thumbnail_warned:
                     self._thumbnail_warned = True
@@ -417,7 +475,7 @@ class Timelapse:
                 result = self._fetch(url)
         except SnapshotError as exc:
             result = exc
-        self._capture_queue.put(("photo", job_key, finished, ts_ms, (result, extra)))
+        self._capture_queue.put(("photo", job_key, finished, ts_ms, (result, extra, thumb, pauses)))
         if isinstance(result, Exception):
             return f"failed: {result}"
         return f"taken after {extra['waitMs']} ms, still: {extra['still']}" if extra else "taken"
@@ -452,7 +510,7 @@ class Timelapse:
                 self._paused = False
             self._wake.notify_all()
         if capture is not None:
-            self._capture_queue.put(("finish", job.key, None, None, None))
+            self._capture_queue.put(("finish", job.key, None, int(time.time() * 1000), None))
 
     def recover(self, current_key):
         """After a daemon start: finish what an earlier run left. Capturing rows of jobs that are not
@@ -490,18 +548,19 @@ class Timelapse:
             try:
                 if kind == "frame":
                     self._take(capture, layer, ts_ms)
-                elif kind == "photo":             # fetched by photo(): (JPEG or SnapshotError, index fields)
-                    fetched, extra = reason
-                    self._take(capture, layer, ts_ms, fetched=fetched, extra=extra)
+                elif kind == "photo":   # by photo(): (JPEG or SnapshotError, index fields, thumbnail, pauses)
+                    fetched, extra, thumb, pauses = reason
+                    self._take(capture, layer, ts_ms, fetched=fetched, extra=extra, compare=(thumb, pauses))
                 elif kind == "skip":
                     capture.entries.append({"layer": layer, "frame": None, "ts": ts_ms, "reason": reason})
                     self._store(capture)
                 elif kind == "finish":
+                    self._end_change(capture, ts_ms, {"closedBy": "job_end"})
                     self._finish(capture)
             except Exception as exc:  # noqa: BLE001
                 logger.error("timelapse capture error: %s", exc)
 
-    def _take(self, capture, layer, ts_ms, fetched=None, extra=None):
+    def _take(self, capture, layer, ts_ms, fetched=None, extra=None, compare=None):
         try:
             if isinstance(fetched, SnapshotError):
                 raise fetched
@@ -524,9 +583,53 @@ class Timelapse:
                 self.last_error = f"snapshot: {exc}"
                 self.on_event(capture.key, ts_ms, "timelapse_failed", "snapshot", {"error": str(exc), "layer": layer})
             return
-        capture.entries.append({"layer": layer, "frame": capture.next_frame, "ts": ts_ms, **(extra or {})})
+        entry = {"layer": layer, "frame": capture.next_frame, "ts": ts_ms, **(extra or {})}
+        if compare is not None:
+            entry.update(self._compare(capture, layer, ts_ms, data, *compare))
+        capture.entries.append(entry)
         capture.next_frame += 1
         self._store(capture)
+
+    def _compare(self, capture, layer, ts_ms, data, thumb, pauses):
+        """Index fields of an M240 frame against the M240 frame before it (module docstring); opens,
+        extends or ends the job's frame_change event."""
+        if thumb is None:
+            thumb = self._thumbnail(data)
+        if thumb is None:
+            return {}
+        ref, ref_pauses = capture.ref_thumb, capture.ref_pauses
+        capture.ref_thumb, capture.ref_pauses = thumb, pauses
+        if ref is None or len(ref) != len(thumb):
+            return {}
+        count, box = frame_change(ref, thumb)
+        fields = {"changedPx": count, "changedBox": box}
+        if pauses != ref_pauses:
+            fields["afterPause"] = True
+        threshold = self.settings.current()["thresholds"].get("frameChangePixels")
+        if threshold and count >= threshold:
+            change = capture.change
+            if change is None:
+                payload = {"threshold": threshold, "firstLayer": layer, "lastLayer": layer, "max": count,
+                           "maxLayer": layer, "box": box}
+                eid = self.on_event(capture.key, ts_ms, "frame_change", "pause" if pauses != ref_pauses else "layer",
+                                    dict(payload))
+                capture.change = {"id": eid, "ts": ts_ms, "payload": payload}
+            else:
+                payload = change["payload"]
+                payload["lastLayer"] = layer
+                if count > payload["max"]:
+                    payload["max"], payload["maxLayer"], payload["box"] = count, layer, box
+        else:
+            self._end_change(capture, ts_ms)
+        return fields
+
+    def _end_change(self, capture, ts_ms, extra=None):
+        """Ends the open frame_change event: at the first frame below the threshold, or at the job end."""
+        change, capture.change = capture.change, None
+        if change is None or change["id"] is None:
+            return
+        payload = {**change["payload"], **(extra or {}), "durationS": round((ts_ms - change["ts"]) / 1000.0, 1)}
+        self.writer.submit("event_update", change["id"], {"end_ms": ts_ms, "payload": payload}, urgent=True)
 
     def _store(self, capture):
         self.writer.submit("timelapse_upsert", capture.key, {"frames": capture.next_frame,

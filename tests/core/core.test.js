@@ -83,6 +83,8 @@ describe("format", () => {
 			text: "Driver 20.0 warning: phase A may be disconnected" } })).toBe("Driver 20.0 warning: phase A may be disconnected");
 		expect(eventDetail({ type: "gear_passes", subtype: "high", payload: { threshold: 5, firstLayer: 137, lastLayer: 176,
 			max: 7.62, maxLayer: 150 } })).toBe("7.6× @ L150 (L137–176)");
+		expect(eventDetail({ type: "frame_change", subtype: "layer", payload: { threshold: 8, firstLayer: 37, lastLayer: 58, max: 32,
+			maxLayer: 40, box: [0.3, 0.3, 0.7, 0.5] } })).toBe("32 px @ L40 (L37–58)");
 		expect(eventDetail({ type: "filament_percent_level", subtype: "low", payload: { level: 95, lastPercentage: 64, extreme: 35,
 			durationS: 365 } })).toBe("95 % → 35 %, 6m 05s");
 		expect(eventDetail({ type: "filament_percent_level", subtype: "low", payload: { level: 95, lastPercentage: 64 } }))

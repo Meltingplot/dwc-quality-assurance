@@ -270,12 +270,21 @@ class Film:
         return bytes([self.scenes[int(data[8:-2])]]) * 20
 
     def run(self, still_s=0.5, until=5.0):
-        data, still = qa_timelapse.still_snapshot(self.fetch, self.thumbnail, still_s, until, self.clock, self.sleep)
+        data, still, thumb = qa_timelapse.still_snapshot(self.fetch, self.thumbnail, still_s, until, self.clock,
+                                                         self.sleep)
+        assert thumb == self.thumbnail(data)   # the thumbnail of the snapshot returned
         return int(data[8:-2]), still
 
 
 def test_still_picture_helpers():
     assert qa_timelapse.changed_pixels(bytes([10, 10, 10]), bytes([10, 34, 35])) == 1   # 24 levels are not more
+    w, h = qa_timelapse.THUMB_W, qa_timelapse.THUMB_H
+    before = bytearray(w * h)
+    after = bytearray(before)
+    after[10 * w + 40] = after[19 * w + 79] = 200                    # two pixels: columns 40-79, rows 10-19
+    after[12 * w + 50] = 24                                          # not more than STILL_LEVEL
+    assert qa_timelapse.frame_change(bytes(before), bytes(after)) == (2, [0.25, 0.111, 0.5, 0.222])
+    assert qa_timelapse.frame_change(bytes(before), bytes(before)) == (0, None)
     cmd = qa_timelapse.thumbnail_command("ffmpeg")
     assert cmd[cmd.index("-i") + 1] == "pipe:0" and cmd[-1] == "pipe:1"
     assert "scale=160:90:flags=area,format=gray" in cmd
@@ -302,8 +311,9 @@ def test_still_snapshot_gives_up(monkeypatch):
     with pytest.raises(qa_timelapse.SnapshotError):
         dead.run()
     blind = Film(0, 30, 60)
-    data, still = qa_timelapse.still_snapshot(blind.fetch, lambda _data: None, 0.5, 5.0, blind.clock, blind.sleep)
-    assert (data, still, blind.t) == (b"\xff\xd8frame 0\xff\xd9", None, 0)   # cannot judge: no waiting
+    data, still, thumb = qa_timelapse.still_snapshot(blind.fetch, lambda _data: None, 0.5, 5.0, blind.clock,
+                                                     blind.sleep)
+    assert (data, still, thumb, blind.t) == (b"\xff\xd8frame 0\xff\xd9", None, None, 0)   # cannot judge: no waiting
 
 
 def test_m240_photo_keeps_the_wait_in_the_index(rig, lapse, settings, monkeypatch):
@@ -322,6 +332,48 @@ def test_m240_photo_keeps_the_wait_in_the_index(rig, lapse, settings, monkeypatc
     stored = os.path.join(lapse.job_dir(rig.collector.job.id), "frames", qa_timelapse.frame_name(0))
     with open(stored, "rb") as handle:
         assert int(handle.read()[2:-2]) >= 10   # the picture of the parked machine
+
+
+def test_m240_frames_are_compared_and_a_run_of_changes_is_one_event(rig, lapse, settings):
+    """Photos of the parked head: what differs from the frame before beyond the new layer moved (a part
+    that came loose). A run of frames at thresholds.frameChangePixels or more is one frame_change event."""
+    settings.update({"timelapse": {"snapshotUrl": "http://camera/snapshot", "minIntervalS": 0, "settleMs": 0,
+                                   "stillMs": 0}})
+    size = qa_timelapse.THUMB_W * qa_timelapse.THUMB_H
+    lit = [0, 2, 14, 34, 34, 64]                  # scene k: the first lit[k] pixels bright
+    shots = iter(range(len(lit)))
+    lapse._fetch = lambda _url: b"\xff\xd8%d\xff\xd9" % next(shots)
+    lapse._thumbnail = lambda data: bytes([200]) * lit[int(data[2:-2])] + bytes(size - lit[int(data[2:-2])])
+    rig.start_job()
+    key = rig.collector.job.key
+    stamps = {}
+    for layer in range(2, 8):
+        if layer == 7:                                # a pause between the frames of layers 5 and 6
+            rig.patch({"state": {"status": "paused"}})
+            rig.patch({"state": {"status": "processing"}})
+        rig.patch({"job": {"layer": layer, "duration": layer * 20}})
+        stamps[layer - 1] = rig.t
+        assert lapse.photo(key, layer, rig.t) == "taken"
+    assert wait_until(lambda: len((row(rig) or {}).get("layer_frames") or []) == 6)
+    entries = row(rig)["layer_frames"]
+    assert "changedPx" not in entries[0]              # nothing to compare the first frame with
+    assert [e["changedPx"] for e in entries[1:]] == [2, 12, 20, 0, 30]
+    box = lambda first, end: [round(first / 160, 3), 0.0, round(end / 160, 3), round(1 / 90, 3)]  # in row 0
+    assert entries[2]["changedBox"] == box(2, 14)
+    assert entries[4]["changedBox"] is None
+    assert [e.get("afterPause") for e in entries] == [None] * 5 + [True]
+
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "layer": None}})
+    rig.collector.resolve_pending_end(rig.t, force=True)
+    assert wait_until(lambda: (row(rig) or {}).get("status") == "done")
+    moved, paused = rig.events("frame_change")
+    assert (moved["subtype"], moved["ts_ms"], moved["end_ms"]) == ("layer", stamps[3], stamps[5])
+    assert moved["payload"] == {"threshold": 8, "firstLayer": 3, "lastLayer": 4, "max": 20, "maxLayer": 4,
+                                "box": box(14, 34),
+                                "durationS": round((stamps[5] - stamps[3]) / 1000, 1)}
+    assert (paused["subtype"], paused["payload"]["firstLayer"]) == ("pause", 6)
+    assert paused["payload"]["closedBy"] == "job_end"
+    assert paused["end_ms"] is not None
 
 
 def test_encoder_failure_keeps_frames(rig, lapse, data_dir, monkeypatch):

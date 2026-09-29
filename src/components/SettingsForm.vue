@@ -113,6 +113,7 @@ const NUMBER_FIELDS = [
 	{ key: "filamentLevelMinS", path: "filamentLevelMinS", unit: "s" },
 	{ key: "filamentDriftPoints", path: "thresholds.filamentDriftPoints", unit: "%" },
 	{ key: "filamentDriftLayers", path: "filamentDriftLayers", unit: "" },
+	{ key: "frameChangePixels", path: "thresholds.frameChangePixels", unit: "px" },
 	{ key: "loadHigh", path: "heaterLoad.high", unit: "" },
 	{ key: "loadLimit", path: "heaterLoad.limit", unit: "" },
 	{ key: "retentionJobs", path: "retention.jobs", unit: "" },

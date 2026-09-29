@@ -282,6 +282,11 @@ export interface TimelapseEntry {
 	/** M240 photo: ms from the M240 to the snapshot, and whether the picture had stood still (null: not judged) */
 	waitMs?: number;
 	still?: boolean | null;
+	/** M240 photo against the M240 frame before it: pixels of the 160×90 thumbnails that differ, where
+	 * (fractions of the picture: left, top, right, bottom; null when none), and whether a pause lay between */
+	changedPx?: number;
+	changedBox?: [number, number, number, number] | null;
+	afterPause?: boolean;
 }
 
 export interface TimelapseMeta {
