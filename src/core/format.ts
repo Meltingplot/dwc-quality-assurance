@@ -116,11 +116,30 @@ export function eventColor(type: string): string {
 }
 
 /** Short, language-neutral detail of an event payload for a table cell */
+function plain(value: unknown): string {
+	if (value === null || value === undefined) {
+		return "—";
+	}
+	return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+/** A setpoint's change; of an object (fm.configured, tool.retraction) only the fields that changed */
+function setpointChange(from: unknown, to: unknown): string {
+	const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+	if (!isObject(from) && !isObject(to)) {
+		return `${plain(from)} → ${plain(to)}`;
+	}
+	const a = isObject(from) ? from : {};
+	const b = isObject(to) ? to : {};
+	const changed = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+	return changed.map((k) => `${k}: ${plain(a[k])} → ${plain(b[k])}`).join(", ") || "—";
+}
+
 export function eventDetail(event: { type: string; subtype: string | null; payload: Record<string, any> | null }): string {
 	const p = event.payload ?? {};
 	switch (event.type) {
 		case "setpoint_change":
-			return `${p.from ?? "—"} → ${p.to ?? "—"}${p.cause ? ` (${p.cause})` : ""}`;
+			return `${setpointChange(p.from, p.to)}${p.cause ? ` (${p.cause})` : ""}`;
 		case "heater_load":
 			return `${formatPercent(p.peakMean)} @ ${p.setpoint ?? "—"} °C${p.durationS !== undefined ? `, ${formatDuration(p.durationS)}` : ""}`;
 		case "filament_status":

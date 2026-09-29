@@ -61,6 +61,14 @@ describe("format", () => {
 	it("summarises event payloads", () => {
 		expect(eventDetail({ type: "setpoint_change", subtype: "stepsPerMm", payload: { from: 790, to: 812.5, cause: "mfm_flow_bias" } }))
 			.toBe("790 → 812.5 (mfm_flow_bias)");
+		// objects (job 20260928-155257-118609a9, L166): only what changed, not "[object Object]"
+		const configured = { allMoves: false, mmPerRev: 25.3, percentMin: 60, percentMax: 180, sampleDistance: 5 };
+		expect(eventDetail({ type: "setpoint_change", subtype: "fm.configured", payload: { from: configured, to: { ...configured, allMoves: true } } }))
+			.toBe("allMoves: false → true");
+		expect(eventDetail({ type: "setpoint_change", subtype: "tool.retraction", payload: { from: null, to: { length: 0.4, zHop: 0 } } }))
+			.toBe("length: — → 0.4, zHop: — → 0");
+		expect(eventDetail({ type: "setpoint_change", subtype: "fm.calibrated", payload: { from: true, to: false } })).toBe("true → false");
+		expect(eventDetail({ type: "setpoint_change", subtype: "heater.active", payload: { from: null, to: 220 } })).toBe("— → 220");
 		expect(eventDetail({ type: "heater_load", subtype: "high", payload: { peakMean: 0.86, setpoint: 220, durationS: 125 } }))
 			.toBe("86 % @ 220 °C, 2m 05s");
 		expect(eventDetail({ type: "driver_error", subtype: "warning", payload: { source: "status", board: 1, canAddress: 20, driver: 0,
