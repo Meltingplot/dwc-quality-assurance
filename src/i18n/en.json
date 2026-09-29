@@ -117,6 +117,7 @@
 		"pause": "Pause",
 		"resume": "Resume",
 		"babystep": "Babystep",
+		"machine_mode": "Machine mode",
 		"timelapse_failed": "Timelapse failed",
 		"accelerometer_failed": "Accelerometer failed",
 		"daemon_started_mid_job": "Recording started mid-job"

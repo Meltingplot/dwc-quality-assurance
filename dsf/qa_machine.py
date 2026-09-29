@@ -117,6 +117,13 @@ def context_globals(globals_, names):
     return result
 
 
+def machine_mode(globals_):
+    """``global.machine_mode`` of chx350-config: "automatic" once both doors were opened and closed again
+    since boot or the last job, else "default" (restrictive; DuetWebControl CHX350 plugin @ e0d1b85
+    composables/useChxGlobals.ts:60-84, 2026-09-29). None on a machine without it."""
+    return decode(_get(globals_, "machine_mode"))
+
+
 def steps_cause(new_steps, globals_):
     """Why stepsPerMm changed, from the MFM globals: ``mfm_flow_bias`` when it is the suggested
     correction (M92 in filament-error.g / resume.g), ``baseline_restore`` when it is the baseline

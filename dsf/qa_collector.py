@@ -43,7 +43,7 @@ RESUMING = ("resuming",)
 
 # Events that may explain a pause (§5.4 "Pause-Ursache")
 PAUSE_CAUSE_TYPES = ("filament_status", "filament_percent_window", "mfm_error_tolerated", "mfm_recovery",
-                     "mfm_flow_bias", "heater_fault", "heater_monitor", "heater_load", "driver_error")
+                     "mfm_flow_bias", "heater_fault", "heater_monitor", "heater_load", "driver_error", "machine_mode")
 
 # RRF event texts (Event::GetTextDescription, RepRapFirmware 3.7-dev @ 3638836, Platform/Event.cpp):
 # "Driver <board>.<driver> error: ...", "... warning: ...", "... stall". RRF prints them only when
@@ -161,6 +161,7 @@ class Collector:
         self._fm_window = {}        # monitor -> {"since": ms, "event": id or None}
         self._fm_level = {}         # monitor -> {"since": ms, "level", "extreme", "event": id or None}
         self._fm_drift = {}         # monitor -> run of layers on one side of its level: {"side", "ts_ms", "payload", "event"}
+        self._machine_mode = None
         self.model = None
 
     # --- helpers ---------------------------------------------------------------------------
@@ -842,6 +843,7 @@ class Collector:
         self._fm_level = {}
         self._fm_drift = {}
         self._vin_low = set()
+        self._machine_mode = qa_machine.machine_mode(getattr(model, "globals", None))
 
     def _detect(self, model, patch, snapshot, status, now_ms):
         self._heater_events(model, now_ms)
@@ -850,6 +852,7 @@ class Collector:
         self._fm_window_check(model, now_ms)
         self._fm_level_check(model, now_ms)
         self._mfm_events(model, now_ms)
+        self._machine_mode_event(model, now_ms)
         self._setpoint_events(model, now_ms)
         self._driver_events(model, patch, now_ms)
         self._voltage_events(model, snapshot, now_ms)
@@ -1067,6 +1070,15 @@ class Collector:
             return
         for type_, subtype, payload in self.mfm.update(getattr(model, "globals", None)):
             self._event(model, now_ms, type_, subtype, payload=payload)
+
+    def _machine_mode_event(self, model, now_ms):
+        """A change of the CHX 350's machine mode during the job (Tim 2026-09-29): "default" is the
+        restrictive mode (e.g. heaters capped), so the change gets a fine block and may explain a pause."""
+        mode = qa_machine.machine_mode(getattr(model, "globals", None))
+        before = self._machine_mode
+        self._machine_mode = mode
+        if before is not None and mode is not None and mode != before:   # None: not read yet (daemon restart)
+            self._event(model, now_ms, "machine_mode", str(mode), payload={"from": before, "to": mode})
 
     @staticmethod
     def _read_setpoints(model):

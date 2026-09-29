@@ -252,6 +252,35 @@ def test_pause_by_user_and_message_box(rig):
     assert causes == ["user", "message: Nozzle check"]
 
 
+def test_machine_mode_changes_during_the_job(rig):
+    """global.machine_mode of chx350-config: a change during the job is an event with a fine block and may
+    explain the pause that follows; the mode before the job is only context (Tim 2026-09-29)."""
+    rig.patch({"global": {"machine_mode": "automatic"}})
+    rig.start_job()
+    rig.patch({"global": {"machine_mode": "automatic"}})
+    rig.patch({"global": {"machine_mode": "default"}})
+    rig.patch({"state": {"status": "paused"}})
+    rig.patch({"state": {"status": "processing"}, "global": {"machine_mode": "automatic"}}, dt_ms=20_000)
+    events = rig.events("machine_mode")
+    assert [(e["subtype"], e["payload"]) for e in events] == [
+        ("default", {"from": "automatic", "to": "default"}), ("automatic", {"from": "default", "to": "automatic"})]
+    assert events[0]["block_id"] is not None
+    assert rig.events("pause")[0]["subtype"] == "machine_mode"
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    assert context["globalsStart"]["machine_mode"] == "automatic"
+
+
+def test_machine_mode_is_not_a_change_after_a_daemon_restart(rig, writer, settings):
+    rig.start_job()
+    rig.collector.shutdown(rig.t)
+    fresh = qa_collector.Collector(writer, settings, resolve_path=lambda v: str(rig.gcode))
+    fresh.init_ids()
+    fresh.update(rig.model, None, rig.t + 5000)
+    rig.model.update_from_json({"state": {"upTime": 1005}})
+    fresh.update(rig.model, {"state": {"upTime": 1005}}, rig.t + 6000)
+    assert rig.events("machine_mode") == []
+
+
 def test_heater_fault_monitor_and_setpoints(rig):
     rig.start_job()
     rig.patch({"heat": {"heaters": [{"active": 70}, {"current": 301}]}})

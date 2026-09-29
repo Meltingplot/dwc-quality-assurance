@@ -92,6 +92,8 @@ describe("format", () => {
 		expect(eventDetail({ type: "gear_passes_forecast", subtype: "high", payload: { threshold: 5, layers: 82, max: 13.94, maxLayer: 262,
 			runs: [{ firstLayer: 137, lastLayer: 175, max: 7.55, maxLayer: 150 }, { firstLayer: 223, lastLayer: 265, max: 13.94, maxLayer: 262 }] } }))
 			.toBe("L137–175 (7.5×), L223–265 (13.9×)");
+		expect(eventDetail({ type: "machine_mode", subtype: "default", payload: { from: "automatic", to: "default" } }))
+			.toBe("automatic → default");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });
