@@ -50,7 +50,7 @@ DEFAULTS = {
         "filamentDriftPoints": 6,
         # two M240 timelapse frames (head parked) whose 160×90 thumbnails differ in this many pixels or
         # more: something between them moved, a frame_change event (qa_timelapse docstring; with the head
-        # in place 1-4 pixels changed, the hull of job 20260929-085035-adb6b4f6 that came loose 12-32)
+        # in place at most 5 pixels changed, the spaghetti of job 20260929-085035-adb6b4f6 11-40)
         "frameChangePixels": 8,
     },
     # lastPercentage outside configured.percentMin/Max (without a firmware error), or away from the

@@ -35,19 +35,23 @@ frame's grey thumbnail (the one ``still_snapshot`` judged, or one made for it) i
 frame before's: ``changedPx`` pixels differ by more than STILL_LEVEL, ``changedBox`` says where,
 ``afterPause`` marks a pause between the two (a recovery purge or the operator's hand changes the
 picture too). A run of frames at ``thresholds.frameChangePixels`` or more is one ``frame_change``
-event, written at its first frame so the Quality Control plugin can react. Job
-20260929-085035-adb6b4f6 (Benchy on the CHX 350; frames decoded from its AV1 video, 2026-09-29):
-between frames with the head in the same place 1-4 pixels changed in the whole picture; the hull,
-which came loose at L37, changed 12, 14, 24 and 32 pixels in its own area at L37-40. That needs the
+event, written at its first frame so the Quality Control plugin can react. Measured 2026-09-29 on
+pairs with the head in the same place (unchanged in a band at the top of the picture where only the
+head is): job 20260929-085035-adb6b4f6 (Benchy on the CHX 350, frames decoded from its AV1 video;
+the hull came loose at L37, the job was cancelled at L59) and the original JPEGs of the fine job
+20260929-100722-adb6b4f6. Without a failure at most 5 pixels changed, against the frame before as
+against 2, 3 or 5 frames back. The lump dragged along changed 11-40 from one frame to the next where
+it moved (L49-55). The hull tipping over at L37-39 changed only 3-8: dark on a dark bed, averaged
+over 12×12 pixels it rarely moves a thumbnail pixel by more than 24 levels. At 12 levels it showed
+(20-61), but so did a head standing a little differently and a reflection (up to 42), so the level
+is to be calibrated again once the head parks in the same place. That needs the
 head parked in the same place for every photo: that job's take-photo.g parked only the beam (X), the
 head's Y varied and changed about 250 pixels per frame. Frames taken at layer changes (no M240) show
 the head printing and are not compared. Why the thumbnail and not the full picture: at 1920×1080 the
 edges shift by a pixel between two photos (the head, the beam, reflections), and averaging 12×12
 pixels takes that out while a part that moves still changes whole thumbnail pixels. 33 pairs of
-original JPEGs with the head in the same place (job 20260929-100722-adb6b4f6, 2026-09-29): median /
-most changed pixels 1236 / 12855 at 1920×1080, 44 / 469 at 480×270, 15 / 142 at 320×180, 1 / 4 at
-160×90; the hull of 20260929-085035 changed 46-113 at 320×180, so only the thumbnail tells the two
-apart. The price: one thumbnail pixel is about 7 mm at the far end of the CHX 350's bed, so a thin
+original JPEGs whose thumbnails agree (job 20260929-100722-adb6b4f6, 2026-09-29): median / most
+changed pixels 1236 / 12855 at 1920×1080, 44 / 469 at 480×270, 15 / 142 at 320×180. The price: one thumbnail pixel is about 7 mm at the far end of the CHX 350's bed, so a thin
 strand or a lifting corner goes unseen.
 
 Encoding. After the job, while no job prints, one ffmpeg at a time encodes with libsvtav1 into MP4

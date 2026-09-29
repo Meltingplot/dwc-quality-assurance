@@ -594,9 +594,12 @@ passieren im DWC-Fork (`src/plugins/CHX350`), nicht im QA-Repo:
   Stillstandsprüfung) wird mit dem des M240-Bilds davor verglichen: `changedPx` (Pixel mit mehr als 24
   Graustufen Unterschied), `changedBox`, `afterPause`. Eine Folge von Bildern ab
   `thresholds.frameChangePixels` (8) ist ein Event `frame_change`, geschrieben beim ersten Bild, damit
-  Quality Control reagieren kann. Job 20260929-085035-adb6b4f6 (Benchy, Bilder aus dem AV1-Video): mit
-  dem Kopf an derselben Stelle änderten sich im ganzen Bild 1–4 Pixel, der Rumpf, der sich bei L37
-  löste, änderte in seinem Bereich 12, 14, 24, 32 Pixel (L37–40); abgebrochen wurde bei L59. Setzt
+  Quality Control reagieren kann. Gemessen an Bildpaaren mit dem Kopf an derselben Stelle (Jobs
+  20260929-085035-adb6b4f6, Rumpf bei L37 gelöst, bei L59 abgebrochen, und 20260929-100722, gut): ohne
+  Fehler höchstens 5 Pixel, auch gegen 2, 3 oder 5 Bilder zurück; der mitgeschleifte Klumpen 11–40
+  Pixel von Bild zu Bild (L49–55). Das Umkippen des Rumpfs bei L37–39 änderte nur 3–8 Pixel (dunkles
+  Teil auf dunklem Bett); ab 12 Graustufen wären es 20–61, aber auch Rauschen bis 42 (Kopf minimal
+  anders, ein Reflex): die Stufe wird mit fest geparktem Kopf nachkalibriert. Setzt
   voraus, dass das Park-Makro den Kopf immer an dieselbe Stelle fährt: das take-photo.g dieses Jobs
   parkte nur den Balken (X), das Y des Kopfes wechselte und änderte ≈ 250 Pixel je Bild.
 - **Während des Drucks:** Frames als JPEG nach `/opt/dsf/sd/QualityAssurance/timelapse/<job>/frames/`,
