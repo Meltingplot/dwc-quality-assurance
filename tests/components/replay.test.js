@@ -71,7 +71,7 @@ function api(toolpath, timelapse = { jobId: "j1", status: "none", reason: "no sn
 }
 
 describe("ReplayView", () => {
-	it("draws the layer with measured points and event markers", async () => {
+	it("draws the layer with executed points and event markers", async () => {
 		const a = api(async () => TOOLPATH);
 		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: EVENTS } });
 		await flush();
@@ -82,7 +82,7 @@ describe("ReplayView", () => {
 		expect(a.samples.mock.calls[0][2]).toEqual({ from: T1 - 10000, to: T1 + 30000, resolution: "auto" });
 		const canvas = wrapper.findComponent(ReplayCanvas);
 		// user = machine − workplace offset + tool offset of T0
-		expect(canvas.props("measured")).toEqual([{ x: 2 - 10 - 2, y: 0 + 3, flow: 0.5 * Math.PI * (2.85 / 2) ** 2 }]);
+		expect(canvas.props("executed")).toEqual([{ x: 2 - 10 - 2, y: 0 + 3, flow: 0.5 * Math.PI * (2.85 / 2) ** 2 }]);
 		expect(canvas.props("markers")).toMatchObject([{ x: 5 - 10 - 2, y: 1 + 3 }]);
 		expect(wrapper.text()).toContain("cube");
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.eventTypes.heater_load");

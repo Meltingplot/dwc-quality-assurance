@@ -68,7 +68,7 @@ and the page renders them by id from `useUiStore().embeddableComponents`:
 
 | id | shows |
 |---|---|
-| `QualityAssurance.LayerReplay` | the layer's toolpath coloured by commanded flow, the measured extrusion rate as dots, the layer's events as rings (like the Replay tab); wheel zooms, drag pans, double click fits |
+| `QualityAssurance.LayerReplay` | the layer's toolpath coloured by commanded flow, the planned extrusion rate of the executed moves as dots (sampled from `move.currentMove.extrusionRate`, not measured), the layer's events as rings (like the Replay tab); wheel zooms, drag pans, double click fits |
 | `QualityAssurance.LayerTimelapse` | the camera frame after the layer (`job/timelapse/*`: the video once encoded, the JPEG before); a layer without its own frame shows the latest earlier one; asks again every 5 s while the job is recorded or encoded |
 
 Props of both: `jobId` (QA job id) and `layer` (`job.layer` numbering, i.e. QA's `layers[].layer`,

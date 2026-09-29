@@ -234,7 +234,7 @@
 		"layerOf": "Layer {layer} of {total}",
 		"speed": "Speed",
 		"travel": "Travel moves",
-		"legend": "Colour: commanded volumetric flow from the G-code; dots: measured extrusion rate (same scale); rings: events. Wheel zooms, drag pans, double click fits.",
+		"legend": "Colour: commanded volumetric flow from the G-code; dots: extrusion rate RRF planned for the move it was executing, sampled (same scale; not measured); rings: events. Wheel zooms, drag pans, double click fits.",
 		"objects": "Objects",
 		"events": "Events of the layer",
 		"curves": "Temperature and heater load of the layer",

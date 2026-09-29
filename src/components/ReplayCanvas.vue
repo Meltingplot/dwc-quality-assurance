@@ -25,13 +25,13 @@ export interface ReplayMarker {
 }
 
 /**
- * One layer's toolpath on a 2D canvas, coloured by commanded volumetric flow; measured samples
- * as dots coloured on the same scale, events as rings. Wheel zooms, drag pans, double click fits.
+ * One layer's toolpath on a 2D canvas, coloured by commanded volumetric flow; the planned rate of the
+ * executed moves as dots coloured on the same scale, events as rings. Wheel zooms, drag pans, double click fits.
  */
 export default defineComponent({
 	props: {
 		toolpath: { type: Object as PropType<ToolpathAnswer | null>, default: null },
-		measured: { type: Array as PropType<Array<{ x: number; y: number; flow: number }>>, default: () => [] },
+		executed: { type: Array as PropType<Array<{ x: number; y: number; flow: number }>>, default: () => [] },
 		markers: { type: Array as PropType<Array<ReplayMarker>>, default: () => [] },
 		hiddenObjects: { type: Array as PropType<Array<number>>, default: () => [] },
 		showTravel: { type: Boolean, default: false },
@@ -65,7 +65,7 @@ export default defineComponent({
 				this.draw();
 			}
 		},
-		measured() { this.draw(); },
+		executed() { this.draw(); },
 		markers() { this.draw(); },
 		hiddenObjects() { this.draw(); },
 		showTravel() { this.draw(); }
@@ -160,7 +160,7 @@ export default defineComponent({
 				}
 				ctx.stroke();
 			}
-			for (const p of this.measured) {
+			for (const p of this.executed) {
 				const [px, py] = toScreen(view, p.x, p.y);
 				ctx.beginPath();
 				ctx.arc(px, py, 3, 0, Math.PI * 2);

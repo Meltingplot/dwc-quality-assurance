@@ -1,6 +1,6 @@
 <template>
 	<div class="qa-layer-replay">
-		<replay-canvas :toolpath="toolpath" :measured="measured" :markers="markers" :height="0" />
+		<replay-canvas :toolpath="toolpath" :executed="executed" :markers="markers" :height="0" />
 		<div v-if="message" class="qa-layer-replay__message text-body-2 text-medium-emphasis">{{ message }}</div>
 	</div>
 </template>
@@ -11,7 +11,7 @@ import { defineComponent, markRaw, type PropType } from "vue";
 import type { JobDetail, LayersAnswer, QaApi, QaEvent, SamplesAnswer, ToolpathAnswer } from "../core/api";
 import { pluginData } from "../core/backend";
 import {
-	fetchToolpath, frameAt, LAYER_SETTLE_MS, layerEvents, layerSpan, machineToUser, markerColor, measuredPoints, nozzleHeaters,
+	executedPoints, fetchToolpath, frameAt, LAYER_SETTLE_MS, layerEvents, layerSpan, machineToUser, markerColor, nozzleHeaters,
 	replayChannels, SAMPLE_LEAD_MS, toolOffsets, TOOLPATH_RETRY_MS
 } from "../core/replay";
 import { createHost, sharedApi } from "../host";
@@ -20,7 +20,7 @@ import ReplayCanvas, { type ReplayMarker } from "./ReplayCanvas.vue";
 /**
  * One layer's replay for another plugin's page (registered as the embeddable
  * "QualityAssurance.LayerReplay"; the CHX 350 analysis shows it as its top view): the toolpath
- * coloured by commanded flow, the measured extrusion rate as dots and the layer's events as
+ * coloured by commanded flow, the executed moves' planned extrusion rate as dots and the layer's events as
  * rings, filling the height the page gives it. The page chooses job and layer; the component
  * talks to the daemon itself. docs/chx-integration.md §4
  */
@@ -74,8 +74,8 @@ export default defineComponent({
 			const d = this.toolpath?.meta.filamentDiameter ?? 1.75;
 			return Math.PI * (d / 2) ** 2;
 		},
-		measured(): Array<{ x: number; y: number; flow: number }> {
-			return measuredPoints(this.samples?.channels ?? {}, this.area, this.span?.from)
+		executed(): Array<{ x: number; y: number; flow: number }> {
+			return executedPoints(this.samples?.channels ?? {}, this.area, this.span?.from)
 				.map((p) => ({ ...this.userPoint(p.x, p.y, p.ts), flow: p.flow }));
 		},
 		markers(): Array<ReplayMarker> {
@@ -144,7 +144,7 @@ export default defineComponent({
 				this.job = job;
 				this.layers = markRaw(layers);
 				this.events = markRaw(events.events);
-				// The layer times are known now, so the measured points can follow. Without a layer
+				// The layer times are known now, so the executed points can follow. Without a layer
 				// prop the last layer resolves only now; the watcher loads that one
 				if (this.resolvedLayer === layerBefore) {
 					await this.loadSamples(this.request, id);
