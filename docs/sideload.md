@@ -26,6 +26,15 @@ From image 0.1.0-rc.49 on the image bundles QA (rpi-image-gen PR #56 @ 4a7f80b, 
 
 The script tells the two apart by `/opt/dsf/sd/QualityAssurance` being a mount point.
 
+After a reboot the image's QA runs on the database the sideloaded one left. A QA refuses a database
+whose `schema_meta.version` is above its own `SCHEMA_VERSION`: the image rc.50's QA 0.1.0-rc.1 did so
+with the 3 that a sideload of 0.1.0-rc.1-dev.47 had written, and DSF restarted it every 2.5 s until
+the next sideload or image (lab CHX 350, 2026-09-29). Since then `version` names the oldest QA that can
+use the database, and a sideload whose migrations only add keeps it at what the image's QA accepts;
+one that the image's QA cannot use is set aside for a usable backup (docs/schema.md, "Versions and
+downgrades"). A dev build from before that, or the image's rc.2 itself, writes the layout into
+`version` again; the next start of a newer QA corrects it.
+
 ## What it does on the SBC
 
 `scripts/sideload.sh` builds the ZIP (`scripts/ci-local.sh build`), sends it with

@@ -19,6 +19,10 @@ def job_record(job_id="20260926-100000-00000001", started=1_000_000):
             "context": {"file": {"fileName": "0:/gcodes/a.gcode"}}}
 
 
+def schema(con):
+    return dict(con.execute("SELECT key, value FROM schema_meta").fetchall())
+
+
 def test_schema_and_job_roundtrip(writer, readers):
     key = writer.call("job_insert", job_record())
     writer.submit("job_update", key, {"result": "completed", "summary": {"a": 1}}, urgent=True)
@@ -27,7 +31,7 @@ def test_schema_and_job_roundtrip(writer, readers):
     assert row["result"] == "completed"
     assert qa_db.loads(row["summary"]) == {"a": 1}
     assert qa_db.loads(row["context"])["file"]["fileName"] == "0:/gcodes/a.gcode"
-    assert readers.get().execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
+    assert schema(readers.get()) == {"version": "1", "layout": "3"}
 
 
 def test_migration_from_version_1(tmp_path):
@@ -45,7 +49,7 @@ def test_migration_from_version_1(tmp_path):
     qa_db.migrate(con)   # again: nothing to do
     row = con.execute("SELECT layer, duration_s, filament_path, feed FROM job_layers").fetchone()
     assert row == (1, 12.5, None, None)
-    assert con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
+    assert schema(con) == {"version": "1", "layout": "3"}
 
 
 def test_migration_from_version_2(tmp_path):
@@ -63,7 +67,137 @@ def test_migration_from_version_2(tmp_path):
     qa_db.migrate(con)
     row = con.execute("SELECT layer, filament_path, feed FROM job_layers").fetchone()
     assert row == (1, '{"gearPasses": 2.2}', None)
-    assert con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()[0] == "3"
+    assert schema(con) == {"version": "1", "layout": "3"}
+
+
+def test_version_of_rc2_becomes_the_oldest_version_again(writer, data_dir):
+    """0.1.0-rc.2 (and a sideload before it) kept the layout in `version`, which 0.1.0-rc.1 refuses
+    (`version > 1`: the crash loop on the lab CHX 350, 2026-09-29); the next start makes it 1 again."""
+    writer.stop()
+    path = os.path.join(data_dir, qa_db.DB_FILE)
+    con = sqlite3.connect(path)
+    con.execute("DELETE FROM schema_meta WHERE key='layout'")
+    con.execute("UPDATE schema_meta SET value='3' WHERE key='version'")
+    con.commit()
+    writer.start()
+    assert schema(qa_db.connect(path, readonly=True)) == {"version": "1", "layout": "3"}
+
+
+def set_schema(path, version, layout):
+    con = sqlite3.connect(path)
+    con.executemany("INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
+                    (("version", str(version)), ("layout", str(layout))))
+    con.commit()
+    con.close()
+
+
+def job_ids(path):
+    con = sqlite3.connect(path)
+    try:
+        return [row[0] for row in con.execute("SELECT id FROM jobs ORDER BY key")]
+    finally:
+        con.close()
+
+
+def test_newer_layout_that_allows_this_plugin_is_used_as_it_is(writer, data_dir):
+    """A newer QA that only added a column leaves `version` at 1: an older one writes its rows and
+    leaves the newer layout alone."""
+    writer.stop()
+    path = os.path.join(data_dir, qa_db.DB_FILE)
+    con = sqlite3.connect(path)
+    con.execute("ALTER TABLE job_layers ADD COLUMN future TEXT")
+    con.commit()
+    con.close()
+    set_schema(path, 1, qa_db.SCHEMA_VERSION + 2)
+    assert writer.start() == "ok"
+    key = writer.call("job_insert", job_record())
+    writer.call("layer_upsert", key, {"layer": 1, "duration_s": 3.0})
+    writer.stop()
+    con = sqlite3.connect(path)
+    assert con.execute("SELECT duration_s, future FROM job_layers").fetchone() == (3.0, None)
+    assert schema(con) == {"version": "1", "layout": str(qa_db.SCHEMA_VERSION + 2)}
+    con.close()
+    writer.start()
+
+
+def test_database_too_new_is_set_aside_for_the_newest_usable_backup(data_dir):
+    path = os.path.join(data_dir, qa_db.DB_FILE)
+    w = qa_db.Writer(data_dir)
+    w.start()
+    w.call("job_insert", job_record())
+    w.call("backup")
+    w.call("job_insert", job_record("20260926-110000-00000002", 2_000_000))
+    w.call("backup")
+    w.call("job_insert", job_record("20260926-120000-00000003", 3_000_000))
+    w.stop()
+    # a newer QA migrated the database and made one backup; the older backup is still usable
+    newer = qa_db.SCHEMA_VERSION + 1
+    set_schema(path, newer, newer)
+    set_schema(os.path.join(data_dir, "qa.backup.1.db"), newer, newer)
+    w = qa_db.Writer(data_dir)
+    try:
+        assert w.start() == "downgraded:qa.backup.2.db"
+        assert job_ids(path) == ["20260926-100000-00000001"]
+        aside = [name for name in os.listdir(data_dir) if name.startswith("qa.db.newer.") and "-" not in name]
+        assert len(aside) == 1   # with its -wal/-shm, if there were any
+        assert len(job_ids(os.path.join(data_dir, aside[0]))) == 3
+        assert os.path.exists(os.path.join(data_dir, "qa.backup.1.db"))  # kept for the newer QA
+    finally:
+        w.stop()
+
+
+def test_database_too_new_without_usable_backup_starts_empty(data_dir):
+    path = os.path.join(data_dir, qa_db.DB_FILE)
+    w = qa_db.Writer(data_dir)
+    w.start()
+    w.call("job_insert", job_record())
+    w.stop()
+    set_schema(path, qa_db.SCHEMA_VERSION + 1, qa_db.SCHEMA_VERSION + 1)
+    w = qa_db.Writer(data_dir)
+    try:
+        assert w.start() == "downgraded"
+        assert job_ids(path) == []
+        assert schema(sqlite3.connect(path)) == {"version": "1", "layout": str(qa_db.SCHEMA_VERSION)}
+    finally:
+        w.stop()
+
+
+def test_copy_before_a_migration_older_versions_cannot_follow(data_dir, monkeypatch):
+    """A later layout that an older QA would misread keeps the database as it was for that QA, and
+    that QA falls back to the copy."""
+    path = os.path.join(data_dir, qa_db.DB_FILE)
+    old_version = qa_db.SCHEMA_VERSION
+    w = qa_db.Writer(data_dir)
+    w.start()
+    w.call("job_insert", job_record())
+    w.stop()
+
+    monkeypatch.setattr(qa_db, "SCHEMA_VERSION", old_version + 1)
+    monkeypatch.setattr(qa_db, "SCHEMA_COMPATIBLE", old_version + 1)
+    w = qa_db.Writer(data_dir)
+    assert w.start() == "ok"
+    w.call("job_insert", job_record("20260926-110000-00000002", 2_000_000))
+    w.stop()
+    copy = os.path.join(data_dir, f"qa.backup.schema{old_version}.db")
+    assert schema(sqlite3.connect(copy)) == {"version": "1", "layout": str(old_version)}
+    assert schema(sqlite3.connect(path)) == {"version": str(old_version + 1), "layout": str(old_version + 1)}
+
+    monkeypatch.setattr(qa_db, "SCHEMA_VERSION", old_version)
+    monkeypatch.setattr(qa_db, "SCHEMA_COMPATIBLE", 1)
+    w = qa_db.Writer(data_dir)
+    try:
+        assert w.start() == f"downgraded:qa.backup.schema{old_version}.db"
+        assert job_ids(path) == ["20260926-100000-00000001"]
+    finally:
+        w.stop()
+
+
+def test_migrate_refuses_a_database_too_new(tmp_path):
+    con = sqlite3.connect(str(tmp_path / "new.db"))
+    qa_db.migrate(con)
+    con.execute("UPDATE schema_meta SET value='99' WHERE key IN ('version', 'layout')")
+    with pytest.raises(qa_db.SchemaTooNew):
+        qa_db.migrate(con)
 
 
 def test_samples_wait_for_the_commit_interval(data_dir):

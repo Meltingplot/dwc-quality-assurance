@@ -11,10 +11,22 @@ its -wal/-shm) and the newest backup that passes ``quick_check`` is copied back,
 database is created. After every job: ``integrity_check`` then ``VACUUM INTO`` a new backup,
 two generations (``qa.backup.1.db`` newest).
 
+Versions, so that an older QA can run on a newer one's database (the image's QA after a sideload
+and a reboot, docs/sideload.md): ``schema_meta.version`` is the oldest ``SCHEMA_VERSION`` that can
+use the database, ``schema_meta.layout`` the layout it has. Every QA refuses a database whose
+``version`` is above its own ``SCHEMA_VERSION``: 0.1.0-rc.1 and rc.2 too, which knew only ``version``
+and kept the layout in it (rc.1 crash-looped on a sideload's 3 on the lab CHX 350, 2026-09-29). A
+migration that only adds (a nullable column, a table, an index) therefore leaves ``SCHEMA_COMPATIBLE``
+alone; one that an older QA would misread raises it. A database this QA cannot use is moved aside
+(``qa.db.newer.<epoch>``) and the newest backup it can use takes its place, else a new database;
+before a migration that shuts older versions out, the database is copied to
+``qa.backup.schema<layout>.db`` so that they find one.
+
 Jobs have a text id (``YYYYMMDD-HHMMSS-<crc>``, what the API uses) and an integer ``key`` that
 the high-volume tables reference, which keeps sample rows small.
 """
 
+import glob
 import json
 import logging
 import os
@@ -30,6 +42,9 @@ DB_FILE = "qa.db"
 BACKUP_FILES = ("qa.backup.1.db", "qa.backup.2.db")
 
 SCHEMA_VERSION = 3  # 2: job_layers.filament_path (2026-09-28), 3: job_layers.feed (2026-09-29)
+# The oldest SCHEMA_VERSION that reads and writes this layout correctly: 2 and 3 only added nullable
+# columns, which an older QA neither writes nor needs (its INSERTs name their columns)
+SCHEMA_COMPATIBLE = 1
 
 RESOLUTION_COARSE = 0
 RESOLUTION_FINE = 1
@@ -186,7 +201,36 @@ def _quick_check(path):
 def _move_aside(path, suffix):
     for ext in ("", "-wal", "-shm"):
         if os.path.exists(path + ext):
-            os.replace(path + ext, f"{path}.corrupt.{suffix}{ext}")
+            os.replace(path + ext, f"{path}.{suffix}{ext}")
+
+
+def _schema_state(con):
+    """``(version, layout)`` of a database, None for a new one. Up to 0.1.0-rc.2 ``version`` was the layout."""
+    try:
+        meta = dict(con.execute("SELECT key, value FROM schema_meta").fetchall())
+    except sqlite3.OperationalError:  # no schema_meta yet
+        return None
+    if "version" not in meta:
+        return None
+    version = int(meta["version"])
+    return version, int(meta.get("layout", version))
+
+
+def _file_schema_state(path):
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    try:
+        return _schema_state(con)
+    finally:
+        con.close()
+
+
+def _usable(state):
+    """True if this QA can use a database in ``state``: a layout it knows, or a newer one that allows it."""
+    return state is None or state[1] <= SCHEMA_VERSION or state[0] <= SCHEMA_VERSION
+
+
+class SchemaTooNew(RuntimeError):
+    pass
 
 
 def _fsync_dir(path):
@@ -202,34 +246,70 @@ def _fsync_dir(path):
         os.close(fd)
 
 
-def prepare(directory):
-    """Make sure ``directory/qa.db`` is healthy before it is opened for writing.
+def _backups(directory):
+    """Backup file names, newest content first: the two after the last jobs, then the copies made
+    before migrations that shut older versions out (newest layout first)."""
+    names = [name for name in BACKUP_FILES if os.path.exists(os.path.join(directory, name))]
+    kept = []
+    for path in glob.glob(os.path.join(directory, "qa.backup.schema*.db")):
+        name = os.path.basename(path)
+        layout = name[len("qa.backup.schema"):-len(".db")]
+        if layout.isdigit():
+            kept.append((int(layout), name))
+    return names + [name for _, name in sorted(kept, reverse=True)]
 
-    Returns a short description of what happened (``ok``, ``created``, ``restored:<backup>``,
-    ``replaced``) for the status endpoint and the console.
+
+def _restore(directory, kind):
+    """Copy the newest backup that passes ``quick_check`` and has a schema this QA can use to qa.db.
+    Returns ``<kind>:<backup>``, or ``<kind>`` when there is none (qa.db is then created new)."""
+    path = os.path.join(directory, DB_FILE)
+    for name in _backups(directory):
+        backup = os.path.join(directory, name)
+        if not _quick_check(backup):
+            continue
+        state = _file_schema_state(backup)
+        if not _usable(state):
+            logger.warning("backup %s has database schema %d, newer than this plugin (%d)",
+                           name, state[0], SCHEMA_VERSION)
+            continue
+        tmp = path + ".restore"
+        shutil.copyfile(backup, tmp)
+        with open(tmp, "rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        _fsync_dir(directory)
+        logger.warning("database restored from %s", name)
+        return f"{kind}:{name}"
+    logger.warning("no usable backup, starting with an empty database")
+    return kind
+
+
+def prepare(directory):
+    """Make sure ``directory/qa.db`` is healthy and has a schema this QA can use before it is opened
+    for writing.
+
+    Returns a short description of what happened for the status endpoint and the console: ``ok``,
+    ``created``, ``restored:<backup>`` / ``replaced`` (it was damaged), ``downgraded:<backup>`` /
+    ``downgraded`` (a newer QA's database this one cannot use, moved aside; a backup or a new one
+    took its place).
     """
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, DB_FILE)
     if not os.path.exists(path):
         return "created"
-    if _quick_check(path):
-        return "ok"
     stamp = int(time.time())
-    logger.error("database %s failed quick_check, moved aside as %s.corrupt.%d", path, path, stamp)
-    _move_aside(path, stamp)
-    for name in BACKUP_FILES:
-        backup = os.path.join(directory, name)
-        if os.path.exists(backup) and _quick_check(backup):
-            tmp = path + ".restore"
-            shutil.copyfile(backup, tmp)
-            with open(tmp, "rb") as handle:
-                os.fsync(handle.fileno())
-            os.replace(tmp, path)
-            _fsync_dir(directory)
-            logger.warning("database restored from %s", name)
-            return f"restored:{name}"
-    logger.warning("no usable backup, starting with an empty database")
-    return "replaced"
+    if not _quick_check(path):
+        logger.error("database %s failed quick_check, moved aside as %s.corrupt.%d", path, path, stamp)
+        _move_aside(path, f"corrupt.{stamp}")
+        result = _restore(directory, "restored")
+        return "replaced" if result == "restored" else result
+    state = _file_schema_state(path)
+    if _usable(state):
+        return "ok"
+    logger.warning("database schema %d is newer than this plugin (%d), moved aside as %s.newer.%d",
+                   state[0], SCHEMA_VERSION, path, stamp)
+    _move_aside(path, f"newer.{stamp}")
+    return _restore(directory, "downgraded")
 
 
 def connect(path, readonly=False):
@@ -247,19 +327,48 @@ def connect(path, readonly=False):
 
 
 def migrate(con):
+    """Bring the database to this layout. A newer layout that allows this QA stays as it is."""
+    state = _schema_state(con)
+    if not _usable(state):  # prepare() moves such a file aside first
+        raise SchemaTooNew(f"database schema {state[0]} is newer than this plugin ({SCHEMA_VERSION})")
     con.executescript(SCHEMA)
-    row = con.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
-    version = int(row[0]) if row else 0
-    if version > SCHEMA_VERSION:
-        raise RuntimeError(f"database schema {version} is newer than this plugin ({SCHEMA_VERSION})")
-    # Migrations from older versions go here, one step at a time
+    # Migrations from older layouts go here, one step at a time; one that does more than add raises
+    # SCHEMA_COMPATIBLE (module docstring)
     columns = {row[1] for row in con.execute("PRAGMA table_info(job_layers)")}
-    if "filament_path" not in columns:   # version 1
+    if "filament_path" not in columns:   # layout 1
         con.execute("ALTER TABLE job_layers ADD COLUMN filament_path TEXT")
-    if "feed" not in columns:            # version 2
+    if "feed" not in columns:            # layout 2
         con.execute("ALTER TABLE job_layers ADD COLUMN feed TEXT")
-    if version < SCHEMA_VERSION:
-        con.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)", (str(SCHEMA_VERSION),))
+    # Who can use a layout is known to the QA that knows the layout; this also turns an rc.2 `version`
+    # (the layout) back into the oldest version
+    if (state is None or state[1] <= SCHEMA_VERSION) and state != (SCHEMA_COMPATIBLE, SCHEMA_VERSION):
+        con.executemany("INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
+                        (("version", str(SCHEMA_COMPATIBLE)), ("layout", str(SCHEMA_VERSION))))
+
+
+def keep_for_older(con, directory):
+    """Before a migration that shuts out the QA versions using the database now (its layout is older
+    than SCHEMA_COMPATIBLE), copy it to ``qa.backup.schema<layout>.db`` for them. Returns the name."""
+    state = _schema_state(con)
+    if state is None or state[1] >= SCHEMA_COMPATIBLE:
+        return None
+    name = f"qa.backup.schema{state[1]}.db"
+    os.replace(_vacuum_copy(con, directory), os.path.join(directory, name))
+    _fsync_dir(directory)
+    logger.warning("database copied to %s before its migration to schema %d, for older QA versions",
+                   name, SCHEMA_COMPATIBLE)
+    return name
+
+
+def _vacuum_copy(con, directory):
+    """A compact copy of the database, on disk when this returns; the caller moves it into place."""
+    tmp = os.path.join(directory, "qa.backup.new.db")
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    con.execute("VACUUM INTO ?", (tmp,))
+    with open(tmp, "rb") as handle:
+        os.fsync(handle.fileno())
+    return tmp
 
 
 # --- Writer -------------------------------------------------------------------------------------
@@ -297,6 +406,7 @@ class Writer:
     def start(self):
         self.prepare_result = prepare(self.directory)
         self._con = connect(self.path)
+        keep_for_older(self._con, self.directory)
         migrate(self._con)
         self._load_channels()
         self._thread = threading.Thread(target=self._run, name="qa-db-writer", daemon=True)
@@ -580,12 +690,7 @@ class Writer:
             logger.error("integrity_check failed, no backup made: %s", problems[:3])
             return None
         newest = os.path.join(self.directory, BACKUP_FILES[0])
-        tmp = os.path.join(self.directory, "qa.backup.new.db")
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        self._con.execute("VACUUM INTO ?", (tmp,))
-        with open(tmp, "rb") as handle:
-            os.fsync(handle.fileno())
+        tmp = _vacuum_copy(self._con, self.directory)
         for index in range(len(BACKUP_FILES) - 1, 0, -1):
             older = os.path.join(self.directory, BACKUP_FILES[index - 1])
             if os.path.exists(older):

@@ -187,4 +187,7 @@ scripts/sideload.sh [status|remove]             # onto a CHX 350 through its HMI
 4. Persistent data only under `/opt/dsf/sd/QualityAssurance/`. A new endpoint goes into
    `ENDPOINTS` (so `qa_api.call` refuses requests without a session), never around it.
 5. Components mount against real Vuetify 4 without warnings; i18n keys in en **and** de.
-6. `npm run lint`, `npm test`, `pytest` green; `ci-local.sh build` when build or manifest changed.
+6. New DB column/table → a step in `qa_db.migrate` + `SCHEMA_VERSION`; raise `SCHEMA_COMPATIBLE` only
+   when an older QA would misread the layout (the image's QA must keep running after a sideload:
+   docs/schema.md, "Versions and downgrades").
+7. `npm run lint`, `npm test`, `pytest` green; `ci-local.sh build` when build or manifest changed.

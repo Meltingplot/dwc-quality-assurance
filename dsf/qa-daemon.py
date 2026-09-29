@@ -145,6 +145,8 @@ def main():
     prepared = writer.start()
     if prepared.startswith("restored") or prepared == "replaced":
         logger.warning("database was damaged: %s", prepared)
+    elif prepared.startswith("downgraded"):
+        logger.warning("database was a newer Quality Assurance's, set aside: %s", prepared)
 
     cmd = CommandConnection()
     if not connect_with_retry(cmd, "CommandConnection"):

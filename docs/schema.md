@@ -12,6 +12,8 @@ uses the API, not the database (PLAN.md §8).
 | `qa.db`, `qa.db-wal`, `qa.db-shm` | the SQLite database (WAL mode) |
 | `qa.backup.1.db`, `qa.backup.2.db` | backups after every job, newest first (`integrity_check`, then `VACUUM INTO`) |
 | `qa.db.corrupt.<epoch>` | a database that failed `quick_check` at start-up, moved aside (the newest good backup replaced it) |
+| `qa.db.newer.<epoch>` | a newer QA's database this one cannot use, moved aside at start-up (below, "Versions and downgrades") |
+| `qa.backup.schema<layout>.db` | the database as it was before a migration that shut older QA versions out, for them |
 | `settings.json` | settings (defaults in `dsf/qa_settings.py`, validated on load and on `POST settings`) |
 | `index/<crc32>.json` | G-code layer index per job file (byte ranges and modal state per layer), rebuilt when missing |
 | `timelapse/<job id>/frames/NNNNNN.jpg` | snapshots while a job prints and until its video is verified (kept after a failed encoding with `keepFramesOnFailure`) |
@@ -27,8 +29,35 @@ The accelerometer CSVs are RRF's: `0:/sys/accelerometer/qa-<job id>-<epoch s>.cs
 `journal_mode=WAL`, `synchronous=FULL`. One writer thread owns the only write connection: samples
 are committed every `commitIntervalS` (30 s, the loss window on power failure), events, job records,
 timelapse state and spectra at once. Endpoint threads read through their own read-only connections.
-Start-up runs `quick_check`; a damaged file is replaced by the newest backup that passes it, else by
-a new database.
+Start-up runs `quick_check`; a damaged file is replaced by the newest backup that passes it and has
+a schema this QA can use, else by a new database.
+
+## Versions and downgrades
+
+An older QA can find a newer one's data: the image's QA comes back with every reboot after a sideload
+(docs/sideload.md), and the data directory stays. `schema_meta` holds two numbers:
+
+| Key | |
+|---|---|
+| `version` | the oldest `SCHEMA_VERSION` that can use the database. Every QA refuses a database whose `version` is above its own, 0.1.0-rc.1 and rc.2 included |
+| `layout` | the layout it has, the newest `SCHEMA_VERSION` that migrated it. Missing up to 0.1.0-rc.2, when `version` held the layout |
+
+A migration that only adds (a nullable column, a table, an index) leaves `SCHEMA_COMPATIBLE`, and so
+`version`, alone: the older QA writes its rows (the new columns stay NULL) and ignores the rest. One
+that an older QA would misread (a renamed or reinterpreted column, a dropped table, `NOT NULL` without
+a default) raises `SCHEMA_COMPATIBLE` to its own number; before it runs, the database is copied to
+`qa.backup.schema<layout>.db`. A QA whose `SCHEMA_VERSION` knows the layout writes both keys at every
+start, which also turns an rc.2 `version` 3 back into 1; a newer layout it may use stays as it is.
+
+A database a QA cannot use is moved aside as `qa.db.newer.<epoch>` (with its -wal/-shm), and the
+newest backup that passes `quick_check` and has a usable schema takes its place (`qa.backup.1.db`,
+`qa.backup.2.db`, then `qa.backup.schema*.db`), else a new database; the status endpoint reports
+`database.startup` = `downgraded:<backup>` or `downgraded`. Nothing merges the two: the newer QA,
+back again, works on what the older one left in `qa.db`. To go back to the set-aside state, stop QA
+and copy `qa.db.newer.<epoch>` (and its -wal/-shm) over `qa.db`.
+
+`settings.json` keeps keys this QA does not know (another version's) and writes them back with every
+save; the G-code index (`index/`) carries its own version and is rebuilt on a mismatch.
 
 ## Retention
 
@@ -47,7 +76,8 @@ JSON text. Jobs have a text `id` (`YYYYMMDD-HHMMSS-<crc>`, what the API uses) an
 that the large tables reference.
 
 ### `schema_meta`
-`key`, `value`: `version` (the schema version, `SCHEMA_VERSION` in `dsf/qa_db.py`).
+`key`, `value`: `version` (the oldest `SCHEMA_VERSION` that can use the database) and `layout` (its
+layout; `dsf/qa_db.py`, "Versions and downgrades" above).
 
 ### `jobs`
 | Column | |
