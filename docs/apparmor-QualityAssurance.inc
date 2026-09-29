@@ -15,6 +15,9 @@
     # namespace directory, QA binds one socket per endpoint in it
     /run/dsf/QualityAssurance/{,**/} r,
     /run/dsf/QualityAssurance/** rw,
+    # bed calibration: the height map G29 wrote or loaded (move.compensation.file; RRF puts a name
+    # without a directory into 0:/sys, GCodes6.cpp LoadHeightMap/MakeSysFileName, 3.7-dev @ 32a84d2)
+    /opt/dsf/sd/sys/*.csv r,
     # accelerometer: read and delete the CSVs of its own M956 recordings (qa-*.csv); RRF writes
     # them through DSF, so the plugin never creates files there
     /opt/dsf/sd/sys/accelerometer/ r,
