@@ -125,6 +125,29 @@ def test_block_closes_after_post_trigger(rig):
     assert "jump:heater.1.current" in json.dumps(qa_db.loads(block["triggers"]))
 
 
+
+def test_jump_across_a_null_reading(rig):
+    """RRF reports lastPercentage as null while the monitor has no live data. The drop 91 → 64 %
+    across such a patch (L140 of job 20260928-155257-118609a9) opens a block; a value older than
+    ringBufferS is no base."""
+    def close_block():   # postTriggerS after its last trigger
+        for _ in range(35):
+            rig.patch({}, dt_ms=1000)
+
+    rig.start_job()
+    rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": 91}]}})
+    close_block()        # the job_start block
+    rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": None}]}})
+    assert "fm.0.lastPercentage" not in rig.collector._current
+    rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": 64}]}})
+    close_block()
+    rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": None}]}})
+    rig.patch({}, dt_ms=91_000)
+    rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": 91}]}})
+    blocks = [[t["reason"] for t in qa_db.loads(b["triggers"])] for b in rig.rows("SELECT * FROM blocks ORDER BY id")]
+    assert blocks == [["job_start"], ["jump:fm.0.lastPercentage"]]
+
+
 def test_percent_window_needs_min_duration(rig):
     rig.start_job()
     rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": 50}]}})

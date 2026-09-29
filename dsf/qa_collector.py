@@ -154,6 +154,7 @@ class Collector:
         self._monitor_violations = set()
         self._driver_status = {}
         self._phantom = {}          # channel -> {"ts", "before", "peak"}
+        self._jump_base = {}        # channel -> (ts_ms, value): its last non-null value, for _jump_triggers
         self._vin = {}              # board -> deque[(ts, value)]
         self._vin_low = set()
         self._fm_status = {}
@@ -1125,23 +1126,33 @@ class Collector:
         return self._block["id"]
 
     def _jump_triggers(self, snapshot, now_ms):
-        prev = self._prev_snapshot
-        if not prev:
-            return
-        th = self.cfg()["thresholds"]
+        """A fine block for a jump against the channel's last value that was not null, if that is still
+        in the ring buffer. RRF reports a monitor's percentages as null while it has no live data
+        (RRF 3.7-dev @ a4b8080 Duet3DFilamentMonitor.cpp:41-44; a CAN monitor takes hasLiveData from
+        every message, :291-303, read 2026-09-29), so comparing only neighbouring patches missed the
+        drop 91 → 64 % at L140 of job 20260928-155257-118609a9, where the cabin later broke off
+        (z ≈ 25.3 mm, Tim 2026-09-29)."""
+        cfg = self.cfg()
+        th = cfg["thresholds"]
+        horizon = now_ms - cfg["ringBufferS"] * 1000
         for name, value in snapshot.items():
-            before = prev.get(name)
-            if before is None or before == value:
+            temperature, fm, vin = (qa_channels.is_temperature(name), qa_channels.is_fm_percentage(name),
+                                    qa_channels.is_vin(name))
+            if not (temperature or fm or vin):
                 continue
-            reason = None
-            if qa_channels.is_temperature(name) and abs(value - before) >= th["temperatureK"]:
-                reason = f"jump:{name}"
-            elif qa_channels.is_fm_percentage(name) and abs(value - before) >= th["filamentPercentPoints"]:
-                reason = f"jump:{name}"
-            elif qa_channels.is_vin(name) and before > 0 and abs(value - before) / before >= th["vInPercent"] / 100:
-                reason = f"jump:{name}"
-            if reason:
-                self._trigger(now_ms, reason)
+            base = self._jump_base.get(name)
+            self._jump_base[name] = (now_ms, value)
+            if base is None or base[0] < horizon or base[1] == value:
+                continue
+            before = base[1]
+            if temperature:
+                jumped = abs(value - before) >= th["temperatureK"]
+            elif fm:
+                jumped = abs(value - before) >= th["filamentPercentPoints"]
+            else:
+                jumped = before > 0 and abs(value - before) / before >= th["vInPercent"] / 100
+            if jumped:
+                self._trigger(now_ms, f"jump:{name}")
 
     def _write_fine(self, snapshot, now_ms):
         if self._block is None:
