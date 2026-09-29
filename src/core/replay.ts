@@ -1,6 +1,6 @@
 /**
  * Replay helpers (PLAN.md §5.8): geometry and colours for drawing one layer's toolpath with the
- * measured samples and events on top, shared by the replay tab and the embeddable layer view.
+ * samples of the executed moves and events on top, shared by the replay tab and the embeddable layer view.
  * Pure functions plus the toolpath request, no DOM.
  */
 import { statusOf, type LayersAnswer, type QaApi, type QaEvent, type ToolpathAnswer } from "./api";
@@ -154,15 +154,16 @@ export function frameAt(events: Array<QaEvent>, ts: number): { offsets: Record<s
 }
 
 /**
- * Measured points: every extrusion-rate sample from ``from`` on, placed at the machine X/Y valid at
+ * Executed points: every extrusion-rate sample from ``from`` on, placed at the machine X/Y valid at
  * its time. A value holds until the next sample of its channel (fine blocks store only changed
  * values, so the samples should start a coarse interval before ``from``). ``machinePosition`` is
  * the position of the move being performed or of the last one (DuetAPI ``Axis.MachinePosition``,
  * DuetSoftwareFramework v3.7-dev @ cd3ae65f, 2026-09-27), so a point sits where its move ends.
- * ``extrusionRate`` is filament mm/s (``CurrentMove.ExtrusionRate``, same source); times
+ * ``extrusionRate`` is filament mm/s (``CurrentMove.ExtrusionRate``, same source): the rate RRF planned for
+ * the move it is executing, at that move's top speed, not a measurement (RRF 3.7-dev @ 32a84d2 Move.cpp:213, DDA::GetTotalExtrusionRate DDA.cpp:1686-1694, read 2026-09-29); times
  * ``area`` it is mm³/s like the commanded flow.
  */
-export function measuredPoints(channels: Record<string, Array<[number, number]>>, area: number, from = -Infinity) {
+export function executedPoints(channels: Record<string, Array<[number, number]>>, area: number, from = -Infinity) {
 	const xs = channels["axis.X.machinePosition"] ?? [];
 	const ys = channels["axis.Y.machinePosition"] ?? [];
 	const points: Array<{ ts: number; x: number; y: number; flow: number }> = [];
@@ -237,7 +238,7 @@ export function nozzleHeaters(layers: LayersAnswer | null | undefined): Array<{ 
 	return (layers?.meta.heaters ?? []).filter((h) => h.role === "nozzle");
 }
 
-/** Sample channels of a layer's replay: position and extrusion rate for the measured points, temperature and load per nozzle */
+/** Sample channels of a layer's replay: position and extrusion rate for the executed points, temperature and load per nozzle */
 export function replayChannels(nozzles: Array<{ index: number }>): Array<string> {
 	return ["axis.X.machinePosition", "axis.Y.machinePosition", "move.currentMove.extrusionRate",
 		...nozzles.flatMap((h) => [`heater.${h.index}.current`, `heater.${h.index}.load`])];

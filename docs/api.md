@@ -149,7 +149,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `fm.<n>.status`, `.lastPercentage`, `.avgPercentage`, `.minPercentage`, `.maxPercentage`, `.position`, `.totalExtrusion`, `.agc`, `.calibrated.totalDistance`, `.calibrated.mmPerRev` | status: 0 ok, 1 noMonitor, 2 noDataReceived, 3 noFilament, 4 tooLittleMovement, 5 tooMuchMovement, 6 sensorError |
 | `sensor.<n>.lastReading` | every analog sensor |
 | `axis.<L>.machinePosition` | |
-| `move.currentMove.topSpeed`, `.requestedSpeed`, `.extrusionRate`; `move.speedFactor` | |
+| `move.currentMove.topSpeed`, `.requestedSpeed`, `.extrusionRate`; `move.speedFactor` | of the move RRF is executing; `extrusionRate` is the filament mm/s planned for it at its top speed, not measured (RRF 3.7-dev @ 32a84d2 Move.cpp:213, DDA::GetTotalExtrusionRate DDA.cpp:1686-1694, read 2026-09-29) |
 | `fan.<n>.actualValue`, `.requestedValue`, `.rpm` | rpm only with a tacho |
 | `board.<n>.vIn`, `.v12`, `.mcuTemp` | `<n>` = index in `boards[]` (context `boards` has the CAN address) |
 | `global.mfm_*` | the MFM globals of chx350-config (booleans as 0/1) |

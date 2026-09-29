@@ -14,7 +14,7 @@
 		<v-alert v-if="message" :type="messageType" variant="tonal" density="compact" class="mb-2">{{ message }}</v-alert>
 		<v-row density="compact">
 			<v-col cols="12" md="8">
-				<replay-canvas :toolpath="toolpath" :measured="measured" :markers="markers" :hidden-objects="hiddenObjects"
+				<replay-canvas :toolpath="toolpath" :executed="executed" :markers="markers" :hidden-objects="hiddenObjects"
 					:show-travel="showTravel" />
 				<div class="text-caption text-medium-emphasis mt-1">{{ $t("plugins.QualityAssurance.replay.legend") }}</div>
 			</v-col>
@@ -45,7 +45,7 @@ import type { JobDetail, LayersAnswer, QaApi, QaEvent, SamplesAnswer, TimelapseM
 import { timeSeriesConfig } from "../core/charts";
 import { eventColor, eventDetail } from "../core/format";
 import {
-	fetchToolpath, frameAt, layerEvents, layerSpan, machineToUser, markerColor, measuredPoints, nozzleHeaters, replayChannels,
+	executedPoints, fetchToolpath, frameAt, layerEvents, layerSpan, machineToUser, markerColor, nozzleHeaters, replayChannels,
 	SAMPLE_LEAD_MS, toolOffsets, TOOLPATH_RETRY_MS
 } from "../core/replay";
 import { layersWithFrames } from "../core/timelapse";
@@ -53,7 +53,7 @@ import ChartCanvas from "./ChartCanvas.vue";
 import ReplayCanvas, { type ReplayMarker } from "./ReplayCanvas.vue";
 import TimelapseFrame from "./TimelapseFrame.vue";
 
-/** Layer by layer: toolpath from the G-code (parsed on demand by the daemon), measured flow and
+/** Layer by layer: toolpath from the G-code (parsed on demand by the daemon), the executed moves' flow and
  * events on top, temperature and heater-load curves of the layer beside it (PLAN.md §3 Replay) */
 export default defineComponent({
 	components: { ChartCanvas, ReplayCanvas, TimelapseFrame },
@@ -95,8 +95,8 @@ export default defineComponent({
 			const d = this.toolpath?.meta.filamentDiameter ?? 1.75;
 			return Math.PI * (d / 2) ** 2;
 		},
-		measured(): Array<{ x: number; y: number; flow: number }> {
-			return measuredPoints(this.samples?.channels ?? {}, this.area, this.layerRange?.from)
+		executed(): Array<{ x: number; y: number; flow: number }> {
+			return executedPoints(this.samples?.channels ?? {}, this.area, this.layerRange?.from)
 				.map((p) => ({ ...this.userPoint(p.x, p.y, p.ts), flow: p.flow }));
 		},
 		layerEvents(): Array<QaEvent> {

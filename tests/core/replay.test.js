@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fitView, flowRange, frameAt, machineToUser, measuredPoints, pan, rampColor, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt } from "../../src/core/replay";
+import { executedPoints, fitView, flowRange, frameAt, machineToUser, pan, rampColor, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt } from "../../src/core/replay";
 
 const TP = {
 	layer: 1,
@@ -50,16 +50,16 @@ describe("coordinates", () => {
 		expect(toolOffsets(null, 1)).toEqual({});
 	});
 
-	it("measured points take the position valid at the sample time", () => {
+	it("executed points take the position valid at the sample time", () => {
 		const channels = {
 			"axis.X.machinePosition": [[100, 1], [300, 3]],
 			"axis.Y.machinePosition": [[100, 10]],
 			"move.currentMove.extrusionRate": [[50, 2], [200, 2], [300, 0], [400, 1]]
 		};
-		const points = measuredPoints(channels, 2);
+		const points = executedPoints(channels, 2);
 		expect(points).toEqual([{ ts: 200, x: 1, y: 10, flow: 4 }, { ts: 400, x: 3, y: 10, flow: 2 }]);
 		// positions from before the layer still place the first points of it
-		expect(measuredPoints(channels, 2, 250)).toEqual([{ ts: 400, x: 3, y: 10, flow: 2 }]);
+		expect(executedPoints(channels, 2, 250)).toEqual([{ ts: 400, x: 3, y: 10, flow: 2 }]);
 	});
 
 	it("workplace and tool in force at a time come from the nearest event", () => {

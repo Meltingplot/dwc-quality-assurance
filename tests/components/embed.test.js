@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("LayerReplay (embeddable)", () => {
-	it("draws the chosen layer of the chosen job with measured points and event markers, filling its parent", async () => {
+	it("draws the chosen layer of the chosen job with executed points and event markers, filling its parent", async () => {
 		const a = api();
 		const wrapper = mountInDwc(LayerReplay, { props: { jobId: "j1", layer: 1, api: a } });
 		await flush();
@@ -83,7 +83,7 @@ describe("LayerReplay (embeddable)", () => {
 		const canvas = wrapper.findComponent(ReplayCanvas);
 		expect(canvas.props("height")).toBe(0);
 		// user = machine − workplace offset + tool offset of T0 (as in the replay tab)
-		expect(canvas.props("measured")).toEqual([{ x: 2 - 10 - 2, y: 0 + 3, flow: 0.5 * Math.PI * (2.85 / 2) ** 2 }]);
+		expect(canvas.props("executed")).toEqual([{ x: 2 - 10 - 2, y: 0 + 3, flow: 0.5 * Math.PI * (2.85 / 2) ** 2 }]);
 		expect(canvas.props("markers")).toMatchObject([{ x: 5 - 10 - 2, y: 1 + 3, label: "heater_load" }]);
 
 		// another layer of the same job: only the layer is asked for

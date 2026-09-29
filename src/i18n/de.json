@@ -231,7 +231,7 @@
 		"layerOf": "Lage {layer} von {total}",
 		"speed": "Tempo",
 		"travel": "Leerfahrten",
-		"legend": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: gemessene Extrusionsrate (gleiche Skala); Ringe: Ereignisse. Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein.",
+		"legend": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: von RRF geplante Extrusionsrate des gerade ausgeführten Moves, abgetastet (gleiche Skala; nicht gemessen); Ringe: Ereignisse. Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein.",
 		"objects": "Objekte",
 		"events": "Ereignisse der Lage",
 		"curves": "Temperatur und Heizlast der Lage",
