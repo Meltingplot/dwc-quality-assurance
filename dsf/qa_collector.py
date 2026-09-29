@@ -1083,6 +1083,9 @@ class Collector:
             nl = getattr(ext, "nonlinear", None)
             for prop, name in (("a", "a"), ("b", "b"), ("upper_limit", "upperLimit")):
                 values[(f"nonlinear.{name}", i)] = qa_channels.number(getattr(nl, prop, None)) if nl is not None else None
+            values[("extruder.microstepping", i)] = qa_context.microstepping(ext)
+        # M593 and M350 (Tim 2026-09-29): a filament config or print_start may set them during a job
+        values[("shaping", None)] = qa_context.shaping(model)
         for tool in getattr(model, "tools", None) or []:
             if tool is not None:
                 values[("tool.retraction", getattr(tool, "number", None))] = qa_context.tool_retraction(tool)
@@ -1091,7 +1094,10 @@ class Collector:
             values[("fm.configured", i)] = configured
             values[("fm.calibrated", i)] = calibrated is not None
         for axis in getattr(getattr(model, "move", None), "axes", None) or []:
-            if qa_channels.axis_letter(axis) == "Z":
+            letter = qa_channels.axis_letter(axis)
+            if letter:
+                values[("axis.microstepping", letter)] = qa_context.microstepping(axis)
+            if letter == "Z":
                 values[("babystep", "Z")] = qa_channels.number(getattr(axis, "babystep", None))
         return values
 

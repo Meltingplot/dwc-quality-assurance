@@ -112,14 +112,14 @@ when the machine or the file changes later.
 |---|---|
 | `file` | `job.file` of the object model (`fileName`, `generatedBy`, `layerHeight`, `numLayers`, `height`, `printTime`, `simulatedTime`, `filament`, `size`, `lastModified`, `customInfo`) and `crc32` |
 | `slicer` | `{source, config}`: selected keys of the OrcaSlicer/BambuStudio `CONFIG_BLOCK` at the end of the file (`filament_settings_id`, `filament_type`, `nozzle_diameter`, …), `source` `none` without one |
-| `extruders` | per extruder `index`, `stepsPerMm`, `factor`, `filament`, `filamentDiameter`, `pressAdv` `{k0, k1, d}`, `nonlinear` |
+| `extruders` | per extruder `index`, `stepsPerMm`, `factor`, `filament`, `filamentDiameter`, `microstepping` `{value, interpolated}`, `pressAdv` `{k0, k1, d}`, `nonlinear` |
 | `tools` | `number`, `name`, `heaters`, `extruders`, `filamentExtruder`, `active`, `standby`, `offsets` (axis order), `retraction` (M207: `length`, `extraRestart` mm, `speed`, `unretractSpeed` mm/s, `zHop` mm) |
 | `filamentMonitors` | `index`, `type`, `enableMode`, `configured`, `calibrated` |
 | `heaters` | `index`, `role` (nozzle, bed, chamber, other), `tool`, `sensor`, `sensorName`, `max`, `model` (`maxPwm`, `heatingRate`, … `pid`), `monitors` |
 | `sensors` | analog sensors `{index, name, type}` |
 | `chamber` | `["sensor" \| "heater", index]` by the chamber rule, or null |
-| `shaping` | input shaper: `type`, `frequency`, `damping`, `amplitudes`, `durations` |
-| `axes` | `letter`, `stepsPerMm`, `babystep` |
+| `shaping` | input shaper (M593): `type`, `frequency`, `damping`, `amplitudes`, `delays` (until 2026-09-29 `durations`, which RRF 3.7 does not report) |
+| `axes` | `letter`, `stepsPerMm`, `microstepping` `{value, interpolated}`, `babystep` |
 | `boards` | `index`, `name`, `shortName`, `canAddress`, `firmwareVersion`, `firmwareDate` |
 | `accelerometers` | `sensors.accelerometers`: `index` (M955/M956 P), `port`, `board`, `orientation`, `samplingRate`, `resolution` |
 | `versions` | `firmware`, `dsf`, `plugin` |

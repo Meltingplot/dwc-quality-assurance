@@ -65,6 +65,7 @@ def extruders(model):
             "factor": _num(getattr(ext, "factor", None)),
             "filament": getattr(ext, "filament", None),
             "filamentDiameter": _num(getattr(ext, "filament_diameter", None)),
+            "microstepping": microstepping(ext),
             "pressAdv": None if pa is None else {
                 "k0": _num(getattr(pa, "k0", None)), "k1": _num(getattr(pa, "k1", None)),
                 "d": _num(getattr(pa, "d", None))},
@@ -199,6 +200,8 @@ def sensors(model):
 
 
 def shaping(model):
+    """The input shaper (M593) as RRF reports it: type, frequency, damping, amplitudes and delays
+    (RRF 3.7-dev @ 32a84d2 AxisShaper.cpp:53-57, 2026-09-29; RRF 3.7 has no ``durations``)."""
     sh = getattr(getattr(model, "move", None), "shaping", None)
     if sh is None:
         return None
@@ -207,8 +210,19 @@ def shaping(model):
         "frequency": _num(getattr(sh, "frequency", None)),
         "damping": _num(getattr(sh, "damping", None)),
         "amplitudes": _list(getattr(sh, "amplitudes", None)),
-        "durations": _list(getattr(sh, "durations", None)),
+        "delays": _list(getattr(sh, "delays", None)),
     }
+
+
+def microstepping(drive):
+    """M350 of an axis or extruder: ``{value, interpolated}`` (RRF 3.7-dev @ 32a84d2 Move.cpp:268, 295,
+    320-325, 2026-09-29), None when the model has none."""
+    ms = getattr(drive, "microstepping", None) if drive is not None else None
+    if ms is None:
+        return None
+    value = getattr(ms, "value", None)
+    return {"value": int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None,
+            "interpolated": bool(getattr(ms, "interpolated", False))}
 
 
 def boards(model):
@@ -233,7 +247,7 @@ def accelerometers(model):
 
 def axes(model):
     return [{"letter": qa_channels.axis_letter(a), "stepsPerMm": _num(getattr(a, "steps_per_mm", None)),
-             "babystep": _num(getattr(a, "babystep", None))}
+             "microstepping": microstepping(a), "babystep": _num(getattr(a, "babystep", None))}
             for a in (getattr(getattr(model, "move", None), "axes", None) or []) if qa_channels.axis_letter(a)]
 
 

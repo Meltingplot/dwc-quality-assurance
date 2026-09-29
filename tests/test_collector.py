@@ -271,6 +271,29 @@ def test_heater_fault_monitor_and_setpoints(rig):
     assert fault["device"] == 1 and fault["tool"] == 0 and fault["layer"] is None
 
 
+
+def test_input_shaping_and_microstepping_are_setpoints(rig):
+    """M593 P"mzv" F32.8 S0.07 and M350, e.g. from a filament config or print_start, are setpoint changes
+    during a job; the context holds both as at the job start (Tim 2026-09-29)."""
+    rig.start_job()
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    assert context["shaping"] == {"type": "mzv", "frequency": 42.0, "damping": 0.1, "amplitudes": [], "delays": []}
+    assert [a["microstepping"] for a in context["axes"]] == [{"value": 16, "interpolated": False}] * 3
+    assert context["extruders"][0]["microstepping"] == {"value": 16, "interpolated": False}
+    rig.patch({"move": {"shaping": {"frequency": 32.8, "damping": 0.07}}})
+    rig.patch({"move": {"axes": [{}, {"microstepping": {"value": 64, "interpolated": False}}],
+                        "extruders": [{"microstepping": {"value": 16, "interpolated": True}}]}})
+    changes = {(e["subtype"], e["payload"]["index"]): e for e in rig.events("setpoint_change")}
+    shaping = changes[("shaping", None)]
+    assert (shaping["device"], shaping["payload"]["from"]["frequency"], shaping["payload"]["to"]) == (
+        None, 42.0, {"type": "mzv", "frequency": 32.8, "damping": 0.07, "amplitudes": [], "delays": []})
+    assert changes[("axis.microstepping", "Y")]["payload"]["to"] == {"value": 64, "interpolated": False}
+    extruder = changes[("extruder.microstepping", 0)]
+    assert (extruder["device"], extruder["payload"]["from"]["interpolated"], extruder["payload"]["to"]["interpolated"]) == (
+        0, False, True)
+    assert ("axis.microstepping", "X") not in changes
+
+
 def test_heater_monitor_only_while_the_heater_regulates(rig):
     """The job end on a CHX 350: heaters off, then the CE default mode caps them (M143 S50 A2) while still hot"""
     rig.start_job()
