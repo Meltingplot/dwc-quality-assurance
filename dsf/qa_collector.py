@@ -158,6 +158,7 @@ class Collector:
         self._vin_low = set()
         self._fm_status = {}
         self._fm_window = {}        # monitor -> {"since": ms, "event": id or None}
+        self._fm_level = {}         # monitor -> {"since": ms, "level", "extreme", "event": id or None}
         self.model = None
 
     # --- helpers ---------------------------------------------------------------------------
@@ -236,6 +237,7 @@ class Collector:
             status = qa_channels.enum_value(getattr(getattr(self.model, "state", None), "status", None))
             self._heater_load(self.model, status, now_ms)
             self._fm_window_check(self.model, now_ms)
+            self._fm_level_check(self.model, now_ms)
             self._driver_events(self.model, None, now_ms)  # confirms an open load that persisted without a patch
             self._close_block_if_due(now_ms)
             self._accelerometer(status, now_ms)
@@ -781,6 +783,7 @@ class Collector:
         self._phantom = {}
         self._fm_status = {}
         self._fm_window = {}
+        self._fm_level = {}
         self._vin_low = set()
 
     def _detect(self, model, patch, snapshot, status, now_ms):
@@ -788,6 +791,7 @@ class Collector:
         self._heater_load(model, status, now_ms)
         self._filament_events(model, now_ms)
         self._fm_window_check(model, now_ms)
+        self._fm_level_check(model, now_ms)
         self._mfm_events(model, now_ms)
         self._setpoint_events(model, now_ms)
         self._driver_events(model, patch, now_ms)
@@ -913,6 +917,43 @@ class Collector:
                 if window["event"] is not None:
                     self._end_event(key, now_ms, {"extreme": window["extreme"]})
                 del self._fm_window[i]
+
+    def _fm_level_check(self, model, now_ms):
+        """lastPercentage ``thresholds.filamentLevelPoints`` or more away from the monitor's own level
+        in the job for ``filamentPercentWindowMinS``: one ``filament_percent_level`` event, until a
+        reading is back within the threshold of the level it left. A drop that stays inside
+        percentMin/Max goes unnoticed otherwise: job 20260928-155257-118609a9 fell from 91 to 64 % at
+        L140, where the cabin later broke off (Tim 2026-09-29), and got its first event at L143 (41 %).
+        A null reading (no live data) changes nothing."""
+        cfg = self.cfg()
+        threshold = cfg["thresholds"].get("filamentLevelPoints")
+        acc = self.job.job_acc if self.job is not None else None
+        if not threshold or acc is None:
+            return
+        for i, fm in qa_channels.items(getattr(getattr(model, "sensors", None), "filament_monitors", None)):
+            pct = getattr(fm, "last_percentage", None)
+            if pct is None:
+                continue
+            state = self._fm_level.get(i)
+            key = ("filament_percent_level", i)
+            if state is None:
+                level = acc.percent_level(i, cfg["filamentLevelMinS"])
+                if level is None or abs(pct - level) < threshold:
+                    continue
+                state = self._fm_level[i] = {"since": now_ms, "level": level, "extreme": pct, "event": None}
+            if abs(pct - state["level"]) < threshold:
+                if state["event"] is not None:
+                    self._end_event(key, now_ms, {"extreme": state["extreme"], "returnedTo": pct})
+                del self._fm_level[i]
+                continue
+            if abs(pct - state["level"]) > abs(state["extreme"] - state["level"]):
+                state["extreme"] = pct
+            if state["event"] is None and now_ms - state["since"] >= cfg["filamentPercentWindowMinS"] * 1000:
+                side = "low" if pct < state["level"] else "high"
+                payload = {"monitor": i, "since": state["since"], "level": state["level"], "threshold": threshold,
+                           "lastPercentage": pct, "side": side}
+                state["event"] = self._event(model, now_ms, "filament_percent_level", side, device=i, payload=payload)
+                self._ongoing[key] = {"id": state["event"], "ts_ms": state["since"], "payload": payload}
 
     def _mfm_events(self, model, now_ms):
         if not self.cfg().get("machineSignals", {}).get("mfm", True):

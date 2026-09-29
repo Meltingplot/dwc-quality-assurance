@@ -154,6 +154,17 @@ def test_heat_up_time():
     assert acc.thermal()["heatUp"]["1"] == [{"setpoint": 220.0, "s": 62.0}]
 
 
+
+def test_percent_level_is_the_median_of_the_job():
+    acc = qa_summary.JobAccumulator(snap(), {0: 2.85}, None)
+    for pct, seconds in ((95.0, 200), (64.0, 100), (91.0, 150)):
+        for _ in range(seconds // 5):
+            acc.advance(snap(**{"fm.0.lastPercentage": pct}), 5, 0)
+    assert acc.percent_level(0, 300) == 91.0          # half of 450 s lies in the class 90-92
+    assert acc.percent_level(0, 600) is None          # not enough readings yet
+    assert acc.percent_level(1, 0) is None            # no such monitor
+
+
 def test_event_and_mfm_summary():
     events = [
         {"type": "mfm_error_tolerated", "layer": 4},

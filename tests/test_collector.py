@@ -139,6 +139,41 @@ def test_percent_window_needs_min_duration(rig):
     assert rig.events("filament_percent_window")[0]["end_ms"] is not None
 
 
+
+def test_level_event_for_a_drop_inside_the_window(rig):
+    """As at L140 of job 20260928-155257-118609a9: the monitor read about 90 %, then 64 %, above
+    percentMin 60, so no window event; its own level in the job flags the drop. A null reading does
+    not end it."""
+    def reading(pct, dt_ms=1000):
+        rig.patch({"sensors": {"filamentMonitors": [{"lastPercentage": pct}]}}, dt_ms=dt_ms)
+
+    rig.start_job()
+    reading(90)
+    for _ in range(40):          # 200 s of readings: no level yet (filamentLevelMinS 300)
+        reading(90, 5000)
+    reading(64)
+    rig.tick(3000)
+    rig.tick(3000)
+    assert rig.events("filament_percent_level") == []
+    reading(90)
+    for _ in range(25):
+        reading(90, 5000)
+    reading(64)
+    rig.tick(3000)
+    reading(None)
+    rig.tick(3000)
+    reading(41)
+    events = rig.events("filament_percent_level")
+    assert [(e["subtype"], e["device"], e["payload"]["level"], e["payload"]["threshold"]) for e in events] == [
+        ("low", 0, 91.0, 20)]
+    assert events[0]["end_ms"] is None and events[0]["block_id"] is not None
+    reading(88)
+    event = rig.events("filament_percent_level")[0]
+    assert event["end_ms"] is not None
+    assert (event["payload"]["extreme"], event["payload"]["returnedTo"], event["payload"]["durationS"]) == (41, 88, 9.0)
+    assert rig.events("filament_percent_window") == []
+
+
 def test_mfm_correction_and_pause_cause(rig):
     rig.start_job()
     rig.patch({"global": {"mfm_error_count": 1}})

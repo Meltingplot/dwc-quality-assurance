@@ -98,6 +98,7 @@
 	"eventTypes": {
 		"filament_status": "Filament monitor",
 		"filament_percent_window": "Monitor outside window",
+		"filament_percent_level": "Monitor away from its level",
 		"gear_passes": "Filament passes the gear often",
 		"heater_fault": "Heater fault",
 		"heater_monitor": "Heater monitor",
@@ -182,7 +183,9 @@
 			"vInPercent": "Supply voltage jump / dip",
 			"phantomJumpK": "Phantom reading jump",
 			"gearPasses": "Gear passes: event from",
-			"filamentPercentWindowMinS": "Monitor outside its window at least",
+			"filamentLevelPoints": "Monitor away from its level in the job",
+			"filamentPercentWindowMinS": "Monitor outside its window or level at least",
+			"filamentLevelMinS": "Monitor level counts after readings of",
 			"loadHigh": "Heater load: high from",
 			"loadLimit": "Heater load: limit from",
 			"retentionJobs": "Keep raw data of the newest jobs",
