@@ -107,6 +107,8 @@ describe("format", () => {
 		expect(eventDetail({ type: "calibration", subtype: "probeDrive", payload: { current: 16, offset: 133919 } })).toBe("I 16, offset 133919");
 		expect(eventDetail({ type: "machine_mode", subtype: "default", payload: { from: "automatic", to: "default" } }))
 			.toBe("automatic → default");
+		expect(eventDetail({ type: "firmware_restart", subtype: "before_job", payload: { upTimeBefore: 30000, upTimeAfter: 5 } }))
+			.toBe("8h 20m → 5s");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
 	});
 });

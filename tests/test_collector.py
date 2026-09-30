@@ -426,6 +426,58 @@ def test_stale_running_job_becomes_unknown(writer, settings):
     assert (row["result"], row["ended_at"]) == ("unknown", 5000)
 
 
+def test_firmware_restart_during_a_job_is_an_event_and_the_abort_cause(rig):
+    rig.start_job()
+    rig.patch({"state": {"upTime": 1010}})
+    rig.patch({"state": {"upTime": 3}}, dt_ms=20_000)   # M999: RRF counts from boot again
+    restart = rig.events("firmware_restart")
+    assert len(restart) == 1 and restart[0]["subtype"] == "during_job" and restart[0]["block_id"] is not None
+    assert restart[0]["payload"] == {"bootedAt": rig.t - 3000, "upTimeBefore": 1010, "upTimeAfter": 3,
+                                     "lastSeenMs": rig.t - 20_000, "detectedAt": rig.t}
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None}})
+    rig.patch({"job": {"lastFileAborted": True}})
+    summary = qa_db.loads(rig.rows("SELECT summary FROM jobs")[0]["summary"])
+    assert summary["abortReason"] == "firmware_restart"
+
+
+def test_firmware_restart_before_a_job_is_listed_by_the_next_job(rig):
+    """The M999 of 2026-09-30 came 3.5 min before the job; after it DSF lost two boards' driver patches."""
+    rig.patch({"state": {"upTime": 1200}})
+    rig.patch({"state": {"upTime": 5}}, dt_ms=30_000)
+    detected = rig.t
+    rig.patch({"state": {"upTime": 200}}, dt_ms=195_000)
+    rig.start_job()
+    assert [e["type"] for e in rig.events()] == ["firmware_restart", "job_start"]
+    restart = rig.events("firmware_restart")[0]
+    assert restart["subtype"] == "before_job" and restart["ts_ms"] == detected
+    assert restart["x"] is None and restart["block_id"] is None
+    assert restart["payload"]["bootedAt"] == detected - 5000
+    context = qa_db.loads(rig.rows("SELECT context FROM jobs")[0]["context"])
+    assert context["boot"] == {"bootedAt": rig.t - 200_000, "upTimeS": 200}
+    # the next job does not list it again
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "lastFileCancelled": True}})
+    rig.start_job()
+    assert len(rig.events("firmware_restart")) == 1
+
+
+def test_growing_up_time_is_no_restart(rig):
+    rig.start_job()
+    for up_time in (1001, 1002, 1000, 1003):   # a reading a second behind is no restart
+        rig.patch({"state": {"upTime": up_time}})
+    assert rig.events("firmware_restart") == []
+
+
+def test_firmware_restarts_tracker():
+    tracker = qa_collector.FirmwareRestarts()
+    assert tracker.update(500, 1_000) is None
+    assert tracker.update(None, 2_000) is None           # no reading keeps the one before
+    assert tracker.update(4, 10_000)["upTimeBefore"] == 500
+    for i in range(qa_collector.FIRMWARE_RESTARTS_KEPT + 3):
+        tracker.keep({"detectedAt": i})
+    assert [r["detectedAt"] for r in tracker.take()] == list(range(3, qa_collector.FIRMWARE_RESTARTS_KEPT + 3))
+    assert tracker.take() == [] and qa_collector.FirmwareRestarts.boot(None, 5) is None
+
+
 def test_decode_driver_status():
     assert qa_collector.decode_driver_status(65536 | 1 | 256) == ["over temperature warning", "motor stall", "standstill"]
 

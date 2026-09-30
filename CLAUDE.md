@@ -139,6 +139,10 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   only new ones; `GetObjectModel` answers `{"success":true,"result":<model>}` raw (Command.cs:106-113).
 - Retention keeps a job's raw data while it is one of the newest `retention.jobs` **or** younger
   than `retention.days`, then the size cap removes the oldest.
+- Firmware restart: `state.upTime` (RRF's `millis()/1000` since boot, RRF 3.7-dev @ 32a84d2 `RepRap.cpp:375`)
+  starting over = event `firmware_restart` (in the job, or listed by the next job when seen between jobs; Tim
+  2026-09-30), context `boot`. After an M999 DSF stopped patching two boards' driver objects
+  (Meltingplot/DuetSoftwareFramework#28, 2026-09-30), so a restart before a job explains gaps in its recording.
 - Phantom reading: a jump ≥ `phantomJumpK` within one patch that returns to within
   `temperatureK` of the value before inside `phantomReturnS`.
 - Timelapse: the snapshot at the change to layer n is layer n − 1's frame; the last layer gets none
