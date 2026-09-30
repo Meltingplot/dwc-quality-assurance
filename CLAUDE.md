@@ -101,6 +101,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   every finished run (`points` 0 = failed). M956 on the SBC channel starts at once without a
   movement lock (RRF 3.7-dev @ 3638836 `Accelerometers.cpp`); in SBC mode `runs` advances before the
   CSV's last line is written.
+- DSF evaluates `plugins.*` in expressions itself (`Plugins` is `[SbcProperty(false)]`, DuetAPI `ObjectModel.cs:100`;
+  `Expressions.IsSbcExpression`; v3.7-dev @ 82822bcf, 2026-09-29), so a macro can read
+  `plugins.QualityAssurance.data.<key>`. QA writes plugin data as strings (`PluginData.set`).
 
 ## Recording decisions (details in the module docstrings)
 - Timestamps are epoch ms (wall clock); jobs have a text id for the API and an integer key for
@@ -163,6 +166,25 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `Move.cpp:389-410`, CANlib `OpenLoadTimeout`; 2026-09-28): QA records every open-load episode as
   one event, `confirmed: false` until it lasted 500 ms (then a fine block), with its duration — so
   boards with many transients show (Tim 2026-09-28).
+
+## Analysing a job (lessons from the Benchy chimney, 2026-09-29)
+- The journal (`job/om/journal`) holds every DSF patch, live values about every 270 ms, including what QA keeps
+  no channel for (`boards[].drivers[].closedLoop.positionError`, driver status, `fm.position` at full rate).
+- `sensors.filamentMonitors[].position` is the monitor's raw 10-bit magnet angle (`lastKnownPosition`; 1024 counts =
+  configured `mmPerRev`). A CAN monitor sends it every 250 ms while it has live data, else every 2 s (RRF 3.7-dev @
+  32a84d2 `FilamentMonitor.h:195-196`, `Duet3DFilamentMonitor.cpp:45, 292-296`). Unwrapped (±512 counts between two
+  readings; largest step seen 36 counts at 250 ms, 161 at 2 s, jobs 20260929-100722/125727) it measures the filament
+  continuously; `lastPercentage` is one value per `sampleDistance` (5 mm = ≈ 10 layers of a Benchy chimney).
+- `boards[].drivers[].status` bit 16 is the TMC standstill flag (CANlib 3.7.0-rc.2 `RRF3Common.h:161-201`): it shows
+  whether a driver got steps. Decode status bits; a time average of `status` means nothing.
+- `job.layer` runs ahead of the motion: in job 20260929-125727 the photo G10 right after the layer comment ran ≈ 2.1 s
+  after `job.layer` changed, so a layer's first seconds print the previous G-code layer's tail.
+- RRF carries fractional extruder microsteps from move to move (`DriveMovement.cpp:288-290, 445-451` @ 32a84d2; CAN
+  boards get part microsteps, wiki `Duet_3_Expansion_1HCL.md:435-436`), so tiny E values lose nothing in firmware.
+- Before stating a cause, check it against a counterexample in the same job and against physics, and call it a
+  hypothesis until measured. Three claims about the chimney failed that test (low flow, monitor reading low at low
+  flow, a 7 mm deficit that would have been a grind that cannot restart). How the part looks is the ground truth,
+  not a monitor percentage (the cabin read 83 % and was good).
 
 ## Build, test, release
 ```bash
