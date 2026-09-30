@@ -248,8 +248,9 @@ for line in gzip.open("qa-<job>-om.jsonl.gz", "rt"):
 `metric`: `heater_load_mean` (per nozzle heater and setpoint, with `nozzleDiameter`), `fm_avg_percentage`,
 `filament_ratio`, `mm_per_rev` (per monitor), `esteps_suggested`, `heat_up_s` (per heater), `duration_s`,
 `events` (count without start, end and calibrations, `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
-of the job's recordings, from `summary.mechanics`, with `spectra`). Each point carries `jobId`, `ts`,
-`result`, `material`, `value`.
+of the job's recordings, from `summary.mechanics`, with `spectra`), `fan_rpm` and `fan_amplitude` (per `fan` with its
+`name`: `rpmMean` and `amplitudeMean` from `summary.fans`, with `pwm`, `stalled`, `amplitudeMax`, `recordings`). Each
+point carries `jobId`, `ts`, `result`, `material`, `value`.
 
 ## Spectra
 
@@ -260,12 +261,24 @@ one spectrum per axis. Spectrum: `{id, ts_ms, layer, board, axis, sampling_rate,
 rms, source, job_key}` — `freqs` in Hz (k × rate/N up to Nyquist), `amplitudes` in g exactly as DWC's
 input-shaping plugin computes them (@duet3d/motionanalysis `analyzeAccelerometerData`, wide band,
 Hann window), `peak_hz` the largest amplitude from 5 Hz on, `rms` in g without the mean (gravity),
-`sampling_rate` the rate RRF measured, `source` the accelerometer's port (`60.i2c.lis`).
+`sampling_rate` the rate RRF measured, `source` the accelerometer's port (`60.i2c.lis`), `fans` the fans below.
+
+A fan's imbalance puts a line into every spectrum at its rotation frequency (on the CHX 350 the part-cooling
+blowers made the largest peak at 152-155 Hz, 2026-09-30). `fans`: the fans with a tachometer (`rpm` ≥ 0) that
+turned or were driven while the recording ran, `[{fan, name, pwm, rpm, hz, amplitude, sharedWith}]` — `fan` the
+index in `fans[]`, `pwm` the mean `actualValue` (0..1, null when RRF reports −1), `rpm` the mean over the model
+updates from M956 until the run finished, `hz` = rpm / 60 (null while it stands), `amplitude` this axis' largest
+amplitude within 1.5 bins of `hz` (null for a standing fan or a line above Nyquist), `sharedWith` the fans whose
+lines lie within 3 bins, so that the amplitude is one peak for all of them. `pwm` > 0 with `rpm` 0: the fan stood
+although driven. The line is right only if RRF's `tachoPpr` matches the fan. `null`: not recorded (spectra of QA
+before schema 4, or no fan with a tachometer); `[]`: no fan turned.
 
 Reference per axis: `{axis, mode, setAt, spectrumIds, jobIds, complete, freqs, amplitudes, peakHz, rms}`.
 `auto`: element-wise median of the first `referenceAutoCount` spectra of the axis, on the frequency grid
 of the first (the others interpolated); `complete` false while there are fewer. `manual`: one chosen
-spectrum. The job summary's `mechanics` holds per axis `{spectra, peakHzMean, peakHzMax, rmsMean}`.
+spectrum. The job summary's `mechanics` holds per axis `{spectra, peakHzMean, peakHzMax, rmsMean}`, its `fans`
+per fan `{name, recordings, pwmMean, rpmMean, stalled, amplitudeMean, amplitudeMax}` (the amplitude as the root
+sum square over the recorded axes; `stalled` = recordings in which it stood although driven).
 
 `status.accelerometer`: `{enabled, reason, accelerometer: {index, port, board, samplingRate, resolution},
 available: [{index, port, board}], intervalMin, pending, lastRecording, lastError}`; `index` is the

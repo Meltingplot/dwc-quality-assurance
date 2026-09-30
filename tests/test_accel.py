@@ -16,6 +16,7 @@ import pytest
 import qa_accel
 import qa_api
 import qa_db
+from conftest import make_model
 
 RATE = 800
 SZP = {"orientation": 25, "points": 0, "port": "60.i2c.lis", "resolution": 14, "runs": 0, "samplingRate": RATE}
@@ -120,6 +121,52 @@ def test_median_spectrum_on_the_first_grid():
     assert amplitudes == pytest.approx([1.0, 2.0, 3.0])
 
 
+# --- fans ---------------------------------------------------------------------------------------
+
+# the CHX 350's part-cooling blowers at full PWM (fans[0], fans[1]) and its water pump, 2026-09-30
+FANS = [{"actualValue": 1.0, "requestedValue": 1.0, "rpm": 9210, "name": "part cooling"},
+        {"actualValue": 1.0, "requestedValue": 1.0, "rpm": 9234, "name": "part cooling #2"},
+        {"actualValue": 0.0, "requestedValue": 0.0, "rpm": -1, "name": "aux"},
+        {"actualValue": 0.0, "requestedValue": 0.0, "rpm": 0, "name": "radiator"},
+        {"actualValue": 0.5, "requestedValue": 0.5, "rpm": 0, "name": "stuck"}]
+
+
+def test_fans_from_the_model():
+    """Fans with a tachometer only (rpm −1 = none), read from the real dsf-python model."""
+    fans = qa_accel.fans_from_model(make_model({"fans": FANS}))
+    assert [f["fan"] for f in fans] == [0, 1, 3, 4]
+    assert fans[0] == {"fan": 0, "name": "part cooling", "pwm": 1.0, "rpm": 9210}
+    assert qa_accel.fans_from_model(make_model()) == []   # the test model's fan has no tachometer
+    assert qa_accel.fans_from_model(make_model({"fans": [{"actualValue": -1, "rpm": 500}]}))[0]["pwm"] is None
+
+
+def test_fan_lines_and_their_amplitude():
+    """The line at rpm / 60 and each axis' amplitude there; a driven fan at 0 rpm stands; an undriven one
+    at 0 rpm is left out; lines closer than two half widths share one peak."""
+    model = make_model({"fans": FANS})
+    observations = [qa_accel.fans_from_model(model)]
+    model.update_from_json({"fans": [{"rpm": 9222}, {"rpm": 9246}, {}, {}, {}]})
+    observations.append(qa_accel.fans_from_model(model))
+    lines = qa_accel.fan_lines(observations)
+    assert lines == [
+        {"fan": 0, "name": "part cooling", "pwm": 1.0, "rpm": 9216, "hz": 153.6},
+        {"fan": 1, "name": "part cooling #2", "pwm": 1.0, "rpm": 9240, "hz": 154.0},
+        {"fan": 4, "name": "stuck", "pwm": 0.5, "rpm": 0, "hz": None}]
+    assert qa_accel.fan_lines([[], []]) is None   # no fan with a tachometer: nothing known
+
+    x = [0.2 * math.sin(2 * math.pi * 153.6 * i / RATE) for i in range(1000)]
+    freqs, amplitudes = qa_accel.spectrum(x, RATE)
+    far = {"fan": 5, "name": None, "pwm": 1.0, "rpm": 30000, "hz": 500.0}   # above Nyquist (400 Hz)
+    marked = qa_accel.fan_amplitudes(lines + [far], freqs, amplitudes)
+    assert marked[0]["amplitude"] == pytest.approx(0.2, rel=0.03) and marked[0]["sharedWith"] == [1]
+    assert marked[1]["amplitude"] == marked[0]["amplitude"] and marked[1]["sharedWith"] == [0]
+    assert marked[2]["amplitude"] is None and marked[2]["sharedWith"] == []
+    assert marked[3]["amplitude"] is None
+    alone = qa_accel.fan_amplitudes([{**lines[0], "hz": 120.0}], freqs, amplitudes)[0]
+    assert alone["amplitude"] < 0.001 and alone["sharedWith"] == []   # no tone there
+    assert qa_accel.fan_amplitudes(None, freqs, amplitudes) is None
+
+
 # --- recorder with the collector ----------------------------------------------------------------
 
 class FakeRrf:
@@ -216,6 +263,51 @@ def test_spectrum_every_interval_from_layer_two(rig, accel):
     assert summary["mechanics"]["X"]["peakHzMean"] == pytest.approx(48, abs=4)
     assert set(summary["mechanics"]) == {"X", "Y", "Z"}
     assert rig.events("accelerometer_failed") == []
+
+
+def test_each_recording_keeps_the_fans(rig, accel, settings, writer, data_dir):
+    """The fans that turn or are driven while M956 runs, with their line in each axis; the job summary and the
+    trends follow them over the jobs (a fan that slows down or runs rougher shows there)."""
+    ctx = qa_api.ApiContext(version="test", settings=settings, writer=writer, readers=qa_db.Readers(data_dir),
+                            data_dir=data_dir, collector=rig.collector, accel=accel)
+    settings.update({"accelerometer": {"board": 60, "intervalMin": 1, "samples": 1000}})
+    accel.rrf.text = csv_text(n=1000, freq=153.5)   # X carries the blowers' line
+    rig.patch({"fans": FANS})
+    rig.start_job()
+    rig.patch({"job": {"layer": 2, "duration": 30}})
+    assert accel.rrf.sent.wait(2)
+    rig.patch({"fans": [{"rpm": 9222}, {"rpm": 9246}, {}, {}, {}]}, dt_ms=250)   # a model update while it runs
+    finish_run(rig, 1)
+    assert wait_until(lambda: len(spectra(rig)) == 3)
+    fans = {r["axis"]: qa_db.loads(r["fans"]) for r in spectra(rig)}
+    x = fans["X"]
+    assert [f["fan"] for f in x] == [0, 1, 4]   # the aux fan has no tachometer, the radiator stands undriven
+    assert x[0]["name"] == "part cooling" and x[0]["pwm"] == 1.0 and x[0]["rpm"] == pytest.approx(9217, abs=2)
+    assert x[0]["hz"] == pytest.approx(153.6, abs=0.05) and x[0]["sharedWith"] == [1]
+    assert x[0]["amplitude"] == pytest.approx(0.2, rel=0.05)
+    assert fans["Y"][0]["amplitude"] < 0.01    # Y's tone is at 120 Hz
+    assert x[2] == {"fan": 4, "name": "stuck", "pwm": 0.5, "rpm": 0, "hz": None, "amplitude": None, "sharedWith": []}
+    assert wait_until(lambda: not accel.busy())
+
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None, "layer": None}})
+    rig.collector.resolve_pending_end(rig.t, force=True)
+    summary = qa_db.loads(rig.rows("SELECT summary FROM jobs")[0]["summary"])["fans"]
+    assert set(summary) == {"0", "1", "4"}
+    assert summary["0"]["recordings"] == 1 and summary["0"]["stalled"] == 0 and summary["0"]["pwmMean"] == 1.0
+    assert summary["0"]["amplitudeMean"] == pytest.approx(0.2, rel=0.05)   # root sum square over X, Y, Z
+    assert summary["4"] == {"name": "stuck", "recordings": 1, "pwmMean": 0.5, "rpmMean": 0, "stalled": 1,
+                            "amplitudeMean": None, "amplitudeMax": None}
+
+    def trend(metric):
+        response = qa_api.call(ctx, qa_api.ENDPOINTS[("GET", "trends")], Req(metric=metric))
+        assert response.status == 200
+        return {p["fan"]: p for p in response.body["points"]}
+
+    rpm = trend("fan_rpm")
+    assert set(rpm) == {0, 1, 4} and rpm[0]["value"] == pytest.approx(9217, abs=2) and rpm[4]["stalled"] == 1
+    amplitude = trend("fan_amplitude")
+    assert set(amplitude) == {0, 1} and amplitude[0]["name"] == "part cooling"   # a standing fan has no line
+    assert amplitude[0]["value"] == pytest.approx(0.2, rel=0.05)
 
 
 @pytest.mark.parametrize("case, subtype, error", [

@@ -72,6 +72,79 @@ describe("spectrumConfig", () => {
 		expect(config.data.datasets[0].data).toEqual([{ x: 1, y: 0.1 }, { x: 2, y: 0.2 }]);
 		expect(config.data.datasets[1].borderDash).toEqual([6, 4]);
 		expect(config.options.scales.x.title.text).toBe("Hz");
+		expect(config.options.plugins.qaMarkers.markers).toEqual([]);
+	});
+
+	it("draws lines, e.g. the fans' rotation frequency, as markers with their text", () => {
+		const config = spectrumConfig([{ label: "X", freqs: [1, 2], amplitudes: [0.1, 0.2] }], "g",
+			[{ hz: 153.6, text: "part cooling · 9216 rpm", color: "teal" }]);
+		expect(config.options.plugins.qaMarkers.markers).toEqual([
+			{ x: 153.6, label: "part cooling · 9216 rpm", text: "part cooling · 9216 rpm", color: "teal" }]);
+	});
+});
+
+// the CHX 350's part-cooling blowers (fans[0], fans[1]) put one peak at 153.6 Hz; fans[4] stood although driven
+const FANS = [
+	{ fan: 0, name: "part cooling", pwm: 1, rpm: 9216, hz: 153.6, amplitude: 0.2, sharedWith: [1] },
+	{ fan: 1, name: null, pwm: 1, rpm: 9240, hz: 154, amplitude: 0.2, sharedWith: [0] },
+	{ fan: 4, name: "stuck", pwm: 0.5, rpm: 0, hz: null, amplitude: null, sharedWith: [] }];
+
+describe("fan lines", () => {
+	it("marks the fans, names the peak's fan and the fan that stood", async () => {
+		const withFans = SPECTRA.map((s) => ({ ...s, fans: FANS, peak_hz: s.id === 4 ? 153.2 : s.peak_hz, sampling_rate: 800, n_samples: 1000 }));
+		const a = api({ spectra: vi.fn(async (id) => ({ jobId: id, spectra: withFans })) });
+		const wrapper = mountInDwc(SpectrumView, { props: { api: a, job: JOB } });
+		await flush();
+		const markers = wrapper.vm.config.options.plugins.qaMarkers.markers;
+		expect(markers.map((m) => [m.x, m.text])).toEqual([
+			[153.6, "plugins.QualityAssurance.spectra.fanLine"], [154, "plugins.QualityAssurance.spectra.fanLine"]]);
+		expect(wrapper.vm.fans.map((f) => f.fan)).toEqual([0, 1]);
+		expect(wrapper.vm.stalled.map((f) => f.fan)).toEqual([4]);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.spectra.fansNote");
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.spectra.fanStalled");
+		expect(wrapper.vm.fanName(FANS[1])).toBe("plugins.QualityAssurance.spectra.fan");   // no name: "Fan 1"
+		expect(wrapper.vm.peakFanName(withFans[3])).toBe("part cooling");   // 153.2 Hz: within two bins of 153.6
+		expect(wrapper.vm.peakFanName(withFans[0])).toBeNull();             // 48 Hz
+		expectNoVueWarnings(warn);
+	});
+
+	it("shows nothing about fans for recordings without them", async () => {
+		const wrapper = mountInDwc(SpectrumView, { props: { api: api(), job: JOB } });
+		await flush();
+		expect(wrapper.vm.config.options.plugins.qaMarkers.markers).toEqual([]);
+		expect(wrapper.text()).not.toContain("plugins.QualityAssurance.spectra.fansNote");
+		expectNoVueWarnings(warn);
+	});
+
+	it("draws each job's fan lines in its colour, named at the newest", async () => {
+		const a = api({ latestSpectra: vi.fn(async (axis) => ({ axis, spectra: [
+			spectrum(9, 5000, axis, 153, { job_id: "j9", ts: "2026-09-30T10:00:00Z", fans: FANS }),
+			spectrum(8, 4000, axis, 153, { job_id: "j8", ts: "2026-09-29T10:00:00Z", fans: [FANS[0]] })] })) });
+		const wrapper = mountInDwc(SpectrumCompare, { props: { api: a } });
+		await flush();
+		const markers = wrapper.vm.config.options.plugins.qaMarkers.markers;
+		const colours = wrapper.vm.config.data.datasets.map((d) => d.borderColor);
+		expect(markers.map((m) => [m.x, m.color, !!m.text])).toEqual([
+			[153.6, colours[0], true], [154, colours[0], true], [153.6, colours[1], false]]);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.spectra.fansNote");
+		expectNoVueWarnings(warn);
+	});
+
+	it("groups the fan trends by fan", async () => {
+		const a = api({ trends: vi.fn(async (metric) => ({ metric, points: [
+			{ jobId: "j2", ts: "2026-09-30T10:00:00Z", result: "completed", material: null, fan: 1, name: null, value: 9240 },
+			{ jobId: "j2", ts: "2026-09-30T10:00:00Z", result: "completed", material: null, fan: 0, name: "part cooling", value: 9216 },
+			{ jobId: "j1", ts: "2026-09-29T10:00:00Z", result: "completed", material: null, fan: 0, name: "part cooling", value: 9230 }] })) });
+		const wrapper = mountInDwc(TrendsView, { props: { api: a } });
+		await flush();
+		wrapper.vm.metric = "fan_rpm";
+		await flush();
+		expect(wrapper.vm.config.data.datasets.map((d) => [d.label, d.data.length])).toEqual([["#0 part cooling", 2], ["#1", 1]]);
+		expect(wrapper.findComponent(SpectrumCompare).exists()).toBe(false);
+		wrapper.vm.metric = "fan_amplitude";
+		await flush();
+		expect(wrapper.findComponent(SpectrumCompare).exists()).toBe(true);
+		expectNoVueWarnings(warn);
 	});
 });
 

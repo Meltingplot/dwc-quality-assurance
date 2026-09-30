@@ -188,8 +188,16 @@ export interface SpectrumSeries {
 	faint?: boolean;
 }
 
-/** Amplitude (g) over frequency (Hz) */
-export function spectrumConfig(series: Array<SpectrumSeries>, yLabel = "g") {
+/** A vertical line in a spectrum, e.g. a fan's rotation frequency */
+export interface SpectrumLine {
+	hz: number;
+	/** written at the top of the line */
+	text?: string;
+	color?: string;
+}
+
+/** Amplitude (g) over frequency (Hz); ``lines`` are drawn dashed across the chart */
+export function spectrumConfig(series: Array<SpectrumSeries>, yLabel = "g", lines: Array<SpectrumLine> = []) {
 	return {
 		type: "line" as const,
 		data: {
@@ -210,15 +218,24 @@ export function spectrumConfig(series: Array<SpectrumSeries>, yLabel = "g") {
 				x: { type: "linear" as const, ...SUBTLE_GRID, min: 0, title: { display: true, text: "Hz" } },
 				y: { type: "linear" as const, ...SUBTLE_GRID, min: 0, title: { display: !!yLabel, text: yLabel } }
 			},
-			plugins: { legend: { position: "bottom" as const, labels: { boxWidth: 12 } } }
+			plugins: {
+				legend: { position: "bottom" as const, labels: { boxWidth: 12 } },
+				qaMarkers: { markers: lines.map((l) => ({ x: l.hz, label: l.text ?? "", text: l.text, color: l.color })) }
+			}
 		}
 	};
 }
 
-/** Draws the ``plugins.qaMarkers.markers`` of a chart as vertical lines */
+const MARKER_FONT = "10px sans-serif";
+const MARKER_LINE = 12;
+
+/**
+ * Draws the ``plugins.qaMarkers.markers`` of a chart as vertical lines. A marker with ``text`` gets
+ * it written at the top of its line; texts that would overlap move one row down.
+ */
 export const markerPlugin = {
 	id: "qaMarkers",
-	afterDatasetsDraw(chart: any, _args: unknown, options: { markers?: Array<{ x: number; label: string; color?: string }> }) {
+	afterDatasetsDraw(chart: any, _args: unknown, options: { markers?: Array<{ x: number; label: string; color?: string; text?: string }> }) {
 		const markers = options?.markers ?? [];
 		const x = chart.scales?.x;
 		const area = chart.chartArea;
@@ -239,6 +256,28 @@ export const markerPlugin = {
 			ctx.moveTo(px, area.top);
 			ctx.lineTo(px, area.bottom);
 			ctx.stroke();
+		}
+		const texts = markers
+			.map((m) => ({ ...m, px: x.getPixelForValue(m.x) }))
+			.filter((m) => m.text && m.px >= area.left && m.px <= area.right)
+			.sort((a, b) => a.px - b.px);
+		if (texts.length) {
+			ctx.font = MARKER_FONT;
+			ctx.textBaseline = "top";
+			const rowEnds: Array<number> = [];   // right end of the last text in each row
+			for (const marker of texts) {
+				const width = ctx.measureText(marker.text).width;
+				const leftwards = marker.px + 3 + width > area.right;
+				const start = leftwards ? marker.px - 3 - width : marker.px + 3;
+				let row = rowEnds.findIndex((end) => start > end + 4);
+				if (row < 0) {
+					row = rowEnds.length;
+					rowEnds.push(0);
+				}
+				rowEnds[row] = start + width;
+				ctx.fillStyle = marker.color ?? "rgba(229,57,53,0.9)";
+				ctx.fillText(marker.text, start, area.top + 2 + row * MARKER_LINE);
+			}
 		}
 		ctx.restore();
 	}

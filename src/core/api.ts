@@ -195,9 +195,26 @@ export interface TrendPoint {
 }
 
 export type TrendMetric = "heater_load_mean" | "fm_avg_percentage" | "filament_ratio" | "esteps_suggested"
-	| "mm_per_rev" | "heat_up_s" | "duration_s" | "events" | "spectrum_peak_hz" | "spectrum_rms";
+	| "mm_per_rev" | "heat_up_s" | "duration_s" | "events" | "spectrum_peak_hz" | "spectrum_rms" | "fan_rpm" | "fan_amplitude";
 
 export type Axis = "X" | "Y" | "Z";
+
+/** A fan with a tachometer while a recording ran (docs/api.md "Spectra") */
+export interface SpectrumFan {
+	/** index in fans[] */
+	fan: number;
+	name: string | null;
+	/** mean actualValue 0..1, null when unknown */
+	pwm: number | null;
+	/** mean rpm; 0 with pwm > 0 = stands although driven */
+	rpm: number;
+	/** its line, rpm / 60; null while it stands */
+	hz: number | null;
+	/** this axis' amplitude at the line (g); null for a standing fan or a line above Nyquist */
+	amplitude: number | null;
+	/** fans whose lines are so close that they share this peak */
+	sharedWith: Array<number>;
+}
 
 /** One axis of an accelerometer recording (docs/api.md "Spectra") */
 export interface Spectrum {
@@ -219,6 +236,8 @@ export interface Spectrum {
 	rms: number;
 	/** Accelerometer port, e.g. 60.i2c.lis */
 	source: string | null;
+	/** fans with a tachometer that turned or were driven; null: not recorded (older QA, no tachometer) */
+	fans?: Array<SpectrumFan> | null;
 	job_id?: string;
 	ts?: string;
 }

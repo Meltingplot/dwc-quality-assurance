@@ -130,7 +130,8 @@ One row per job with a timelapse: `job_key` (primary key), `status` (`capturing`
 ### `spectra`
 One row per axis of an accelerometer recording: `id`, `job_key`, `ts_ms`, `layer`, `board` (CAN
 address), `axis`, `sampling_rate` (measured, Hz), `n_samples`, `freqs`, `amplitudes` (JSON arrays,
-Hz and g), `peak_hz`, `rms` (g), `source` (the accelerometer's port). api.md "Spectra".
+Hz and g), `peak_hz`, `rms` (g), `source` (the accelerometer's port), `fans` (JSON, schema version 4: the fans
+while it ran with their line and this axis' amplitude there; null in older rows). api.md "Spectra".
 
 ### `reference_spectra`
 `axis` (primary key), `mode` (`auto` or `manual`), `spectrum_id` (manual), `set_at`. The automatic
@@ -179,3 +180,4 @@ Written at job end.
 | `events` | per type `{count, firstLayer, lastLayer}` |
 | `spoolUsageG` | per tool, from the `spool_remaining` global at start and end |
 | `mechanics` | per axis `{spectra, peakHzMean, peakHzMax, rmsMean}` of the accelerometer recordings, null without |
+| `fans` | per fan with a tachometer `{name, recordings, pwmMean, rpmMean, stalled, amplitudeMean, amplitudeMax}` over the accelerometer recordings, null without (api.md "Spectra") |
