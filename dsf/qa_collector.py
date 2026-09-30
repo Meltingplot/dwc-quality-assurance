@@ -42,9 +42,15 @@ NOT_READY = object()   # a layer's filament path while the file's layer index is
 PAUSED = ("pausing", "paused")
 RESUMING = ("resuming",)
 
-# Events that may explain a pause (§5.4 "Pause-Ursache")
+# Events that may explain a pause (§5.4 "Pause-Ursache"), or the end of a job that did not complete
 PAUSE_CAUSE_TYPES = ("filament_status", "filament_percent_window", "mfm_error_tolerated", "mfm_recovery",
-                     "mfm_flow_bias", "heater_fault", "heater_monitor", "heater_load", "driver_error", "machine_mode")
+                     "mfm_flow_bias", "heater_fault", "heater_monitor", "heater_load", "driver_error", "machine_mode",
+                     "firmware_restart")
+
+# state.upTime is RRF's millis() since boot in seconds (RepRapFirmware 3.7-dev @ 32a84d2 RepRap.cpp:375), so it
+# starting over means the firmware restarted: M999, a reset, a power cycle. A drop of more than this is one.
+FIRMWARE_RESTART_MARGIN_S = 2
+FIRMWARE_RESTARTS_KEPT = 10     # restarts seen between two jobs that the next job lists
 
 # RRF event texts (Event::GetTextDescription, RepRapFirmware 3.7-dev @ 3638836, Platform/Event.cpp):
 # "Driver <board>.<driver> error: ...", "... warning: ...", "... stall". RRF prints them only when
@@ -79,6 +85,39 @@ def job_id(started_ms, file_name, file_crc):
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(started_ms / 1000))
     digest = zlib.crc32(f"{file_name or ''}{file_crc or ''}".encode("utf-8")) & 0xFFFFFFFF
     return f"{stamp}-{digest:08x}"
+
+
+class FirmwareRestarts:
+    """RRF restarts from ``state.upTime`` starting over. After an M999 on the CHX 350 (2026-09-30) DSF no
+    longer patched two boards' driver objects (DuetSoftwareFramework v3.7-dev @ 82822bcf, Observer; fix in
+    Meltingplot/DuetSoftwareFramework#28), so a restart shortly before a job explains gaps in its recording.
+    Restarts seen while no job records wait for the next one."""
+
+    def __init__(self):
+        self._last = None       # (ms, upTime s) of the latest reading
+        self.pending = []
+
+    def update(self, up_time, now_ms):
+        """The restart when ``up_time`` started over since the latest reading, else None."""
+        if up_time is None:
+            return None
+        last, self._last = self._last, (now_ms, up_time)
+        if last is None or up_time >= last[1] - FIRMWARE_RESTART_MARGIN_S:
+            return None
+        return {"bootedAt": max(last[0], now_ms - up_time * 1000), "upTimeBefore": last[1],
+                "upTimeAfter": up_time, "lastSeenMs": last[0], "detectedAt": now_ms}
+
+    def keep(self, restart):
+        self.pending = (self.pending + [restart])[-FIRMWARE_RESTARTS_KEPT:]
+
+    def take(self):
+        pending, self.pending = self.pending, []
+        return pending
+
+    @staticmethod
+    def boot(up_time, now_ms):
+        """For the job context: when RRF booted, and its upTime at job start."""
+        return None if up_time is None else {"bootedAt": now_ms - up_time * 1000, "upTimeS": up_time}
 
 
 class _Job:
@@ -129,6 +168,7 @@ class Collector:
         self.mfm = qa_machine.MfmWatcher()
         self.calibration = qa_calibration.Tracker(self._real_path)
         self._calibration_events = {}   # (kind, probe) -> id of the job's latest calibration event
+        self.firmware = FirmwareRestarts()
         self.job = None
         self.last_job_id = None
         self._first = True
@@ -217,6 +257,8 @@ class Collector:
             self._ring.popleft()
 
         calibrations = self.calibration.update(model, patch, now_ms)
+        # before the lifecycle: a restart ends the running job, and job_end names it as the cause
+        self._firmware_restart(model, now_ms)
         self._lifecycle(model, status, now_ms)
         if self.accel is not None:
             self.accel.observe(qa_accel.from_model(model))
@@ -404,6 +446,7 @@ class Collector:
         crc = self._crc(path)
         context = qa_context.snapshot(model, cfg, self.plugin_version, path, crc)
         context["calibration"] = self.calibration.snapshot()
+        context["boot"] = FirmwareRestarts.boot(self._up_time(model), now_ms)
         start_layer = getattr(job_model, "layer", None) if partial else None
         jid = job_id(now_ms, file_name, crc)
         record = {"id": jid, "file_name": file_name, "file_crc32": crc, "started_at": now_ms, "result": "running",
@@ -421,6 +464,9 @@ class Collector:
         self._begin_accumulators(model, now_ms)
         if partial:
             self._event(model, now_ms, "daemon_started_mid_job", "new", payload={"resumed": False, "layer": start_layer})
+        for restart in self.firmware.take():
+            # when QA saw it, before this job: no position, the machine stood elsewhere then
+            self._event(None, restart["detectedAt"], "firmware_restart", "before_job", payload=restart, trigger_block=False)
         self._event(model, now_ms, "job_start", None, payload={"file": file_name, "crc32": crc, "partial": partial})
         if self.index_cache is not None and path and crc:
             self.index_cache.ensure(path, crc)
@@ -817,6 +863,23 @@ class Collector:
                 self.writer.submit("event_update", self._calibration_events[key], {"payload": payload}, urgent=True)
         job.context["calibration"] = self.calibration.snapshot()
         self.writer.submit("job_update", job.key, {"context": dict(job.context)})
+
+    @staticmethod
+    def _up_time(model):
+        up_time = getattr(getattr(model, "state", None), "up_time", None)
+        return up_time if isinstance(up_time, int) and not isinstance(up_time, bool) else None
+
+    def _firmware_restart(self, model, now_ms):
+        """``state.upTime`` started over: an event in the running job (with a fine block, the ring buffer
+        holds what led up to it), else kept for the next job."""
+        restart = self.firmware.update(self._up_time(model), now_ms)
+        if restart is None:
+            return
+        logger.info("firmware restarted: upTime %s s -> %s s", restart["upTimeBefore"], restart["upTimeAfter"])
+        if self.job is not None and not self._simulating:
+            self._event(model, now_ms, "firmware_restart", "during_job", payload=restart)
+        else:
+            self.firmware.keep(restart)
 
     def _event(self, model, ts_ms, type_, subtype=None, payload=None, device=None, trigger_block=True, layer=None):
         job = self.job

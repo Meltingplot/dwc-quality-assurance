@@ -264,7 +264,7 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
 - **Events**: Typkatalog `filament_status`, `filament_percent_window`, `filament_percent_level`, `filament_percent_drift`, `heater_fault`,
   `heater_monitor`, `heater_load`, `mfm_error_tolerated`, `mfm_recovery`, `mfm_flow_bias`,
   `voltage_dip`, `phantom_reading`, `driver_error`, `setpoint_change`, `gear_passes`, `gear_passes_forecast`, `frame_change`, `job_start`, `job_end`,
-  `pause`, `resume`, `babystep`, `calibration`, `machine_mode`, `timelapse_failed`, `accelerometer_failed`,
+  `pause`, `resume`, `babystep`, `calibration`, `machine_mode`, `firmware_restart`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
 - **Sollwert-Änderung**: Vergleich alter/neuer Wert je Patch für die definierten Felder.
@@ -280,6 +280,10 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   `driver_error`, `machine_mode`), sonst `messageBox`-Titel, sonst `user`.
 - **Maschinenmodus** (neu 2026-09-29): Wechsel von `global.machine_mode` (chx350-config: `automatic`
   nach geprüften Türen, sonst das restriktive `default`) im Job → Event `machine_mode` mit Feinblock.
+- **Firmware-Neustart** (neu 2026-09-30): `state.upTime` beginnt von vorn (M999, Reset, Stromausfall) → Event
+  `firmware_restart`: im Job mit Feinblock und als Abbruchursache, außerhalb vom nächsten Job vor `job_start`
+  gelistet; der Kontext `boot` hält den Bootzeitpunkt. Anlass: nach einem M999 kurz vor dem Job fehlten DSF-Patches
+  zweier Boards (Tim 2026-09-30).
 - **Mehrere Düsen**: Heizer, Extruder, Filamentmonitore und Werkzeuge werden bei jedem
   Patch aus dem Objektmodell gelesen, nie fest verdrahtet (heute 1 Düse, vorbereitet 2,
   später bis 16, davon zwei gleichzeitig druckend).

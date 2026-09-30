@@ -110,6 +110,7 @@ const EVENT_COLORS: Record<string, string> = {
 	babystep: "primary",
 	calibration: "primary",
 	machine_mode: "warning",
+	firmware_restart: "error",
 	job_start: "success",
 	job_end: "success",
 	daemon_started_mid_job: "grey",
@@ -203,6 +204,8 @@ export function eventDetail(event: { type: string; subtype: string | null; paylo
 			return calibrationDetail(event.subtype, p);
 		case "machine_mode":
 			return `${p.from ?? "—"} → ${p.to ?? "—"}`;
+		case "firmware_restart":   // RRF's uptime before the restart → when QA saw it again
+			return `${formatDuration(p.upTimeBefore)} → ${formatDuration(p.upTimeAfter)}`;
 		case "timelapse_failed":
 		case "accelerometer_failed":
 			return p.error ?? "";

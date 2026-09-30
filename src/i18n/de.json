@@ -121,6 +121,7 @@
 		"babystep": "Babystep",
 		"calibration": "Kalibrierung",
 		"machine_mode": "Maschinenmodus",
+		"firmware_restart": "Firmware-Neustart",
 		"timelapse_failed": "Zeitraffer fehlgeschlagen",
 		"accelerometer_failed": "Beschleunigungssensor fehlgeschlagen",
 		"daemon_started_mid_job": "Aufzeichnung im Job begonnen"
