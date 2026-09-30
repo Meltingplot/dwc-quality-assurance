@@ -203,6 +203,122 @@ def test_toolpath_arc(prusa_file):
     assert qa_gcode.toolpath(prusa_file, index, 9, 2.85) is None
 
 
+def test_index_bounds(prusa_file):
+    """Bounds of the printing moves: travel and the unretract leave them alone."""
+    index = qa_gcode.build_index(prusa_file, "abc")
+    assert index["version"] == 4
+    assert index["bounds"] == {"minX": 10, "minY": 10, "maxX": 30, "maxY": 40, "maxZ": 0.4}
+
+
+def _index(layers, size, bounds):
+    return {"layers": [{"layer": n, "ranges": [[0, size]]} for n in range(1, layers + 1)], "bounds": bounds}
+
+
+def test_stack_plan():
+    # a Benchy (job 20260930-075116): full resolution, every layer
+    benchy = _index(265, 14000, {"minX": 159.073, "minY": 103.962, "maxX": 204.591, "maxY": 158.699, "maxZ": 47.92})
+    assert qa_gcode.stack_plan(benchy) == {"resolution": 0.0547, "step": 1}
+    # the CHX 350's whole build volume (880 × 420 × 943 mm) in 0.3 mm layers: 0.943 mm resolution,
+    # every third layer; 314 MB of G-code are read as a fifth
+    full = _index(3143, 100_000, {"minX": 0, "minY": 0, "maxX": 880, "maxY": 420, "maxZ": 943})
+    assert qa_gcode.stack_plan(full) == {"resolution": 0.943, "step": 5}
+    assert qa_gcode.stack_plan({**full, "layers": full["layers"][:100]}) == {"resolution": 0.943, "step": 1}
+    small = _index(3143, 10_000, full["bounds"])
+    assert qa_gcode.stack_plan(small) == {"resolution": 0.943, "step": 3}
+    assert qa_gcode.stack_plan(_index(3, 10, None)) == {"resolution": qa_gcode.STACK_MIN_RESOLUTION_MM, "step": 1}
+
+
+def _piece_distance(p, q, bulge, point):
+    """Distance of ``point`` from the line (bulge 0) or arc from ``p`` to ``q``."""
+    (px, py), (qx, qy), (x, y) = p, q, point
+    if bulge == 0:
+        dx, dy = qx - px, qy - py
+        t = max(0.0, min(1.0, ((x - px) * dx + (y - py) * dy) / (dx * dx + dy * dy or 1)))
+        return math.hypot(px + t * dx - x, py + t * dy - y)
+    chord = math.hypot(qx - px, qy - py)
+    h = chord / 2 * (1 - bulge * bulge) / (2 * bulge)  # centre off the chord's middle, to its left
+    cx, cy = (px + qx) / 2 - (qy - py) / chord * h, (py + qy) / 2 + (qx - px) / chord * h
+    radius = math.hypot(px - cx, py - cy)
+    sweep = 4 * math.atan(bulge)
+    a0 = math.atan2(py - cy, px - cx)
+    along = (math.atan2(y - cy, x - cx) - a0) * (1 if sweep > 0 else -1) % (2 * math.pi)
+    if along <= abs(sweep):
+        return abs(math.hypot(x - cx, y - cy) - radius)
+    return min(math.hypot(x - px, y - py), math.hypot(x - qx, y - qy))
+
+
+def _fit_error(points, fitted):
+    pieces = [((a[0], a[1]), (b[0], b[1]), b[2]) for a, b in zip(fitted, fitted[1:])]
+    return max(min(_piece_distance(p, q, bulge, point) for p, q, bulge in pieces) for point in points)
+
+
+def test_fit_path_arcs_and_lines():
+    # a circle of 300 mm radius in 1 mm chords (a large print's wall), counter-clockwise
+    n = int(2 * math.pi * 300)
+    circle = [(300 * math.cos(2 * math.pi * k / n), 300 * math.sin(2 * math.pi * k / n)) for k in range(n + 1)]
+    fitted = qa_gcode._fit_path(circle, 0.7)
+    assert len(fitted) <= 5 and all(v[2] > 0 for v in fitted[1:])  # a few arcs of at most half a turn
+    assert all(v[2] <= 1 + 1e-6 for v in fitted)
+    assert _fit_error(circle, fitted) <= 0.7
+    clockwise = qa_gcode._fit_path(circle[::-1], 0.7)
+    assert all(v[2] < 0 for v in clockwise[1:])
+    # a hexagon's corners lie on a circle, its edges do not
+    hexagon = [(10 * math.cos(k * math.pi / 3), 10 * math.sin(k * math.pi / 3)) for k in range(7)]
+    assert [v[2] for v in qa_gcode._fit_path(hexagon, 0.1)] == [0.0] * 7
+    # collinear points merge, a zigzag keeps its corners
+    line = [(x * 0.5, 0.0) for x in range(100)]
+    assert qa_gcode._fit_path(line, 0.05) == [(0.0, 0.0, 0.0), (49.5, 0.0, 0.0)]
+    zigzag = [(0, 0), (50, 0), (50, 1), (0, 1), (0, 2), (50, 2)]
+    assert [(v[0], v[1]) for v in qa_gcode._fit_path(zigzag, 0.1)] == zigzag
+    # going back along the same line is no shortcut
+    back = [(0, 0), (10, 0), (5, 0)]
+    assert len(qa_gcode._fit_path(back, 0.1)) == 3
+
+
+def _segments(*moves, z=0.2, obj=0, type_="Outer wall"):
+    """``_layer_segments`` tuples of the extruding moves through ``moves``"""
+    return [(a[0], a[1], b[0], b[1], z, 1.0, 20.0, obj, type_) for a, b in zip(moves, moves[1:])]
+
+
+def test_reduce_layer():
+    segments = (
+        _segments((0, 0), (10, 0), (20, 0), (20, 10))                        # one path, the middle point merged
+        + [(20, 10, 40, 40, 0.2, 0.0, 150.0, 0, "Outer wall")]               # travel
+        + _segments((40, 40), (40, 50), obj=1)                               # another object
+        + _segments((60, 60), (60.01, 60.01))                                # below the resolution
+        + _segments((0, 0), (20, 20), type_="Sparse infill", z=0.25)         # hidden inside, but its Z counts
+    )
+    layer = qa_gcode.reduce_layer(7, iter(segments), 0.05)
+    assert layer == {"layer": 7, "z": 0.25, "x": [0, 20, 20, 40, 40], "y": [0, 0, 10, 40, 50],
+                     "bulge": [0, 0, 0, 0, 0], "start": [0, 3], "object": [0, 1]}
+    assert qa_gcode.reduce_layer(1, iter([]), 0.05)["z"] is None
+
+
+def test_reduce_layer_keeps_a_point_budget(monkeypatch):
+    """A layer with too many points is fitted again at twice the tolerance"""
+    monkeypatch.setattr(qa_gcode, "STACK_MAX_LAYER_POINTS", 50)
+    wave = [(k * 0.1, 0.2 * (k % 2)) for k in range(400)]  # 0.2 mm zigzag: kept at 0.05, flat at 0.4
+    layer = qa_gcode.reduce_layer(1, iter(_segments(*wave)), 0.05)
+    assert 2 <= len(layer["x"]) <= 50
+
+
+def test_toolpath_stack_in_pieces(prusa_file, monkeypatch):
+    index = qa_gcode.build_index(prusa_file, "abc")
+    whole = qa_gcode.toolpath_stack(prusa_file, index)
+    assert [layer["layer"] for layer in whole["layers"]] == [1, 2] and whole["next"] is None
+    first, second = whole["layers"]
+    assert first["x"] == [10, 20, 20] and first["y"] == [10, 10, 20] and first["object"] == [0]
+    assert second["z"] == 0.4 and second["x"][-1] == 30 and second["y"][-1] == 40
+    assert second["bulge"][-1] == pytest.approx(-1, abs=0.01)  # G2 half circle: one arc, clockwise
+    piece = qa_gcode.toolpath_stack(prusa_file, index, chunk_bytes=1)
+    assert [layer["layer"] for layer in piece["layers"]] == [1] and piece["next"] == 2
+    rest = qa_gcode.toolpath_stack(prusa_file, index, first=piece["next"], chunk_bytes=1)
+    assert [layer["layer"] for layer in rest["layers"]] == [2] and rest["next"] is None
+    assert rest["resolution"] == 0.03 and rest["step"] == 1  # 30 mm across / 1000
+    monkeypatch.setattr(qa_gcode, "STACK_MAX_BYTES", 1)  # every n-th layer: here the first of two
+    assert [layer["layer"] for layer in qa_gcode.toolpath_stack(prusa_file, index)["layers"]] == [1]
+
+
 def test_z_fallback_without_comments(tmp_path):
     path = tmp_path / "z.gcode"
     path.write_text("G90\nM82\nG92 E0\nG1 Z0.3\nG1 X10 Y0 E1\nG1 X20 Y0 E2\nG1 Z0.6\nG1 X10 Y0 E3\n"

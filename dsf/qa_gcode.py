@@ -33,6 +33,10 @@ forward, back and forward once, 5 when twice. In the Benchy the layers at 5 or m
 with the photo macro) read 80 % on average in the reference run 20260928-134928-118609a9, the
 others 91-93 %.
 
+Version 4 (2026-09-30) adds ``bounds``, the extent of the printing moves, for the replay's 3D stack
+(``toolpath_stack``: every layer's extruding paths as lines and arcs within about a pixel of a view
+that fits ``bounds``).
+
 G-code semantics from the Duet3D wiki (Gcodes.md, 2026-09-21): G90/G91 switch X/Y/Z only,
 M82/M83 the extruder; G92 sets the user position; G2/G3 take I/J (relative centre) or R;
 M486 S<n> [A"name"] marks the object being printed, S-1 a non-object feature. G10 without
@@ -55,7 +59,7 @@ FIRMWARE_COMMENTS = ("printing object", "MESH", "process", "stop printing object
 START_STRINGS = ("printing object", "MESH", "process", "stop printing object", "layer", "LAYER",
                  "; --- layer", "BEGIN_LAYER_OBJECT z=", "HEIGHT", "PRINTING", "REMAINING_TIME", "LAYER_CHANGE")
 
-INDEX_VERSION = 3  # 2: per-layer stats, 3: pathMm and macrosRetracted (2026-09-28)
+INDEX_VERSION = 4  # 2: per-layer stats, 3: pathMm and macrosRetracted (2026-09-28), 4: bounds (2026-09-30)
 _WORD_RE = re.compile(r"([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))")
 _INT_RE = re.compile(r"[-+]?\d+")
 _M486_NAME_RE = re.compile(r'A\s*"((?:[^"]|"")*)"')
@@ -397,6 +401,7 @@ def build_index(path, crc32=None, progress=None):
     z_layers = []          # [[z, offset, state]]
     last_extrude_z = None
     stats = _StatsScan()
+    bounds = None          # [minX, minY, maxX, maxY, maxZ] of the printing moves
     with open(path, "rb") as handle:
         for raw in handle:
             line_offset = offset
@@ -425,6 +430,7 @@ def build_index(path, crc32=None, progress=None):
                 _, _, _, de = _apply_move(state, words, cmd)
                 printing = de > 0 and ("X" in words or "Y" in words or cmd in (2, 3))
                 if printing:
+                    bounds = _grow(bounds, before["x"], before["y"], state.x, state.y, state.z)
                     if last_extrude_z is None or state.z > last_extrude_z + 1e-6:
                         z_layers.append([state.z, line_offset, before])
                         stats.z_layer()
@@ -465,8 +471,21 @@ def build_index(path, crc32=None, progress=None):
         "source": source,
         "numLayers": max(ranges) if ranges else 0,
         "objects": {str(k): v for k, v in sorted(objects.names.items())},
+        "bounds": None if bounds is None else dict(zip(("minX", "minY", "maxX", "maxY", "maxZ"),
+                                                       (round(v, 3) for v in bounds))),
         "layers": layers,
     }
+
+
+def _grow(bounds, x0, y0, x1, y1, z):
+    if bounds is None:
+        return [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1), z]
+    bounds[0] = min(bounds[0], x0, x1)
+    bounds[1] = min(bounds[1], y0, y1)
+    bounds[2] = max(bounds[2], x0, x1)
+    bounds[3] = max(bounds[3], y0, y1)
+    bounds[4] = max(bounds[4], z)
+    return bounds
 
 
 def _arc_points(x0, y0, words, clockwise, x1, y1):
@@ -505,18 +524,9 @@ def _arc_points(x0, y0, words, clockwise, x1, y1):
     return points
 
 
-def toolpath(path, index, layer, filament_diameter=1.75):
-    """Segments of ``layer`` as columns: x0, y0, x1, y1, z, e, flow (mm³/s), object, type,
-    travel (0/1). ``types`` maps the type ids to names."""
-    entry = next((e for e in index.get("layers", []) if e["layer"] == layer), None)
-    if entry is None:
-        return None
-    area = math.pi * ((filament_diameter if filament_diameter and filament_diameter > 0 else 1.75) / 2) ** 2
-    cols = {k: [] for k in ("x0", "y0", "x1", "y1", "z", "e", "flow", "object", "type", "travel")}
-    types = []
-    type_ids = {}
-    objects = _Objects()
-    objects.names = {int(k): v for k, v in (index.get("objects") or {}).items()}
+def _layer_segments(path, entry, objects):
+    """Every straight piece of ``entry``'s moves, arcs as chords: ``(x0, y0, x1, y1, z, e, feed, obj, type)``
+    with ``feed`` in mm/s (None without one). Moves without X/Y travel (retract, Z hop) yield nothing."""
     for (start, end), st in zip(entry["ranges"], entry.get("states") or [entry["state"]] * len(entry["ranges"])):
         state = _State.from_dict(st)
         with open(path, "rb") as handle:
@@ -556,28 +566,245 @@ def toolpath(path, index, layer, filament_diameter=1.75):
                 continue  # retract, unretract, Z hop, feed rate only
             feed = state.f / 60.0 if state.f > 0 else None
             px, py = x0, y0
-            if state.type not in type_ids:
-                type_ids[state.type] = len(types)
-                types.append(state.type)
             for qx, qy in points:
-                seg = math.hypot(qx - px, qy - py)
-                share = seg / total
-                e = de * share
-                extruding = e > 0
-                flow = (e * area) / (seg / feed) if extruding and feed and seg > 0 else 0.0
-                cols["x0"].append(round(px, 3))
-                cols["y0"].append(round(py, 3))
-                cols["x1"].append(round(qx, 3))
-                cols["y1"].append(round(qy, 3))
-                cols["z"].append(round(state.z, 3))
-                cols["e"].append(round(e, 5))
-                cols["flow"].append(round(flow, 3))
-                cols["object"].append(state.obj)
-                cols["type"].append(type_ids[state.type])
-                cols["travel"].append(0 if extruding else 1)
+                yield px, py, qx, qy, state.z, de * math.hypot(qx - px, qy - py) / total, feed, state.obj, state.type
                 px, py = qx, qy
+
+
+def _layer_entry(index, layer):
+    return next((e for e in index.get("layers", []) if e["layer"] == layer), None)
+
+
+def _index_objects(index):
+    objects = _Objects()
+    objects.names = {int(k): v for k, v in (index.get("objects") or {}).items()}
+    return objects
+
+
+def toolpath(path, index, layer, filament_diameter=1.75):
+    """Segments of ``layer`` as columns: x0, y0, x1, y1, z, e, flow (mm³/s), object, type,
+    travel (0/1). ``types`` maps the type ids to names."""
+    entry = _layer_entry(index, layer)
+    if entry is None:
+        return None
+    area = math.pi * ((filament_diameter if filament_diameter and filament_diameter > 0 else 1.75) / 2) ** 2
+    cols = {k: [] for k in ("x0", "y0", "x1", "y1", "z", "e", "flow", "object", "type", "travel")}
+    types = []
+    type_ids = {}
+    objects = _index_objects(index)
+    for px, py, qx, qy, z, e, feed, obj, type_ in _layer_segments(path, entry, objects):
+        if type_ not in type_ids:
+            type_ids[type_] = len(types)
+            types.append(type_)
+        seg = math.hypot(qx - px, qy - py)
+        extruding = e > 0
+        flow = (e * area) / (seg / feed) if extruding and feed and seg > 0 else 0.0
+        cols["x0"].append(round(px, 3))
+        cols["y0"].append(round(py, 3))
+        cols["x1"].append(round(qx, 3))
+        cols["y1"].append(round(qy, 3))
+        cols["z"].append(round(z, 3))
+        cols["e"].append(round(e, 5))
+        cols["flow"].append(round(flow, 3))
+        cols["object"].append(obj)
+        cols["type"].append(type_ids[type_])
+        cols["travel"].append(0 if extruding else 1)
     return {"layer": layer, "segments": cols, "types": types,
             "objects": {str(k): v for k, v in sorted(objects.names.items())}}
+
+
+# The replay's 3D stack (PLAN.md §5.8): the layers below the one shown, reduced here so that a print
+# filling the CHX 350's build volume (≈ 880 × 420 × 943 mm, Tim 2026-09-30) stays small enough to send
+# and to draw
+STACK_CELLS = 1000               # resolution = the print's largest extent / this: ≈ 1 px of a fitted view
+STACK_MIN_RESOLUTION_MM = 0.02
+STACK_MAX_BYTES = 64 << 20       # G-code read for a whole stack at most; beyond it every n-th layer
+STACK_CHUNK_BYTES = 256 << 10    # G-code read per request
+STACK_MAX_LAYER_POINTS = 4000    # a layer with more points is reduced again at twice the tolerance
+STACK_REFITS = 4
+# Sparse infill lies inside the walls, hidden in a picture of the object, and on a large print it is
+# most of the segments. ;TYPE: names of PrusaSlicer (master @ 30ef591, ExtrusionRole.cpp
+# gcode_extrusion_role_to_string), OrcaSlicer (main @ 94266c2, ExtrusionEntity.cpp role_to_string)
+# and CuraEngine (5.8 @ 7056d2c, gcodeExport.cpp writeTypeComment), read 2026-09-30
+STACK_SKIPPED_TYPES = frozenset(("Internal infill", "Sparse infill", "FILL"))
+
+
+def stack_plan(index):
+    """Resolution (mm) and layer step of the reduced stack. The step keeps the layers about one
+    resolution apart and the G-code read within ``STACK_MAX_BYTES``."""
+    layers = index.get("layers", [])
+    bounds = index.get("bounds")
+    extent = max(bounds["maxX"] - bounds["minX"], bounds["maxY"] - bounds["minY"], bounds["maxZ"]) if bounds else 0.0
+    resolution = max(STACK_MIN_RESOLUTION_MM, extent / STACK_CELLS)
+    step = 1
+    if bounds and layers and bounds["maxZ"] > 0:
+        step = max(step, int(resolution / (bounds["maxZ"] / len(layers))))
+    size = sum(end - start for entry in layers for start, end in entry["ranges"])
+    step = max(step, math.ceil(size / STACK_MAX_BYTES))
+    return {"resolution": round(resolution, 4), "step": step}
+
+
+def toolpath_stack(path, index, first=None, chunk_bytes=None):
+    """Reduced layers of the stack (every ``step``-th layer of the index) from layer ``first`` on, as
+    many as ``chunk_bytes`` (default ``STACK_CHUNK_BYTES``) of G-code hold but at least one:
+    ``{layers, next, resolution, step}`` with ``next`` the layer to ask for next, None after the last."""
+    chunk_bytes = STACK_CHUNK_BYTES if chunk_bytes is None else chunk_bytes
+    plan = stack_plan(index)
+    entries = [e for e in index.get("layers", [])[::plan["step"]] if first is None or e["layer"] >= first]
+    objects = _index_objects(index)
+    layers, read = [], 0
+    for entry in entries:
+        if layers and read >= chunk_bytes:
+            return {"layers": layers, "next": entry["layer"], **plan}
+        read += sum(end - start for start, end in entry["ranges"])
+        layers.append(reduce_layer(entry["layer"], _layer_segments(path, entry, objects), plan["resolution"]))
+    return {"layers": layers, "next": None, **plan}
+
+
+def reduce_layer(layer, segments, resolution):
+    """A layer of the stack from its ``_layer_segments``: the extruding moves (sparse infill left out)
+    joined into paths, each path as few vertices as follow it within ``resolution``, arcs included.
+    Columns ``x``, ``y``, ``bulge`` per vertex (the piece that ends there: tan of a quarter of the arc's
+    sweep, positive counter-clockwise, 0 for a line; a path's first vertex has 0), ``start`` (first
+    vertex) and ``object`` per path. ``z`` is the Z of the last extruding move, None without one."""
+    paths = []  # [object, [(x, y), ...]]
+    z = None
+    for x0, y0, x1, y1, seg_z, e, _feed, obj, type_ in segments:
+        if e <= 0:
+            continue
+        z = seg_z
+        if type_ in STACK_SKIPPED_TYPES:
+            continue
+        if paths and paths[-1][0] == obj and paths[-1][1][-1] == (x0, y0):
+            paths[-1][1].append((x1, y1))
+        else:
+            paths.append([obj, [(x0, y0), (x1, y1)]])
+    # a path smaller than the resolution is below a pixel of the fitted view
+    paths = [p for p in paths if _extent(p[1]) >= resolution]
+    tolerance = resolution
+    for _ in range(STACK_REFITS + 1):
+        fitted = [(obj, _fit_path(points, tolerance)) for obj, points in paths]
+        if sum(len(f) for _, f in fitted) <= STACK_MAX_LAYER_POINTS:
+            break
+        tolerance *= 2
+    cols = {"x": [], "y": [], "bulge": [], "start": [], "object": []}
+    for obj, vertices in fitted:
+        cols["start"].append(len(cols["x"]))
+        cols["object"].append(obj)
+        for x, y, bulge in vertices:
+            cols["x"].append(round(x, 2))
+            cols["y"].append(round(y, 2))
+            cols["bulge"].append(round(bulge, 4))
+    return {"layer": layer, "z": None if z is None else round(z, 3), **cols}
+
+
+def _extent(points):
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def _fit_path(points, tolerance):
+    """``[(x, y, bulge)]`` from the first point on: at each vertex the farther of the longest line and
+    the longest arc (at least three pieces) that keep every point within ``tolerance``."""
+    out = [(points[0][0], points[0][1], 0.0)]
+    n = len(points)
+    i = 0
+    while i < n - 1:
+        j, bulge = _longest(i, n, lambda k: _line_fits(points, i, k, tolerance), 1)
+        if j < n - 1:
+            ja, arc = _longest(i, n, lambda k: _arc_fits(points, i, k, tolerance), 3)
+            if ja is not None and ja > j:
+                j, bulge = ja, arc
+        out.append((points[j][0], points[j][1], bulge))
+        i = j
+    return out
+
+
+def _longest(i, n, test, least):
+    """A far ``j`` (at least ``least`` points after ``i``) whose ``test(j)`` is not None, by galloping
+    and bisection, with that value: ``(j, value)``, ``(None, None)`` when ``test(i + least)`` fails.
+    A fit can fail at j and hold at j + 1, so this is a far one, not always the farthest."""
+    good = i + least
+    if good > n - 1:
+        return None, None
+    value = test(good)
+    if value is None:
+        return None, None
+    step, bad = 1, None
+    while bad is None:
+        k = min(n - 1, good + step)
+        if k == good:
+            return good, value
+        result = test(k)
+        if result is None:
+            bad = k
+        else:
+            good, value = k, result
+            step *= 2
+    while bad - good > 1:
+        k = (good + bad) // 2
+        result = test(k)
+        if result is None:
+            bad = k
+        else:
+            good, value = k, result
+    return good, value
+
+
+def _line_fits(points, i, j, tolerance):
+    """0.0 (a line's bulge) when every point between ``i`` and ``j`` lies within ``tolerance`` of the
+    segment from ``points[i]`` to ``points[j]``, else None."""
+    ax, ay = points[i]
+    dx, dy = points[j][0] - ax, points[j][1] - ay
+    length2 = dx * dx + dy * dy
+    limit = tolerance * tolerance
+    for k in range(i + 1, j):
+        px, py = points[k][0] - ax, points[k][1] - ay
+        t = (px * dx + py * dy) / length2 if length2 > 0 else 0.0
+        t = 0.0 if t < 0 else 1.0 if t > 1 else t
+        ex, ey = t * dx - px, t * dy - py
+        if ex * ex + ey * ey > limit:
+            return None
+    return 0.0
+
+
+def _arc_fits(points, i, j, tolerance):
+    """The bulge of the arc through ``points[i]``, the middle point and ``points[j]`` when every point
+    between lies within ``tolerance`` of it, each piece bows off it by at most ``tolerance``, all turn
+    the same way and the sweep is at most half a turn; else None."""
+    ox, oy = points[i]
+    bx, by = points[(i + j) // 2][0] - ox, points[(i + j) // 2][1] - oy
+    cx, cy = points[j][0] - ox, points[j][1] - oy
+    d = 2 * (bx * cy - by * cx)
+    if abs(d) < 1e-12:
+        return None
+    b2, c2 = bx * bx + by * by, cx * cx + cy * cy
+    ux, uy = (cy * b2 - by * c2) / d, (bx * c2 - cx * b2) / d
+    radius = math.hypot(ux, uy)
+    previous = math.atan2(-uy, -ux)
+    px, py = 0.0, 0.0
+    sweep = 0.0
+    turn = 0
+    for k in range(i + 1, j + 1):
+        qx, qy = points[k][0] - ox, points[k][1] - oy
+        if abs(math.hypot(qx - ux, qy - uy) - radius) > tolerance:
+            return None
+        chord = math.hypot(qx - px, qy - py)
+        if chord > 2 * radius or radius - math.sqrt(radius * radius - chord * chord / 4) > tolerance:
+            return None
+        angle = math.atan2(qy - uy, qx - ux)
+        delta = (angle - previous + math.pi) % (2 * math.pi) - math.pi
+        if delta:
+            if turn and (delta > 0) != (turn > 0):
+                return None
+            turn = 1 if delta > 0 else -1
+        sweep += delta
+        if abs(sweep) > math.pi + 1e-9:  # a half turn in pieces adds up to a hair more
+            return None
+        previous = angle
+        px, py = qx, qy
+    return math.tan(sweep / 4)
 
 
 class IndexCache:

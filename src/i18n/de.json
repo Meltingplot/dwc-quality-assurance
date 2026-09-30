@@ -248,7 +248,11 @@
 		"curves": "Temperatur und Heizlast der Lage",
 		"building": "Der Daemon indiziert die G-Code-Datei noch…",
 		"fileGone": "Die Jobdatei ist nicht mehr auf dem Drucker oder wurde nach dem Job geändert.",
-		"noLayer": "Die G-Code-Datei hat diese Lage nicht."
+		"noLayer": "Die G-Code-Datei hat diese Lage nicht.",
+		"stack": "3D-Stapel",
+		"stackLegend": "3D: die Lagen darunter in Grau, beleuchtet wie ein Körper; die gezeigte Lage nach befohlenem Volumenstrom gefärbt; Ringe: Ereignisse an ihrer genauen Position, kleiner für die Lagen darunter. Der Daemon reduziert den Stapel: Linien und Bögen auf {resolution} mm genau, ohne Innenfüllung, Lagenschritt {step}. Ziehen dreht und kippt, Umschalt- oder Rechtsziehen verschiebt, Mausrad zoomt, Doppelklick kehrt zur isometrischen Ansicht zurück.",
+		"stackLoading": "Lade den 3D-Stapel: bis Lage {layer} von {total}…",
+		"stackFailed": "Der 3D-Stapel ließ sich nicht laden: {message}"
 	},
 	"timelapse": {
 		"states": {

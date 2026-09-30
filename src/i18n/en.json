@@ -248,7 +248,11 @@
 		"curves": "Temperature and heater load of the layer",
 		"building": "The daemon is still indexing the G-code file…",
 		"fileGone": "The job file is no longer on the printer, or it was changed after the job.",
-		"noLayer": "The G-code file has no such layer."
+		"noLayer": "The G-code file has no such layer.",
+		"stack": "3D stack",
+		"stackLegend": "3D: the layers below in grey, lit like a solid; the layer shown coloured by commanded flow; rings: events at their exact positions, smaller for the layers below. The daemon reduces the stack: lines and arcs within {resolution} mm, sparse infill left out, a layer step of {step}. Drag turns and tilts, shift or right drag pans, wheel zooms, double click returns to the isometric view.",
+		"stackLoading": "Loading the 3D stack: up to layer {layer} of {total}…",
+		"stackFailed": "The 3D stack could not be loaded: {message}"
 	},
 	"timelapse": {
 		"states": {

@@ -253,6 +253,28 @@ def test_toolpath_while_the_index_builds(ctx, rig, monkeypatch):
     assert get(ctx, "job/toolpath", id=job_id, layer=1)[0] == 202
 
 
+def test_toolpath_stack(ctx, rig, monkeypatch):
+    job_id = run_job(rig)
+    crc = rig.rows("SELECT file_crc32 FROM jobs")[0]["file_crc32"]
+    rig.index.ensure(str(rig.gcode), crc, run_async=False)
+    status, body = get(ctx, "job/toolpath/stack", id=job_id)
+    assert status == 200
+    assert [layer["layer"] for layer in body["layers"]] == [1, 2] and body["next"] is None
+    assert body["layers"][0] == {"layer": 1, "z": 0.2, "x": [0, 10], "y": [0, 10], "bulge": [0, 0], "start": [0],
+                                 "object": [None]}
+    assert body["layers"][1]["z"] is None and body["layers"][1]["x"] == []  # E1 again (absolute): no extrusion
+    meta = body["meta"]
+    assert meta["numLayers"] == 2 and meta["step"] == 1 and meta["resolution"] == qa_gcode.STACK_MIN_RESOLUTION_MM
+    assert meta["bounds"] == {"minX": 0, "minY": 0, "maxX": 10, "maxY": 10, "maxZ": 0.2}
+    monkeypatch.setattr(qa_gcode, "STACK_CHUNK_BYTES", 1)
+    status, body = get(ctx, "job/toolpath/stack", id=job_id)
+    assert [layer["layer"] for layer in body["layers"]] == [1] and body["next"] == 2
+    assert [layer["layer"] for layer in get(ctx, "job/toolpath/stack", id=job_id, **{"from": 2})[1]["layers"]] == [2]
+    assert get(ctx, "job/toolpath/stack", id="nope")[0] == 404
+    rig.gcode.write_text(";LAYER_CHANGE\nG1 X1 Y1 E1\n")
+    assert get(ctx, "job/toolpath/stack", id=job_id)[0] == 409
+
+
 def test_export_is_a_file(ctx, rig):
     job_id = run_job(rig)
     response = qa_api.call(ctx, qa_api.ENDPOINTS[("GET", "job/export")], Req(id=job_id))
