@@ -142,6 +142,20 @@ describe("charts", () => {
 		markerPlugin.afterDatasetsDraw(chart, {}, { markers: [{ x: 5, label: "a" }, { x: 50, label: "outside" }] });
 		expect(ctx.stroke).toHaveBeenCalledTimes(1);
 	});
+
+	it("writes marker texts at the top, one row down where they would overlap", () => {
+		const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(),
+			setLineDash: vi.fn(), fillText: vi.fn(), measureText: (text) => ({ width: text.length * 5 }) };
+		const chart = { ctx, chartArea: { left: 0, right: 200, top: 10, bottom: 50 }, scales: { x: { getPixelForValue: (v) => v } } };
+		markerPlugin.afterDatasetsDraw(chart, {}, { markers: [
+			{ x: 20, label: "a", text: "fan a" }, { x: 22, label: "b", text: "fan b" }, { x: 60, label: "c", text: "fan c" },
+			{ x: 195, label: "d", text: "fan d" }, { x: 100, label: "no text" }] });
+		expect(ctx.stroke).toHaveBeenCalledTimes(5);
+		expect(ctx.fillText.mock.calls).toEqual([
+			["fan a", 23, 12], ["fan b", 25, 24],   // 2 px apart: the second one row down
+			["fan c", 63, 12],                      // after "fan a" (ends at 48): the first row again
+			["fan d", 167, 12]]);                   // at the right edge: left of its line
+	});
 });
 
 describe("LiveClient", () => {

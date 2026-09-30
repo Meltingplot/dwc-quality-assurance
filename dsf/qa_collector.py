@@ -262,6 +262,7 @@ class Collector:
         self._lifecycle(model, status, now_ms)
         if self.accel is not None:
             self.accel.observe(qa_accel.from_model(model))
+            self.accel.observe_fans(qa_accel.fans_from_model(model))
         if self.job is not None and not self._simulating:
             self._track_layer(model, snapshot, now_ms)
             self._calibrations(model, calibrations, now_ms)
@@ -569,6 +570,7 @@ class Collector:
             "events": qa_summary.event_summary(job.events),
             "spoolUsageG": qa_summary.spool_usage(job.context.get("globalsStart"), globals_end),
             "mechanics": self.accel.job_summary(job.key) if self.accel is not None else None,
+            "fans": self.accel.fan_summary(job.key) if self.accel is not None else None,
         }
 
     def _accelerometer(self, status, now_ms):

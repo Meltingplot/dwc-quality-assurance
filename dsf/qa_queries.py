@@ -266,7 +266,7 @@ def spectra(con, job_id):
     rows = con.execute("SELECT * FROM spectra WHERE job_key=? ORDER BY ts_ms", (key,)).fetchall()
     out = []
     for row in rows:
-        entry = _loads(row, "freqs", "amplitudes")
+        entry = _loads(row, "freqs", "amplitudes", "fans")
         entry.pop("job_key", None)
         out.append(entry)
     return {"jobId": job_id, "spectra": out}
@@ -275,7 +275,7 @@ def spectra(con, job_id):
 def _spectra_rows(con, where, args):
     rows = con.execute(f"SELECT s.*, j.id AS job_id FROM spectra s JOIN jobs j ON j.key = s.job_key WHERE {where}",
                        args).fetchall()
-    return [_loads(r, "freqs", "amplitudes") for r in rows]
+    return [_loads(r, "freqs", "amplitudes", "fans") for r in rows]
 
 
 def references(con, auto_count=5):
@@ -367,7 +367,7 @@ def _nozzle_diameter(context, tool):
 
 
 TREND_METRICS = ("heater_load_mean", "fm_avg_percentage", "filament_ratio", "esteps_suggested", "mm_per_rev",
-                 "heat_up_s", "duration_s", "events", "spectrum_peak_hz", "spectrum_rms")
+                 "heat_up_s", "duration_s", "events", "spectrum_peak_hz", "spectrum_rms", "fan_rpm", "fan_amplitude")
 
 
 def trends(con, metric, limit=100, material=None):
@@ -416,6 +416,13 @@ def trends(con, metric, limit=100, material=None):
             for axis, stats in (summary.get("mechanics") or {}).items():
                 if stats.get(field) is not None:
                     points.append({**base, "axis": axis, "value": stats[field], "spectra": stats.get("spectra")})
+        elif metric in ("fan_rpm", "fan_amplitude"):
+            field = "rpmMean" if metric == "fan_rpm" else "amplitudeMean"
+            for fan, stats in (summary.get("fans") or {}).items():
+                if stats.get(field) is not None:
+                    points.append({**base, "fan": int(fan), "name": stats.get("name"), "value": stats[field],
+                                   "pwm": stats.get("pwmMean"), "stalled": stats.get("stalled"),
+                                   "amplitudeMax": stats.get("amplitudeMax"), "recordings": stats.get("recordings")})
         elif metric == "events":
             counts = {k: v.get("count") for k, v in (summary.get("events") or {}).items()}
             routine = ("job_start", "job_end", "calibration")   # every job has them

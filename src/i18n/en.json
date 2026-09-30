@@ -138,7 +138,9 @@
 			"duration_s": "Job duration",
 			"events": "Events per job",
 			"spectrum_peak_hz": "Vibration: peak frequency",
-			"spectrum_rms": "Vibration: RMS"
+			"spectrum_rms": "Vibration: RMS",
+			"fan_rpm": "Fan: speed",
+			"fan_amplitude": "Fan: vibration at its line"
 		},
 		"units": {
 			"heater_load_mean": "%",
@@ -150,7 +152,9 @@
 			"duration_s": "s",
 			"events": "",
 			"spectrum_peak_hz": "Hz",
-			"spectrum_rms": "g"
+			"spectrum_rms": "g",
+			"fan_rpm": "rpm",
+			"fan_amplitude": "g"
 		},
 		"hint": {
 			"heater_load_mean": "Mean load of each nozzle heater at its setpoint, per setpoint and nozzle. A rising load at the same setpoint, material and nozzle points at a weakening heater or a starting blockage.",
@@ -161,8 +165,10 @@
 			"heat_up_s": "Time from a new setpoint to reaching it, first time in each job.",
 			"duration_s": "Job duration as RRF reports it.",
 			"events": "Events of a job without start, end and calibrations.",
-			"spectrum_peak_hz": "Mean peak frequency of a job's accelerometer spectra per axis (from 5 Hz on). A shift points at belt tension, bearings or loose parts.",
-			"spectrum_rms": "Mean vibration RMS of a job's accelerometer recordings per axis, without gravity."
+			"spectrum_peak_hz": "Mean peak frequency of a job's accelerometer spectra per axis (from 5 Hz on). A shift points at belt tension, bearings or loose parts. Where a fan's line is the largest peak (see the fan metrics), this follows the fan's speed.",
+			"spectrum_rms": "Mean vibration RMS of a job's accelerometer recordings per axis, without gravity.",
+			"fan_rpm": "Mean speed of each fan with a tachometer during a job's accelerometer recordings. Slower at the same PWM, or standing although driven: the fan wears out or is blocked.",
+			"fan_amplitude": "Mean amplitude at each fan's rotation frequency (rpm ÷ 60) in a job's spectra, root sum square over the axes. Rising: a growing imbalance (bearing, dirt, broken blade). Fans whose lines coincide share one peak."
 		}
 	},
 	"settings": {
@@ -291,7 +297,14 @@
 		"referenceManual": "Reference: chosen spectrum (job {jobs}).",
 		"useAsReference": "Use as {axis} reference",
 		"autoReference": "Automatic reference",
-		"compare": "Spectra of the last jobs against the reference"
+		"compare": "Spectra of the last jobs against the reference",
+		"fan": "Fan {fan}",
+		"fanLine": "{name} · {rpm} rpm",
+		"fansNote": "Dashed vertical lines: the fans' rotation frequency (rpm ÷ 60). A peak there is the fan's imbalance, not a resonance of the machine.",
+		"fanDetail": "{name}: {hz} Hz · {rpm} rpm · PWM {pwm} · {amplitude} g at its line",
+		"fanShared": "one peak with {names}",
+		"fanStalled": "{name} stood although driven (PWM {pwm}, 0 rpm)",
+		"peakAtFan": "The peak is the line of {name}"
 	},
 	"embed": {
 		"layerReplay": "Layer replay (QA)",

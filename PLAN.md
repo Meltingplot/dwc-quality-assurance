@@ -360,7 +360,7 @@ Tabellen:
 - `blocks(id PK, job_id, start_ms, end_ms, triggers JSON)`
 - `events(id PK, job_id, ts_ms, type, subtype, layer, x, y, z, positions JSON, workplace, offsets JSON, tool, object_id, index, payload JSON, block_id)`
 - `timelapse(job_id PK, status queued|capturing|encoding|done|failed, codec, path, frames, fps, size_bytes, layer_frames JSON, error)`
-- `spectra(id PK, job_id, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs JSON, amplitudes JSON, peak_hz, rms, source)`
+- `spectra(id PK, job_id, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs JSON, amplitudes JSON, peak_hz, rms, source, fans JSON)` — `fans` seit Schema 4 (2026-09-30): Lüfter mit Tacho während der Aufnahme, ihre Linie (U/min ÷ 60) und die Amplitude dort
 - `reference_spectra(axis PK, spectrum_id, mode auto|manual, set_at)`
 
 Retention (im Heartbeat, max. 1×/10 min): Rohdaten (`samples`, `blocks`) der Jobs

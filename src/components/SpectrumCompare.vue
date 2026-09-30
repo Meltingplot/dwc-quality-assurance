@@ -9,6 +9,7 @@
 		<v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-2">{{ error }}</v-alert>
 		<div v-if="!loading && !spectra.length" class="text-caption text-medium-emphasis">{{ $t("plugins.QualityAssurance.spectra.noneYet") }}</div>
 		<chart-canvas v-else :config="config" :height="280" />
+		<div v-if="hasFans" class="text-caption text-medium-emphasis mt-1">{{ $t("plugins.QualityAssurance.spectra.fansNote") }}</div>
 	</div>
 </template>
 
@@ -16,13 +17,17 @@
 import { defineComponent, type PropType } from "vue";
 
 import type { Axis, QaApi, ReferenceSpectrum, Spectrum } from "../core/api";
-import { spectrumConfig, type SpectrumSeries } from "../core/charts";
+import { color, spectrumConfig, type SpectrumLine, type SpectrumSeries } from "../core/charts";
+import { turningFans } from "../core/fans";
 import { formatDateTime } from "../core/format";
 import ChartCanvas from "./ChartCanvas.vue";
 
 const JOBS = 5;
 
-/** Spectrum comparison over jobs: the newest spectrum of each of the last jobs against the reference */
+/**
+ * Spectrum comparison over jobs: the newest spectrum of each of the last jobs against the reference,
+ * with each spectrum's fan lines (rpm / 60) in its colour, named at the newest one
+ */
 export default defineComponent({
 	components: { ChartCanvas },
 	props: {
@@ -40,6 +45,9 @@ export default defineComponent({
 		};
 	},
 	computed: {
+		hasFans(): boolean {
+			return this.spectra.some((s) => turningFans(s).length > 0);
+		},
 		config(): any {
 			const series: Array<SpectrumSeries> = this.spectra.map((s) => ({
 				label: `${s.job_id ?? ""} ${formatDateTime(s.ts ?? new Date(s.ts_ms).toISOString())}`.trim(),
@@ -50,7 +58,13 @@ export default defineComponent({
 				series.push({ label: this.$t("plugins.QualityAssurance.spectra.reference"), freqs: this.reference.freqs,
 					amplitudes: this.reference.amplitudes, dashed: true });
 			}
-			return spectrumConfig(series);
+			const lines: Array<SpectrumLine> = this.spectra.flatMap((s, i) => turningFans(s).map((f) => ({
+				hz: f.hz,
+				color: color(i),
+				text: i === 0 ? this.$t("plugins.QualityAssurance.spectra.fanLine", {
+					name: f.name || this.$t("plugins.QualityAssurance.spectra.fan", { fan: f.fan }), rpm: f.rpm }) : undefined
+			})));
+			return spectrumConfig(series, "g", lines);
 		}
 	},
 	watch: {

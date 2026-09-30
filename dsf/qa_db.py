@@ -41,8 +41,8 @@ logger = logging.getLogger("qa.db")
 DB_FILE = "qa.db"
 BACKUP_FILES = ("qa.backup.1.db", "qa.backup.2.db")
 
-SCHEMA_VERSION = 3  # 2: job_layers.filament_path (2026-09-28), 3: job_layers.feed (2026-09-29)
-# The oldest SCHEMA_VERSION that reads and writes this layout correctly: 2 and 3 only added nullable
+SCHEMA_VERSION = 4  # 2: job_layers.filament_path (2026-09-28), 3: job_layers.feed (2026-09-29), 4: spectra.fans (2026-09-30)
+# The oldest SCHEMA_VERSION that reads and writes this layout correctly: 2 to 4 only added nullable
 # columns, which an older QA neither writes nor needs (its INSERTs name their columns)
 SCHEMA_COMPATIBLE = 1
 
@@ -160,7 +160,8 @@ CREATE TABLE IF NOT EXISTS spectra (
     amplitudes TEXT,
     peak_hz REAL,
     rms REAL,
-    source TEXT
+    source TEXT,
+    fans TEXT
 );
 CREATE TABLE IF NOT EXISTS reference_spectra (
     axis TEXT PRIMARY KEY,
@@ -339,6 +340,8 @@ def migrate(con):
         con.execute("ALTER TABLE job_layers ADD COLUMN filament_path TEXT")
     if "feed" not in columns:            # layout 2
         con.execute("ALTER TABLE job_layers ADD COLUMN feed TEXT")
+    if "fans" not in {row[1] for row in con.execute("PRAGMA table_info(spectra)")}:   # layout 3
+        con.execute("ALTER TABLE spectra ADD COLUMN fans TEXT")
     # Who can use a layout is known to the QA that knows the layout; this also turns an rc.2 `version`
     # (the layout) back into the oldest version
     if (state is None or state[1] <= SCHEMA_VERSION) and state != (SCHEMA_COMPATIBLE, SCHEMA_VERSION):
@@ -642,10 +645,10 @@ class Writer:
         for row in rows:
             self._con.execute(
                 "INSERT INTO spectra (job_key, ts_ms, layer, board, axis, sampling_rate, n_samples, freqs, amplitudes, "
-                "peak_hz, rms, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "peak_hz, rms, source, fans) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (row["job_key"], row["ts_ms"], row.get("layer"), row.get("board"), row["axis"], row["sampling_rate"],
                  row["n_samples"], dumps(row["freqs"]), dumps(row["amplitudes"]), row.get("peak_hz"), row.get("rms"),
-                 row.get("source")))
+                 row.get("source"), dumps(row.get("fans"))))
 
     def op_next_ids(self):
         """Highest event and block ids, so the collector can hand out new ones."""

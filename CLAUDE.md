@@ -162,7 +162,10 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   = none, Tim 2026-09-27: chosen by setting, never automatically); every `intervalMin` while
   `processing`, from layer 2 on, one recording at a time;
   spectra exactly as DWC's input-shaping plugin (@duet3d/motionanalysis, checked number for number in
-  `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event.
+  `test_spectrum_equals_dwc_motionanalysis`); no retries, one `accelerometer_failed` event. Each recording keeps
+  the fans with a tachometer (PWM, rpm, line at rpm / 60, each axis' amplitude there), drawn as lines in the
+  spectra and followed by the `fan_rpm`/`fan_amplitude` trends: the CHX 350's part-cooling blowers (≈ 9200 rpm) made
+  the largest peak at 152-155 Hz in X, Y and Z of every recording, which read like a resonance (Tim 2026-09-30).
 - Driver errors: new bits of CANlib's `StandardDriverStatus` ErrorMask/WarningMask/stall on
   boards that report status; RRF's event text in `messages[]` for the others (only printed when
   no `driver-*.g` handler exists — RRF `GCodes::ProcessEvent`). `boards[].drivers[].status` is raw,

@@ -31,7 +31,7 @@ def test_schema_and_job_roundtrip(writer, readers):
     assert row["result"] == "completed"
     assert qa_db.loads(row["summary"]) == {"a": 1}
     assert qa_db.loads(row["context"])["file"]["fileName"] == "0:/gcodes/a.gcode"
-    assert schema(readers.get()) == {"version": "1", "layout": "3"}
+    assert schema(readers.get()) == {"version": "1", "layout": "4"}
 
 
 def test_migration_from_version_1(tmp_path):
@@ -49,7 +49,7 @@ def test_migration_from_version_1(tmp_path):
     qa_db.migrate(con)   # again: nothing to do
     row = con.execute("SELECT layer, duration_s, filament_path, feed FROM job_layers").fetchone()
     assert row == (1, 12.5, None, None)
-    assert schema(con) == {"version": "1", "layout": "3"}
+    assert schema(con) == {"version": "1", "layout": "4"}
 
 
 def test_migration_from_version_2(tmp_path):
@@ -67,7 +67,24 @@ def test_migration_from_version_2(tmp_path):
     qa_db.migrate(con)
     row = con.execute("SELECT layer, filament_path, feed FROM job_layers").fetchone()
     assert row == (1, '{"gearPasses": 2.2}', None)
-    assert schema(con) == {"version": "1", "layout": "3"}
+    assert schema(con) == {"version": "1", "layout": "4"}
+
+
+def test_migration_from_layout_3(tmp_path):
+    """Layout 3 had no spectra.fans; its spectra stay, without fans (null = not recorded)."""
+    con = sqlite3.connect(str(tmp_path / "v3.db"))
+    con.executescript("""
+        CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT);
+        INSERT INTO schema_meta VALUES ('version', '1'), ('layout', '3');
+        CREATE TABLE spectra (id INTEGER PRIMARY KEY, job_key INTEGER NOT NULL, ts_ms INTEGER NOT NULL, layer INTEGER,
+            board INTEGER, axis TEXT, sampling_rate REAL, n_samples INTEGER, freqs TEXT, amplitudes TEXT, peak_hz REAL,
+            rms REAL, source TEXT);
+        INSERT INTO spectra (job_key, ts_ms, axis, peak_hz) VALUES (1, 5, 'X', 153.2);
+    """)
+    qa_db.migrate(con)
+    qa_db.migrate(con)   # again: nothing to do
+    assert con.execute("SELECT axis, peak_hz, fans FROM spectra").fetchone() == ("X", 153.2, None)
+    assert schema(con) == {"version": "1", "layout": "4"}
 
 
 def test_version_of_rc2_becomes_the_oldest_version_again(writer, data_dir):
@@ -80,7 +97,7 @@ def test_version_of_rc2_becomes_the_oldest_version_again(writer, data_dir):
     con.execute("UPDATE schema_meta SET value='3' WHERE key='version'")
     con.commit()
     writer.start()
-    assert schema(qa_db.connect(path, readonly=True)) == {"version": "1", "layout": "3"}
+    assert schema(qa_db.connect(path, readonly=True)) == {"version": "1", "layout": "4"}
 
 
 def set_schema(path, version, layout):

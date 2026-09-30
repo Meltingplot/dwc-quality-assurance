@@ -21,6 +21,15 @@
 			</div>
 			<chart-canvas :config="config" :height="300" />
 			<div class="text-caption text-medium-emphasis mt-1">{{ referenceText }}</div>
+			<div v-if="current && (fans.length || stalled.length)" class="text-caption mt-1">
+				<div class="text-medium-emphasis">{{ $t("plugins.QualityAssurance.spectra.fansNote") }}</div>
+				<div v-for="f in fans" :key="f.fan">
+					<v-icon icon="mdi-fan" size="x-small" class="mr-1" />{{ fanDetail(f) }}
+				</div>
+				<div v-for="f in stalled" :key="`s${f.fan}`" class="text-error">
+					<v-icon icon="mdi-fan-alert" size="x-small" class="mr-1" />{{ fanStalled(f) }}
+				</div>
+			</div>
 			<v-table density="compact" class="mt-2">
 				<thead>
 					<tr>
@@ -34,7 +43,11 @@
 						<td>{{ formatDateTime(new Date(r.ts).toISOString()) }}</td>
 						<td>{{ r.layer ?? "—" }}</td>
 						<td v-for="a in axes" :key="a">
-							<template v-if="r.byAxis[a]">{{ formatNumber(r.byAxis[a].peak_hz, 1) }} Hz · {{ formatNumber(r.byAxis[a].rms, 4) }} g</template>
+							<template v-if="r.byAxis[a]">
+								{{ formatNumber(r.byAxis[a].peak_hz, 1) }} Hz<v-icon v-if="peakFanName(r.byAxis[a])" icon="mdi-fan" size="x-small"
+									class="ml-1" :title="$t('plugins.QualityAssurance.spectra.peakAtFan', { name: peakFanName(r.byAxis[a]) })" />
+								· {{ formatNumber(r.byAxis[a].rms, 4) }} g
+							</template>
 							<template v-else>—</template>
 						</td>
 					</tr>
@@ -47,10 +60,13 @@
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
 
-import type { Axis, JobDetail, QaApi, ReferenceSpectrum, Spectrum } from "../core/api";
+import type { Axis, JobDetail, QaApi, ReferenceSpectrum, Spectrum, SpectrumFan } from "../core/api";
 import { spectrumConfig, type SpectrumSeries } from "../core/charts";
-import { formatDateTime, formatNumber } from "../core/format";
+import { fanAtPeak, stalledFans, turningFans } from "../core/fans";
+import { formatDateTime, formatNumber, formatPercent } from "../core/format";
 import ChartCanvas from "./ChartCanvas.vue";
+
+const FAN_COLOR = "rgba(0,137,123,0.9)";
 
 interface Recording {
 	ts: number;
@@ -60,7 +76,9 @@ interface Recording {
 
 /**
  * The job's vibration spectra (accelerometer, PLAN.md §3): one recording every intervalMin with a
- * spectrum per axis, drawn against the axis' reference; a recording can become the reference.
+ * spectrum per axis, drawn against the axis' reference; a recording can become the reference. The
+ * fans that turned while it ran are drawn as lines at rpm / 60, so their peak does not read as a
+ * resonance (core/fans.ts).
  */
 export default defineComponent({
 	components: { ChartCanvas },
@@ -111,6 +129,12 @@ export default defineComponent({
 		isReference(): boolean {
 			return this.reference?.mode === "manual" && this.current !== null && this.reference.spectrumIds.includes(this.current.id);
 		},
+		fans(): Array<SpectrumFan & { hz: number }> {
+			return this.current ? turningFans(this.current) : [];
+		},
+		stalled(): Array<SpectrumFan> {
+			return this.current ? stalledFans(this.current) : [];
+		},
 		referenceText(): string {
 			const ref = this.reference;
 			if (!ref || !ref.freqs.length) {
@@ -131,7 +155,8 @@ export default defineComponent({
 				series.push({ label: this.$t("plugins.QualityAssurance.spectra.reference"), freqs: this.reference.freqs,
 					amplitudes: this.reference.amplitudes, dashed: true });
 			}
-			return spectrumConfig(series);
+			return spectrumConfig(series, "g", this.fans.map((f) => ({ hz: f.hz, color: FAN_COLOR,
+				text: this.$t("plugins.QualityAssurance.spectra.fanLine", { name: this.fanName(f), rpm: f.rpm }) })));
 		}
 	},
 	watch: {
@@ -148,6 +173,26 @@ export default defineComponent({
 	methods: {
 		formatDateTime,
 		formatNumber,
+		/** The name of the fan whose line holds the spectrum's peak, or null */
+		peakFanName(spectrum: Spectrum): string | null {
+			const fan = fanAtPeak(spectrum);
+			return fan ? this.fanName(fan) : null;
+		},
+		fanName(f: SpectrumFan): string {
+			return f.name || this.$t("plugins.QualityAssurance.spectra.fan", { fan: f.fan });
+		},
+		fanDetail(f: SpectrumFan): string {
+			const names = f.sharedWith.map((other) => {
+				const fan = this.current?.fans?.find((g) => g.fan === other);
+				return fan ? this.fanName(fan) : this.$t("plugins.QualityAssurance.spectra.fan", { fan: other });
+			});
+			const text = this.$t("plugins.QualityAssurance.spectra.fanDetail", { name: this.fanName(f), hz: formatNumber(f.hz, 1),
+				rpm: f.rpm, pwm: formatPercent(f.pwm), amplitude: formatNumber(f.amplitude, 3) });
+			return names.length ? `${text} (${this.$t("plugins.QualityAssurance.spectra.fanShared", { names: names.join(", ") })})` : text;
+		},
+		fanStalled(f: SpectrumFan): string {
+			return this.$t("plugins.QualityAssurance.spectra.fanStalled", { name: this.fanName(f), pwm: formatPercent(f.pwm) });
+		},
 		async load() {
 			this.loading = true;
 			this.error = null;

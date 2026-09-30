@@ -30,6 +30,18 @@ spectra and the plugin's agree. Pure Python (radix-2 FFT, Bluestein for other le
 numpy: three axes of about 1000 samples every 15 minutes take milliseconds, and a C extension would
 have to be installed into the plugin venv by the image build (docs/image.md). The peak is the
 largest amplitude at or above ``PEAK_MIN_HZ``; RMS is that of the samples without their mean, in g.
+
+Fans. A fan's imbalance puts a line into the spectrum at its rotation frequency, rpm / 60: on the CHX 350
+the two part-cooling blowers (``fans[0]``/``[1]``, ≈ 9200 rpm) made the largest peak of nearly every
+recording at 152-155 Hz in X, Y and Z, within one bin of rpm / 60 whenever they ran and absent while
+they stood (jobs of 2026-09-28 to 30), which read like a resonance. So each recording keeps the fans
+with a tachometer (``rpm`` −1 = none, dsf-python 3.7.0b1 ``Fan.rpm``; RRF counts ``tachoPpr`` pulses per
+revolution, so the line is only as right as that setting) that turned or were driven while it ran:
+PWM and rpm averaged over the model updates from M956 until ``runs`` advanced, the line at rpm / 60 and
+each axis' amplitude there (the largest within ``FAN_LINE_BINS`` of it; two fans closer than twice that
+share one peak, ``sharedWith``). A fan at PWM > 0 and 0 rpm stands although driven. Recorded, not
+judged: the job summary's ``fans`` and the trends follow its rpm and its line over the jobs, where a
+slowing fan or a growing imbalance (bearing, broken blade) shows (Tim 2026-09-30).
 """
 
 import cmath
@@ -50,6 +62,9 @@ CSV_RETRY_S = 0.25
 RUN_MARGIN_S = 20
 # below this a spectrum is drift and window leakage, not a resonance of the machine
 PEAK_MIN_HZ = 5.0
+# half width of a fan line in bins: the Hann main lobe of a tone between two bins is above half its
+# height for ±1.5 bins (the CHX 350's fan lines: 2-3 bins, 2026-09-30)
+FAN_LINE_BINS = 1.5
 _TRAILER_RE = re.compile(r"^Rate (\d+(?:\.\d+)?),? overflows (\d+)")
 _BOARD_RE = re.compile(r"^[!^*]*(\d+)\.")
 
@@ -215,6 +230,68 @@ def pick(accelerometers, board):
     return None
 
 
+# --- fans ---------------------------------------------------------------------------------------
+
+def fans_from_model(model):
+    """The fans with a tachometer as ``{fan, name, pwm, rpm}`` (``pwm`` = ``actualValue``, None when
+    RRF reports −1 = unknown)."""
+    out = []
+    for index, fan in enumerate(getattr(model, "fans", None) or []):
+        rpm = getattr(fan, "rpm", None) if fan is not None else None
+        if rpm is None or rpm < 0:
+            continue
+        pwm = getattr(fan, "actual_value", None)
+        out.append({"fan": index, "name": getattr(fan, "name", None) or None,
+                    "pwm": pwm if pwm is not None and pwm >= 0 else None, "rpm": rpm})
+    return out
+
+
+def fan_lines(observations):
+    """Per fan over the model updates seen while a recording ran: ``{fan, name, pwm, rpm, hz}`` with the
+    means of PWM and rpm and the line at rpm / 60 (None while it stands). Fans that stood undriven are
+    left out; None when the model has no fan with a tachometer."""
+    if not any(observations):
+        return None
+    by_fan = {}
+    for fans in observations:
+        for fan in fans:
+            entry = by_fan.setdefault(fan["fan"], {"name": None, "pwm": [], "rpm": []})
+            entry["name"] = fan["name"] or entry["name"]
+            if fan["pwm"] is not None:
+                entry["pwm"].append(fan["pwm"])
+            entry["rpm"].append(fan["rpm"])
+    out = []
+    for index, entry in sorted(by_fan.items()):
+        pwm = sum(entry["pwm"]) / len(entry["pwm"]) if entry["pwm"] else None
+        rpm = sum(entry["rpm"]) / len(entry["rpm"])
+        if rpm <= 0 and not pwm:
+            continue
+        out.append({"fan": index, "name": entry["name"], "pwm": round(pwm, 3) if pwm is not None else None,
+                    "rpm": round(rpm), "hz": round(rpm / 60, 2) if rpm > 0 else None})
+    return out
+
+
+def fan_amplitudes(lines, freqs, amplitudes):
+    """``lines`` (fan_lines) with this spectrum's ``amplitude`` at each line, the largest within
+    ``FAN_LINE_BINS`` of it (None for a fan that stands or a line above Nyquist), and ``sharedWith``:
+    the fans whose lines lie so close that both are one peak."""
+    if lines is None:
+        return None
+    resolution = freqs[1] - freqs[0] if len(freqs) > 1 else (freqs[0] if freqs else 0)
+    reach = FAN_LINE_BINS * resolution
+    out = []
+    for line in lines:
+        hz = line["hz"]
+        amplitude = None
+        if hz is not None and freqs and hz <= freqs[-1] + reach:
+            near = [a for f, a in zip(freqs, amplitudes) if abs(f - hz) <= reach]
+            amplitude = round(max(near), 6) if near else None
+        shared = [other["fan"] for other in lines if other is not line and hz is not None and other["hz"] is not None
+                  and abs(other["hz"] - hz) <= 2 * reach]
+        out.append({**line, "amplitude": amplitude, "sharedWith": shared})
+    return out
+
+
 def interpolate(freqs, amplitudes, grid):
     """``amplitudes`` over ``freqs`` linearly onto ``grid`` (both ascending), clamped at the ends."""
     out = []
@@ -263,6 +340,9 @@ class Recorder:
         self._queue = queue.Queue()
         self._pending = False
         self._jobs = {}                     # job key -> {axis: {"n", "peakSum", "peakN", "rmsSum", "peakMax"}}
+        self._fans = []                     # fans_from_model of the latest model
+        self._fan_window = None             # the fans of each model update while a recording runs
+        self._fan_jobs = {}                 # job key -> {fan: stats} (fan_summary)
         self._thread = None
         self._stopping = False
         self.last_recording = None
@@ -291,6 +371,12 @@ class Recorder:
                 self._accelerometers = accelerometers
                 self._changed.notify_all()
 
+    def observe_fans(self, fans):
+        with self._lock:
+            self._fans = fans
+            if self._fan_window is not None:
+                self._fan_window.append(fans)
+
     def choice(self):
         """The accelerometer the settings select, or None."""
         board = self.cfg()["board"]
@@ -317,6 +403,21 @@ class Recorder:
                        "peakHzMax": s["peakMax"], "rmsMean": round(s["rmsSum"] / s["n"], 6)}
                 for axis, s in sorted(stats.items())}
 
+    def fan_summary(self, job_key):
+        """Per fan with a tachometer over the job's recordings (job summary ``fans``): mean PWM and rpm,
+        how often it stood although driven, and its line: mean and highest amplitude (root sum square
+        over the recorded axes); None without recordings or fans."""
+        with self._lock:
+            stats = self._fan_jobs.pop(job_key, None)
+        if not stats:
+            return None
+        return {str(fan): {"name": s["name"], "recordings": s["n"],
+                           "pwmMean": round(s["pwmSum"] / s["pwmN"], 3) if s["pwmN"] else None,
+                           "rpmMean": round(s["rpmSum"] / s["n"]), "stalled": s["stalled"],
+                           "amplitudeMean": round(s["ampSum"] / s["ampN"], 6) if s["ampN"] else None,
+                           "amplitudeMax": s["ampMax"]}
+                for fan, s in sorted(stats.items())}
+
     # --- recorder thread -----------------------------------------------------------------------
 
     def _loop(self):
@@ -332,6 +433,7 @@ class Recorder:
             finally:
                 with self._lock:
                     self._pending = False
+                    self._fan_window = None
 
     def _fail(self, job_key, ts_ms, subtype, error, extra=None):
         self.last_error = f"{subtype}: {error}"
@@ -345,6 +447,8 @@ class Recorder:
         axes = "".join(a for a in "XYZ" if a in cfg["axes"])
         words = "" if axes in ("", "XYZ") else " " + " ".join(axes)  # no letters: all three (M956)
         code = f'M956 P{index} S{int(cfg["samples"])} A0{words} F"{name}"'
+        with self._lock:
+            self._fan_window = [self._fans]
         reply = (self.send_code(code) or "").strip()
         if reply.startswith("Error"):
             self._fail(job_key, ts_ms, "start", reply, {"code": code})
@@ -364,6 +468,8 @@ class Recorder:
                 self._changed.wait(remaining)
             if self._stopping:
                 return
+            lines = fan_lines(self._fan_window or [])
+            self._fan_window = None
         path = self.resolve_path(f"{ACCEL_DIR}/{name}")
         try:
             if entry is None or entry["runs"] <= runs_before:
@@ -380,7 +486,8 @@ class Recorder:
             rows = []
             for spec in analyse(parsed):
                 rows.append({"job_key": job_key, "ts_ms": ts_ms, "layer": layer, "board": entry["board"],
-                             "source": entry["port"], **spec})
+                             "source": entry["port"], **spec,
+                             "fans": fan_amplitudes(lines, spec["freqs"], spec["amplitudes"])})
             self.writer.submit("spectra_insert", rows, urgent=True)
             self._account(job_key, rows)
             self.last_recording = ts_ms
@@ -419,6 +526,24 @@ class Recorder:
                     s["peakSum"] += row["peak_hz"]
                     s["peakN"] += 1
                     s["peakMax"] = row["peak_hz"] if s["peakMax"] is None else max(s["peakMax"], row["peak_hz"])
+            fans = self._fan_jobs.setdefault(job_key, {})
+            for line in (rows[0]["fans"] if rows else None) or []:
+                s = fans.setdefault(line["fan"], {"name": None, "n": 0, "pwmSum": 0.0, "pwmN": 0, "rpmSum": 0,
+                                                  "stalled": 0, "ampSum": 0.0, "ampN": 0, "ampMax": None})
+                s["name"] = line["name"] or s["name"]
+                s["n"] += 1
+                s["rpmSum"] += line["rpm"]
+                if line["pwm"] is not None:
+                    s["pwmSum"] += line["pwm"]
+                    s["pwmN"] += 1
+                if line["hz"] is None and line["pwm"]:
+                    s["stalled"] += 1
+                per_axis = [f["amplitude"] for row in rows for f in row["fans"] or [] if f["fan"] == line["fan"]]
+                if per_axis and None not in per_axis:
+                    amplitude = round(math.sqrt(sum(a * a for a in per_axis)), 6)
+                    s["ampSum"] += amplitude
+                    s["ampN"] += 1
+                    s["ampMax"] = amplitude if s["ampMax"] is None else max(s["ampMax"], amplitude)
 
     # --- API -----------------------------------------------------------------------------------
 
