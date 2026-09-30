@@ -382,6 +382,7 @@ eigener Grenze (§5.11), unabhängig von der DB.
 | GET | `job/blocks?id` | Blockliste |
 | GET | `job/spectra?id` | Spektren |
 | GET | `job/toolpath?id&layer` | Segmente der Lage (x0,y0,x1,y1,z,e,flow_mm3s,object,type) + Lagenindex-Meta; 409 wenn Datei fehlt/CRC abweicht; 202 solange der Lagenindex noch gebaut wird |
+| GET | `job/toolpath/stack?id&from` | 3D-Stapel des Replays, im Daemon reduziert (Linien und Bögen, §5.7), in Stücken ≤ 256 KiB G-Code; `next` = nächstes `from` |
 | GET | `job/timelapse?id` | Video (`HttpResponseType.File`, DSF liefert die Datei aus); 404 solange nicht fertig |
 | GET | `job/timelapse/meta?id` | Status, Codec, fps, Frames, Zuordnung Lage → Frame |
 | GET | `job/timelapse/frame?id&layer` | JPEG des Frames der Lage: während des Drucks die aufgenommene Datei, danach aus dem Video extrahiert |
@@ -446,6 +447,20 @@ Folgen ≥ `thresholds.gearPasses` ergeben ein Event `gear_passes_forecast`, das
 Quality-Control-Plugin als Warnung zeigen kann. Die Warnung vor Druckbeginn (je Datei) gehört ins
 Quality-Control-Plugin.
 
+**3D-Stapel des Replays** (Index-Version 4, Tim 2026-09-30): Das Replay stapelt auf Wunsch die Lagen unter
+der gezeigten isometrisch, damit das Objekt Lage für Lage entsteht und Events über Lagengrenzen hinweg
+örtlich zusammenhängen. Ein Druck über den ganzen Bauraum (≈ 880 × 420 × 943 mm) hat Millionen Segmente;
+deshalb reduziert der Daemon, und der Browser zeichnet (Tim: Reduktion im Server, Darstellung im Client,
+damit die Ansicht drehbar bleibt; kein vorgerendertes Bild). Auflösung = größte Ausdehnung des Drucks
+(`bounds` im Index) / 1000: Segmente zu Pfaden verbunden, je Pfad gierig die weitere von längster Linie
+und längstem Bogen (≥ 3 Stücke, ≤ halbe Drehung, jeder Punkt und jede Sehne innerhalb der Auflösung),
+Bögen als Bulge; Innenfüllung weggelassen (liegt hinter den Wänden, ist bei großen Drucken der Großteil);
+Pfade unter der Auflösung fallen weg; mehr als 4000 Punkte in einer Lage → doppelte Toleranz. Nur jede
+`step`-te Lage, damit Lagen etwa eine Auflösung auseinander liegen und ein Stapel höchstens 64 MiB
+G-Code liest. Benchy (Job 20260930-075116): 111 000 Segmente → 42 000 Punkte (6 100 Bögen), 0,8 MB
+statt 6,3 MB, 14 Stücke. Die Events bleiben in voller Auflösung, die gezeigte Lage kommt ungekürzt aus
+`job/toolpath`.
+
 **Förderfaktor je Lage** (Schema-Version 3, Tim 2026-09-29): wie viel Filament der Extruder je
 Millimeter der Datei geschoben hat, verglichen mit dem Druckbeginn: E-Steps / Referenz × Extrusionsfaktor
 (M221), gewichtet mit der Vorwärtsbewegung des Extruders und den Werten, die dabei galten (Pausen und
@@ -502,7 +517,11 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 - Replay: `ReplayCanvas` (Canvas 2D, Zoom/Pan, Bahn als Polyline mit Farbskala nach Fluss,
   Events als Marker, gemessene Samples als Punkte, Objektfilter), `ReplayControls`
   (Lagenschieber, Play, Geschwindigkeit), Temperatur- und Heizlastkurven der Lage und der
-  Zeitraffer-Frame daneben.
+  Zeitraffer-Frame daneben. Schalter „3D-Stapel“ (`src/core/stack.ts`, §5.7): orthografische Kamera,
+  isometrisch von vorn links, Ziehen dreht und kippt; die Lagen darunter grau mit Licht von vorn links,
+  von unten nach oben gezeichnet (von oben gesehen verdeckt die höhere Lage richtig), in einer
+  Offscreen-Canvas, auf die Abspielen nur neue Lagen legt; beim Drehen jede n-te Lage. Events aller
+  Lagen bis zur gezeigten an ihrer Höhe im Stapel.
 - `TimelapseViewer`: Video mit Lagenschieber, Download-Knopf.
 - WS-Client in `src/core/ws.ts` mit Reconnect/Backoff; Fallback Polling `status` alle 5 s wenn WS fehlschlägt.
 - Im DEV-Server von DWC laden externe Plugins nicht; die UI wird über das gebaute Zip bzw. im

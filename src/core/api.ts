@@ -271,6 +271,35 @@ export interface ToolpathAnswer {
 	meta: { numLayers: number; source: "comments" | "z"; objects: Record<string, string>; filamentDiameter: number };
 }
 
+/** Printed extent of a job file (``job/toolpath/stack`` meta; from the layer index) */
+export interface PrintBounds {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+}
+
+/** One layer of the replay's 3D stack as the daemon reduced it: vertices with the bulge of the piece
+ * ending there (tan of a quarter of the arc's sweep, positive counter-clockwise, 0 for a line), the first
+ * vertex and object of each path; ``z`` null when the layer extrudes nothing */
+export interface StackLayerAnswer {
+	layer: number;
+	z: number | null;
+	x: Array<number>;
+	y: Array<number>;
+	bulge: Array<number>;
+	start: Array<number>;
+	object: Array<number | null>;
+}
+
+export interface ToolpathStackAnswer {
+	layers: Array<StackLayerAnswer>;
+	/** Layer to ask for next (``from``), null after the last */
+	next: number | null;
+	meta: ToolpathAnswer["meta"] & { bounds: PrintBounds | null; resolution: number; step: number };
+}
+
 export type TimelapseStatus = "none" | "capturing" | "queued" | "encoding" | "done" | "failed" | "pruned";
 
 /** One snapshot: the frame that shows ``layer`` finished; ``frame`` null when it was skipped or failed */
@@ -407,6 +436,11 @@ export class QaApi {
 
 	toolpath(id: string, layer: number) {
 		return this.get<ToolpathAnswer | { state: "building" }>("job/toolpath", { id, layer });
+	}
+
+	/** The reduced layers of the 3D stack from layer ``from`` on, as many as one answer holds */
+	toolpathStack(id: string, from: number) {
+		return this.get<ToolpathStackAnswer | { state: "building" }>("job/toolpath/stack", { id, from });
 	}
 
 	/** The export as a Blob (DSF sends it as a file) */

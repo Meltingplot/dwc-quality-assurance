@@ -425,13 +425,13 @@ class _CrcCache:
 _crc_cache = _CrcCache()
 
 
-def handle_toolpath(ctx, request):
+def _job_index(ctx, request):
+    """The job's G-code file and its layer index: ``(path, index, filament diameter)``, or the
+    response instead: 409 when the file is gone or changed, 500 when indexing failed, 202 while the
+    index is built. Raises 404 for an unknown job."""
     job = qa_queries.job(_con(ctx), _job_id(request))
     if job is None:
         raise ApiError(404, "job not found")
-    layer = _int(request, "layer", None, 0)
-    if layer is None:
-        raise ApiError(400, "missing 'layer'")
     path = ctx.resolve_path(job["file"]) if ctx.resolve_path and job["file"] else None
     if not path or not os.path.isfile(path):
         return json_response({"error": "the job file is gone", "file": job["file"]}, 409)
@@ -446,12 +446,39 @@ def handle_toolpath(ctx, request):
             return json_response({"error": f"layer index failed: {state}"}, 500)
         return json_response({"state": "building"}, 202)
     extruders = (job.get("context") or {}).get("extruders") or [{}]
-    diameter = extruders[0].get("filamentDiameter") or 1.75
+    return path, index, extruders[0].get("filamentDiameter") or 1.75
+
+
+def _toolpath_meta(index, diameter):
+    return {"numLayers": index["numLayers"], "source": index["source"], "objects": index["objects"],
+            "filamentDiameter": diameter}
+
+
+def handle_toolpath(ctx, request):
+    layer = _int(request, "layer", None, 0)
+    if layer is None:
+        raise ApiError(400, "missing 'layer'")
+    found = _job_index(ctx, request)
+    if isinstance(found, Response):
+        return found
+    path, index, diameter = found
     result = qa_gcode.toolpath(path, index, layer, diameter)
     if result is None:
         raise ApiError(404, "layer not in the file")
-    result["meta"] = {"numLayers": index["numLayers"], "source": index["source"], "objects": index["objects"],
-                      "filamentDiameter": diameter}
+    result["meta"] = _toolpath_meta(index, diameter)
+    return json_response(result)
+
+
+def handle_toolpath_stack(ctx, request):
+    """The replay's 3D stack, reduced (``qa_gcode.toolpath_stack``), in pieces: from layer ``from``
+    (default the first), ``next`` names the layer to ask for next."""
+    found = _job_index(ctx, request)
+    if isinstance(found, Response):
+        return found
+    path, index, diameter = found
+    result = qa_gcode.toolpath_stack(path, index, _int(request, "from", None))
+    result["meta"] = {**_toolpath_meta(index, diameter), "bounds": index.get("bounds"),
+                      "resolution": result.pop("resolution"), "step": result.pop("step")}
     return json_response(result)
 
 
@@ -546,6 +573,7 @@ ENDPOINTS = {
     ("GET", "job/blocks"): handle_blocks,
     ("GET", "job/spectra"): handle_spectra,
     ("GET", "job/toolpath"): handle_toolpath,
+    ("GET", "job/toolpath/stack"): handle_toolpath_stack,
     ("GET", "job/export"): handle_export,
     ("GET", "job/om"): handle_om,
     ("GET", "job/om/history"): handle_om_history,

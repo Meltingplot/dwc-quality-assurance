@@ -149,6 +149,85 @@ describe("ReplayView", () => {
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.fileGone");
 	});
 
+	const META = { numLayers: 3, source: "comments", objects: { 0: "cube" }, filamentDiameter: 2.85,
+		bounds: { minX: 0, minY: 0, maxX: 20, maxY: 20, maxZ: 0.6 }, resolution: 0.02, step: 1 };
+	const STACK = {
+		0: { layers: [{ layer: 1, z: 0.2, x: [0, 10], y: [0, 0], bulge: [0, 0], start: [0], object: [0] }], next: 2, meta: META },
+		2: { layers: [{ layer: 2, z: 0.4, x: [0, 10], y: [5, 5], bulge: [0, 0], start: [0], object: [0] },
+			{ layer: 3, z: null, x: [], y: [], bulge: [], start: [], object: [] }], next: null, meta: META }
+	};
+	const LAYER2_EVENT = { ...EVENTS[1], id: 8, ts_ms: T1 + 62000, type: "driver_error", layer: 2, x: 6, y: 2 };
+
+	it("stacks the layers in 3D, loaded piece by piece, with the events of the layers below", async () => {
+		const a = { ...api(async () => TOOLPATH), toolpathStack: vi.fn(async (id, from) => STACK[from]) };
+		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: [...EVENTS, LAYER2_EVENT] } });
+		await flush();
+		const canvas = wrapper.findComponent(ReplayCanvas);
+		expect(canvas.props("stack")).toBeNull();
+		expect(a.toolpathStack).not.toHaveBeenCalled();  // only once it is switched on
+		wrapper.vm.stacked = true;
+		await wrapper.vm.$nextTick();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.stackLoading");
+		await flush();
+		await flush();
+		expect(a.toolpathStack.mock.calls).toEqual([["j1", 0], ["j1", 2]]);
+		expect(wrapper.text()).not.toContain("replay.stackLoading");
+		expect(canvas.props("stack").map((l) => l.layer)).toEqual([1, 2]);  // layer 3 extrudes nothing
+		expect(canvas.props("stackBounds")).toEqual(META.bounds);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.stackLegend");
+		wrapper.vm.layer = 3;
+		await flush();
+		await flush();
+		expect(canvas.props("layer")).toBe(3);
+		// full resolution: G-code coordinates of the event's own time, at its layer's height in the stack
+		expect(canvas.props("markers")).toMatchObject([
+			{ x: 5 - 10 - 2, y: 1 + 3, z: 0.2, past: true, label: "heater_load" },
+			{ x: 6 - 10 - 2, y: 2 + 3, z: 0.4, past: true, label: "driver_error" }
+		]);
+		wrapper.vm.layer = 2;
+		await flush();
+		expect(canvas.props("markers")).toMatchObject([{ z: 0.2, past: true }, { label: "driver_error" }]);
+		expect(canvas.props("markers")[1].past).toBeUndefined();  // the layer's own, on the layer drawn
+		// switched off, the 2D view again; back on, nothing is loaded twice
+		wrapper.vm.stacked = false;
+		await flush();
+		expect(canvas.props("stack")).toBeNull();
+		expect(canvas.props("markers")).toHaveLength(1);
+		wrapper.vm.stacked = true;
+		await flush();
+		expect(a.toolpathStack).toHaveBeenCalledTimes(2);
+		expectNoVueWarnings(warn);
+	});
+
+	it("waits for the stack while the index is built, stops when switched off", async () => {
+		vi.useFakeTimers();
+		let calls = 0;
+		const a = { ...api(async () => TOOLPATH), toolpathStack: vi.fn(async (id, from) => (++calls === 1 ? { state: "building" } : STACK[from])) };
+		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: [] } });
+		wrapper.vm.stacked = true;
+		await vi.advanceTimersByTimeAsync(0);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.building");
+		await vi.advanceTimersByTimeAsync(2100);
+		expect(a.toolpathStack).toHaveBeenCalledTimes(3);
+		expect(wrapper.vm.stackNext).toBeNull();
+		// a failed piece says so; switching off drops an answer still on its way
+		const b = { ...api(async () => TOOLPATH), toolpathStack: vi.fn(async () => { throw new Error("timeout"); }) };
+		const failed = mountInDwc(ReplayView, { props: { api: b, job: JOB, layers: LAYERS, events: [] } });
+		failed.vm.stacked = true;
+		await vi.advanceTimersByTimeAsync(0);
+		expect(failed.text()).toContain("plugins.QualityAssurance.replay.stackFailed");
+		let resolve;
+		const c = { ...api(async () => TOOLPATH), toolpathStack: vi.fn(() => new Promise((r) => { resolve = r; })) };
+		const slow = mountInDwc(ReplayView, { props: { api: c, job: JOB, layers: LAYERS, events: [] } });
+		slow.vm.stacked = true;
+		await vi.advanceTimersByTimeAsync(0);
+		slow.vm.stacked = false;
+		await vi.advanceTimersByTimeAsync(0);
+		resolve(STACK[0]);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(slow.vm.stackLayers).toEqual([]);
+	});
+
 	it("plays through the layers", async () => {
 		vi.useFakeTimers();
 		const a = api(async () => TOOLPATH);

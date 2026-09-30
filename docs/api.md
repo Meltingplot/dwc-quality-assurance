@@ -45,6 +45,7 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/blocks` | `id` | `{jobId, blocks: [{id, start_ms, end_ms, triggers}]}` |
 | GET | `job/spectra` | `id` | `{jobId, spectra: [Spectrum]}`, see "Spectra" |
 | GET | `job/toolpath` | `id`, `layer` | segments of the layer; 202 while the index is built; 409 when the file is gone or changed |
+| GET | `job/toolpath/stack` | `id`, `from` (layer, default the first) | the replay's 3D stack, reduced, in pieces: see "Toolpath stack"; 202 and 409 as `job/toolpath` |
 | GET | `job/export` | `id` | the job as one JSON file (`application/octet-stream`) |
 | GET | `job/om` | `id`, `at` (epoch ms, default the journal's end), `path` (e.g. `move.compensation`, `boards[2].drivers[0]`; default the whole model) | `{at, snapshotAt, path, value}`: the object model or the value at `path` as it was then, see "Object model journal"; 404 without a journal |
 | GET | `job/om/history` | `id`, `path`, `from`, `to` (epoch ms), `limit` (1000, ≤ 10000) | `{path, points: [{t, value}], truncated}`: the value at `from` (or at the first snapshot), then every change; `path` `messages` gives each new message |
@@ -173,6 +174,25 @@ stride (`downsampled: true`).
 meta: {numLayers, source (comments|z), objects, filamentDiameter}}`, columns of equal length.
 Coordinates are the G-code's (user) coordinates; `flow` in mm³/s from ΔE × cross-section / (length / feed
 rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without extrusion.
+
+## Toolpath stack
+
+The layers the replay's 3D view stacks below the one it shows, reduced by the daemon so that a print filling
+the CHX 350's build volume (≈ 880 × 420 × 943 mm) stays small to send and to draw:
+`{layers: [StackLayer], next, meta: {numLayers, source, objects, filamentDiameter, bounds, resolution, step}}`.
+One answer reads at most 256 KiB of G-code (at least one layer); ask again with `from=next` until `next` is null.
+
+- `bounds` `{minX, minY, maxX, maxY, maxZ}`: extent of the printing moves (layer index, version 4), null when
+  nothing prints.
+- `resolution` (mm) = the largest extent / 1000, at least 0.02: paths follow the G-code within it.
+- `step`: the stack holds every `step`-th layer of the index, so layers are about one resolution apart and a
+  stack reads at most 64 MiB of G-code.
+- StackLayer `{layer, z, x, y, bulge, start, object}`: the extruding moves joined into paths (sparse infill left
+  out: `;TYPE:` `Internal infill`, `Sparse infill`, `FILL`), each path as few vertices as keep every point
+  within `resolution`, lines and arcs. `x`, `y`, `bulge` per vertex, `bulge` for the piece that ends at the
+  vertex: tan of a quarter of the arc's sweep, positive counter-clockwise, 0 for a line (the centre lies
+  `chord / 2 × (1 − bulge²) / (2 bulge)` to the left of the chord's middle). `start` (first vertex) and `object`
+  per path. `z` is the Z of the layer's last extruding move, null when it extrudes nothing.
 
 ## Timelapse
 

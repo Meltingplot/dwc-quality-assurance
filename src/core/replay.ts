@@ -255,3 +255,8 @@ export function markerColor(type: string): string {
 export function layerEvents(events: Array<QaEvent>, layer: number): Array<QaEvent> {
 	return events.filter((e) => e.layer === layer && !["job_start", "job_end"].includes(e.type));
 }
+
+/** Events the 3D stack marks: the ones of every layer up to ``layer`` */
+export function stackEvents(events: Array<QaEvent>, layer: number): Array<QaEvent> {
+	return events.filter((e) => e.layer !== null && e.layer <= layer && !["job_start", "job_end"].includes(e.type));
+}
