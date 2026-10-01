@@ -46,7 +46,12 @@
 					<td>{{ job.material || "—" }}</td>
 					<td class="text-right">{{ ratio(job) }}</td>
 					<td class="text-right">{{ heaterLoad(job) }}</td>
-					<td class="text-right">{{ eventCount(job) }}</td>
+					<td class="text-right">
+						<v-chip v-if="countedEvents(job.events)" size="small" variant="tonal" :color="eventsColor(job)" :title="eventsTitle(job)">
+							{{ countedEvents(job.events) }}
+						</v-chip>
+						<span v-else :title="eventsTitle(job)">{{ job.events ? 0 : "—" }}</span>
+					</td>
 				</tr>
 				<tr v-if="!loading && jobs.length === 0">
 					<td colspan="8" class="text-center text-medium-emphasis">{{ $t("plugins.QualityAssurance.jobs.none") }}</td>
@@ -63,10 +68,9 @@
 import { defineComponent, type PropType } from "vue";
 
 import type { JobEntry, QaApi } from "../core/api";
-import { fileName, formatDateTime, formatDuration, formatPercent, resultColor } from "../core/format";
+import { countedEvents, fileName, formatDateTime, formatDuration, formatPercent, levelColor, resultColor } from "../core/format";
 
 const PAGE_SIZE = 25;
-const QUIET_EVENTS = new Set(["job_start", "job_end", "setpoint_change", "pause", "resume", "babystep", "daemon_started_mid_job"]);
 
 export default defineComponent({
 	props: {
@@ -148,10 +152,15 @@ export default defineComponent({
 			const values = Object.values(job.summary?.heaterLoadMean ?? {});
 			return values.length ? formatPercent(Math.max(...values)) : "—";
 		},
-		eventCount(job: JobEntry): string {
-			const events = job.summary?.events ?? {};
-			const count = Object.entries(events).filter(([type]) => !QUIET_EVENTS.has(type)).reduce((sum, [, n]) => sum + (n ?? 0), 0);
-			return job.summary ? String(count) : "—";
+		countedEvents,
+		/** Red with an error, orange with warnings only */
+		eventsColor(job: JobEntry): string {
+			return levelColor(job.events?.error ? "error" : "warning");
+		},
+		eventsTitle(job: JobEntry): string | undefined {
+			const levels = job.events;
+			return levels ? (["error", "warning", "info"] as const)
+				.map((level) => `${levels[level]} ${this.$t(`plugins.QualityAssurance.levels.${level}`)}`).join(", ") : undefined;
 		}
 	}
 });

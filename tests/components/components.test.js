@@ -48,7 +48,8 @@ const JOB = {
 	timestamp: "2026-09-26T11:02:05Z", analysable: true, qaResult: "completed", startedAt: "2026-09-26T10:00:00Z",
 	endedAt: "2026-09-26T11:02:05Z", partial: false, numLayers: 3, material: "PLA", rawPruned: false,
 	summary: { abortReason: null, layers: 3, events: { job_start: 1, heater_load: 2 }, filamentRatio: { 0: 0.97 },
-		avgPercentage: { 0: 97 }, heaterLoadMean: { 1: 0.55 }, heaterLoadEvents: { 1: 2 }, spoolUsageG: { 0: 42 } }
+		avgPercentage: { 0: 97 }, heaterLoadMean: { 1: 0.55 }, heaterLoadEvents: { 1: 2 }, spoolUsageG: { 0: 42 } },
+	events: { info: 1, warning: 2, error: 0 }
 };
 
 const DETAIL = {
@@ -79,8 +80,8 @@ const LAYERS = {
 };
 
 const EVENTS = [
-	{ id: 1, ts_ms: Date.parse(JOB.startedAt), ts: JOB.startedAt, end_ms: null, type: "job_start", subtype: null, layer: null, x: 0, y: 0, z: 0, positions: {}, workplace: 0, offsets: {}, tool: 0, object_id: null, device: null, payload: {}, block_id: 1 },
-	{ id: 2, ts_ms: Date.parse(JOB.startedAt) + 125000, ts: "", end_ms: null, type: "heater_load", subtype: "high", layer: 2, x: 10, y: 20, z: 0.4, positions: {}, workplace: 0, offsets: {}, tool: 0, object_id: null, device: 1, payload: { peakMean: 0.86, setpoint: 220 }, block_id: 2 }
+	{ id: 1, ts_ms: Date.parse(JOB.startedAt), ts: JOB.startedAt, end_ms: null, type: "job_start", subtype: null, layer: null, x: 0, y: 0, z: 0, positions: {}, workplace: 0, offsets: {}, tool: 0, object_id: null, device: null, payload: {}, block_id: 1, severity: "info" },
+	{ id: 2, ts_ms: Date.parse(JOB.startedAt) + 125000, ts: "", end_ms: null, type: "heater_load", subtype: "high", layer: 2, x: 10, y: 20, z: 0.4, positions: {}, workplace: 0, offsets: {}, tool: 0, object_id: null, device: 1, payload: { peakMean: 0.86, setpoint: 220 }, block_id: 2, severity: "warning" }
 ];
 
 function fakeApi(overrides = {}) {
@@ -150,6 +151,10 @@ describe("JobList", () => {
 		expect(text).toContain("1h 02m");
 		expect(text).toContain("97.0 %");
 		expect(text).toContain("55 %");
+		// warnings and errors count, info does not
+		const count = wrapper.find("tbody tr td:last-child .v-chip");
+		expect(count.text()).toBe("2");
+		expect(count.attributes("title")).toBe("0 plugins.QualityAssurance.levels.error, 2 plugins.QualityAssurance.levels.warning, 1 plugins.QualityAssurance.levels.info");
 		await wrapper.find("tbody tr").trigger("click");
 		expect(wrapper.emitted("select")).toEqual([[JOB.id]]);
 		expectNoVueWarnings(warn);
@@ -208,8 +213,21 @@ describe("EventList", () => {
 		expect(wrapper.text()).toContain("2:05");
 		expect(wrapper.text()).toContain("86 % @ 220 °C");
 		expect(wrapper.findAll("tbody tr")).toHaveLength(2);
-		await wrapper.findAll(".v-chip")[0].trigger("click");
+		await wrapper.findAll(".qa-type")[0].trigger("click");
 		expect(wrapper.findAll("tbody tr").length).toBe(1);
+		expectNoVueWarnings(warn);
+	});
+
+	it("counts and filters by level", async () => {
+		const wrapper = mountInDwc(EventList, { props: { events: EVENTS, startMs: Date.parse(JOB.startedAt) } });
+		const levels = wrapper.findAll(".qa-level");
+		expect(levels.map((c) => c.text())).toEqual(["plugins.QualityAssurance.levels.error (0)",
+			"plugins.QualityAssurance.levels.warning (1)", "plugins.QualityAssurance.levels.info (1)"]);
+		expect(levels[1].classes()).toContain("bg-warning");
+		await levels[2].trigger("click");   // hide info
+		const rows = wrapper.findAll("tbody tr");
+		expect(rows).toHaveLength(1);
+		expect(rows[0].text()).toContain("eventTypes.heater_load");
 		expectNoVueWarnings(warn);
 	});
 
@@ -365,6 +383,25 @@ describe("SettingsForm", () => {
 		expect(api.saveSettings.mock.calls[0][0].postTriggerS).toBe(45);
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.saved");
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.settings.accelAvailable");
+		expectNoVueWarnings(warn);
+	});
+
+	it("edits the expected ranges", async () => {
+		const api = fakeApi();
+		const answer = await api.settings();
+		api.settings = vi.fn(async () => ({ ...answer, settings: { ...answer.settings, expectedRanges: { "pressAdv.k0": [0, 0.25] } } }));
+		const wrapper = mountInDwc(SettingsForm, { props: { api } });
+		await flush();
+		expect(wrapper.findAll(".qa-range")).toHaveLength(1);
+		wrapper.vm.setRange(0, "high", 0.3);
+		await wrapper.find(".qa-range-add").trigger("click");
+		wrapper.vm.setRange(1, "name", "babystep");
+		wrapper.vm.setRange(1, "low", -0.1);
+		await wrapper.findAll("button").find((b) => b.text().includes("settings.save")).trigger("click");
+		await flush();
+		expect(api.saveSettings.mock.calls[0][0].expectedRanges).toEqual({ "pressAdv.k0": [0, 0.3], babystep: [-0.1, null] });
+		wrapper.vm.removeRange(0);
+		expect(wrapper.vm.form.expectedRanges).toEqual({ babystep: [-0.1, null] });
 		expectNoVueWarnings(warn);
 	});
 

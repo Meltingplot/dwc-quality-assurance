@@ -81,7 +81,7 @@ export default defineComponent({
 			}));
 			const markers = this.events
 				.filter((e) => !["job_start", "job_end"].includes(e.type))
-				.map((e) => ({ ts: e.ts_ms, label: e.type, color: this.markerColor(e.type) }));
+				.map((e) => ({ ts: e.ts_ms, label: e.type, color: this.markerColor(e) }));
 			return timeSeriesConfig(series, this.startMs, { markers });
 		}
 	},
@@ -112,8 +112,8 @@ export default defineComponent({
 		}
 	},
 	methods: {
-		markerColor(type: string): string {
-			return { error: "rgba(229,57,53,0.8)", warning: "rgba(251,140,0,0.8)", info: "rgba(30,136,229,0.6)" }[eventColor(type)] ?? "rgba(128,128,128,0.5)";
+		markerColor(event: QaEvent): string {
+			return { error: "rgba(229,57,53,0.8)", warning: "rgba(251,140,0,0.8)", info: "rgba(30,136,229,0.6)" }[eventColor(event)] ?? "rgba(128,128,128,0.5)";
 		},
 		async load() {
 			if (this.selected.length === 0) {

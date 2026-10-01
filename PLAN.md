@@ -36,6 +36,7 @@ eine eigene Auswertung des Filamentmonitors.
 | 16 | CRC32 | via M38 | `zlib.crc32` über die aufgelöste Datei; M38 nicht nötig (DSF berechnet M38 selbst und leert vorher die Code-Queue des Kanals) | DSF `MCodeHandler.cs` |
 | 17 | Treiberfehler | `boards[].drivers[].status` | Status nur für Mainboard-Treiber verlässlich; Erweiterungsboards melden Änderungen nicht von selbst → dort über Events/`messages[]` | Wiki CAN_limitations, OM 2026-09-26 |
 | 15 | Mehrere Düsen | – | alle Kanäle und Aggregate dynamisch je Heizer/Extruder; bis 16 Düsen, davon zwei gleichzeitig druckend | Roadmap CHX 350 |
+| 18 | Event-Stufen | – | jedes Event ist `info`, `warning` oder `error`; die Anzahl eines Jobs (nur warning + error) ist ein QA-Kriterium: mehr Events, schlechterer Druck. Die Stufe wird beim Lesen aus Typ, Subtyp und Payload bestimmt, nicht gespeichert (`qa_severity.py`); ein Vorfall zählt einmal (Folge-Events sind info), Sollwertänderungen sind info im erwarteten Bereich (`expectedRanges`, z. B. Pressure Advance), außerhalb warning (§5.4) | Entscheidung Tim 2026-10-01; die Erfassung bleibt unverändert, Quality Control kann die Regeln übernehmen |
 
 ## 1. Kontext
 
@@ -267,6 +268,13 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
   `pause`, `resume`, `babystep`, `calibration`, `machine_mode`, `firmware_restart`, `timelapse_failed`, `accelerometer_failed`,
   `daemon_started_mid_job`. Jedes Event: `ts, layer, machine_pos{}, workplace, offsets{},
   current_tool, current_object, extruder/heater/board-Index, payload JSON, block_id`.
+- **Stufen** (neu 2026-10-01, Tim): `info`, `warning`, `error`, beim Lesen bestimmt (`qa_severity.py`, Tabelle in
+  docs/api.md „Event levels“); gezählt werden warning und error. Ein Vorfall zählt einmal: das beobachtete Problem
+  (`filament_status`, `mfm_recovery` real_issue), nicht seine Folgen (`mfm_error_tolerated`, `pause`, der M92 der
+  Flow-Bias-Korrektur). `job_end` ist info, das Job-Ergebnis ist ein eigenes Kriterium. `machine_mode` → default
+  ist im Job ein error, in den 30 s vor `job_end` die Endsequenz von stop.g/cancel.g (info). Sollwertänderungen
+  (und Babystep) sind info, solange der neue Wert im erwarteten Bereich liegt (`expectedRanges`, Standard
+  `pressAdv.k0` 0…0,25 s; die Filamente der CHX 350 setzen 0,02–0,2), außerhalb warning.
 - **Sollwert-Änderung**: Vergleich alter/neuer Wert je Patch für die definierten Felder.
 - **Kalibrierung** (neu 2026-09-29, `qa_calibration.py`): Mesh (G29), Nivellierung (G32), Scan-Sonde (M558.1)
   und ihr Antriebsstrom (M558.2), jeweils ein Event `calibration` im Job; der Kontext `calibration` hält, womit
@@ -535,6 +543,7 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
   "thresholds": { "temperatureK": 5, "filamentPercentPoints": 15, "vInPercent": 10, "phantomJumpK": 15, "gearPasses": 5,
                   "filamentLevelPoints": 20, "filamentDriftPoints": 6, "frameChangePixels": 8 },
   "filamentPercentWindowMinS": 5, "filamentLevelMinS": 300, "filamentDriftLayers": 3,
+  "expectedRanges": { "pressAdv.k0": [0, 0.25] },
   "heaterLoad": { "high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60, "minCoverage": 0.75, "reachedToleranceK": 2 },
   "chamber": { "mode": "auto" | "heater" | "sensor", "index": null, "autoSensorName": "SZP coil" },
   "contextGlobals": ["nozzle_type", "nozzle_diameter", "filament_diameter", "bed_surface",
@@ -552,6 +561,8 @@ damit QA nicht vom CHX350-Plugin abhängt. Meltingplot-OrcaSlicer-Dateien enthal
 ```
 `accelerometer.board` (CAN-Adresse, auf der CHX 350 60 = SZP) wählt das Accelerometer; `null` =
 keine Aufnahmen, keine automatische Wahl (Tim 2026-09-27, ersetzt `enabled: "auto"`).
+`expectedRanges`: je Sollwert (Subtyp von `setpoint_change`, oder `babystep`) `[von, bis]`, `null` = offen; eine
+Änderung außerhalb ist eine Warnung (§5.4 Stufen, Tim 2026-10-01).
 `contextGlobals` ersetzt `batchGlobalVariable` (`filamentBatch` gibt es auf der CHX nicht).
 Fehlende Globals werden übersprungen. `snapshotUrl` ist Pflicht für den Zeitraffer: ohne URL nimmt QA
 keine Frames auf und meldet das im `status`. `crf`/`preset` `null` = SVT-AV1-Defaults, nach Messung

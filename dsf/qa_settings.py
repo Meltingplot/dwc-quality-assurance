@@ -65,6 +65,10 @@ DEFAULTS = {
     "filamentLevelMinS": 300,
     # layers in a row for filament_percent_drift
     "filamentDriftLayers": 3,
+    # setpoint (a setpoint_change subtype, or "babystep") -> [low, high], None = open: a change to a value
+    # outside is a warning, inside it is info (qa_severity, Tim 2026-10-01). The CHX 350's filament configs set
+    # pressure advance between 0.02 and 0.2 s (chx350-config 3.7 @ ef0ff7d, config-override.g, 2026-10-01)
+    "expectedRanges": {"pressAdv.k0": [0, 0.25]},
     # Same constants as the CHX UI heater-load banner (CHX350/stores/heaterLoad.ts, §5.4.1)
     "heaterLoad": {"high": 0.8, "limit": 0.9, "hysteresis": 0.05, "windowS": 60,
                    "minCoverage": 0.75, "reachedToleranceK": 2},
@@ -124,6 +128,7 @@ BOUNDS = {
     "chamber.index": ((int, type(None)), 0, 1000),
     "chamber.autoSensorName": (str, None, None),
     "contextGlobals": (list, None, None),
+    "expectedRanges": (dict, None, None),
     "timelapse.snapshotUrl": ((str, type(None)), None, None),
     "timelapse.minIntervalS": (_NUMBER, 0, 3600),
     "timelapse.settleMs": (_NUMBER, 0, 5000),
@@ -169,6 +174,13 @@ def _check(path, value, default):
             return f"must be <= {high}"
     if path == "contextGlobals" and not all(isinstance(v, str) and v for v in value):
         return "must be a list of global variable names"
+    if path == "expectedRanges":
+        for name, bounds in value.items():
+            if not name or not isinstance(bounds, list) or len(bounds) != 2 or not all(
+                    b is None or (isinstance(b, (int, float)) and not isinstance(b, bool)) for b in bounds):
+                return f"{name}: must be [low, high], numbers or null"
+            if None not in bounds and bounds[0] > bounds[1]:
+                return f"{name}: low must be <= high"
     if path == "accelerometer.axes" and (not value or any(c not in "XYZ" for c in value)):
         return "must be letters of XYZ"
     if path == "timelapse.snapshotUrl" and isinstance(value, str) and value and \

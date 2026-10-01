@@ -81,7 +81,7 @@ export default defineComponent({
 		markers(): Array<ReplayMarker> {
 			return layerEvents(this.events, this.resolvedLayer).filter((e) => e.x !== null && e.y !== null).map((e) => ({
 				...this.userPoint(e.x as number, e.y as number, e.ts_ms),
-				color: markerColor(e.type),
+				color: markerColor(e),
 				label: e.type
 			}));
 		}

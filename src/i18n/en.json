@@ -44,7 +44,7 @@
 		"ratio": "Measured/commanded",
 		"avgPercentage": "Monitor average",
 		"loadMean": "Heater load (mean)",
-		"events": "Events",
+		"events": "Events (warnings + errors)",
 		"tabLayers": "Layers",
 		"tabChannels": "Channels",
 		"tabEvents": "Events",
@@ -94,7 +94,8 @@
 		"position": "Position (machine)",
 		"none": "No events",
 		"unconfirmed": "unconfirmed",
-		"unconfirmedHint": "Cleared within 500 ms: the board itself reports open load only after 500 ms"
+		"unconfirmedHint": "Cleared within 500 ms: the board itself reports open load only after 500 ms",
+		"countedHint": "Warnings and errors count against the job, info does not."
 	},
 	"eventTypes": {
 		"filament_status": "Filament monitor",
@@ -125,6 +126,11 @@
 		"timelapse_failed": "Timelapse failed",
 		"accelerometer_failed": "Accelerometer failed",
 		"daemon_started_mid_job": "Recording started mid-job"
+	},
+	"levels": {
+		"error": "Error",
+		"warning": "Warning",
+		"info": "Info"
 	},
 	"trends": {
 		"metric": "Metric",
@@ -164,7 +170,7 @@
 			"esteps_suggested": "The correction the machine's flow-bias detector suggested.",
 			"heat_up_s": "Time from a new setpoint to reaching it, first time in each job.",
 			"duration_s": "Job duration as RRF reports it.",
-			"events": "Events of a job without start, end and calibrations.",
+			"events": "Warnings and errors of a job; info does not count. The more, the worse the print.",
 			"spectrum_peak_hz": "Mean peak frequency of a job's accelerometer spectra per axis (from 5 Hz on). A shift points at belt tension, bearings or loose parts. Where a fan's line is the largest peak (see the fan metrics), this follows the fan's speed.",
 			"spectrum_rms": "Mean vibration RMS of a job's accelerometer recordings per axis, without gravity.",
 			"fan_rpm": "Mean speed of each fan with a tachometer during a job's accelerometer recordings. Slower at the same PWM, or standing although driven: the fan wears out or is blocked.",
@@ -177,6 +183,7 @@
 		"chamber": "Chamber temperature",
 		"context": "Job context",
 		"timelapse": "Timelapse",
+		"eventLevels": "Event levels",
 		"save": "Save",
 		"reset": "Discard changes",
 		"timelapseM240": "A job whose G-code sends M240 (trigger camera, e.g. from a slicer macro that parks the head) gets its frames from M240; the print waits for each photo. The camera shows the machine late, so the photo waits until the picture has stood still (0 = only the fixed wait). Otherwise a frame is taken at each layer change.",
@@ -224,12 +231,18 @@
 			"accelIntervalMin": "Every",
 			"accelSamples": "Samples per recording",
 			"journal": "Record every change of the object model (journal)",
-			"journalSnapshotMin": "Journal snapshot every"
+			"journalSnapshotMin": "Journal snapshot every",
+			"rangeSetpoint": "Setpoint",
+			"rangeLow": "From",
+			"rangeHigh": "To"
 		},
 		"accelerometer": "Accelerometer",
 		"accelHint": "Spectra are recorded only from the accelerometer on this board (CHX 350: the SZP, 60).",
 		"accelAvailable": "Configured accelerometers (board and port): {list}.",
-		"accelNone": "The machine has no accelerometer configured (M955)."
+		"accelNone": "The machine has no accelerometer configured (M955).",
+		"rangesHint": "A setpoint change during a job is info while its new value lies in its expected range, a warning outside it. Empty = no bound on that side.",
+		"rangeAdd": "Add range",
+		"rangeRemove": "Remove"
 	},
 	"live": {
 		"recording": "Recording",

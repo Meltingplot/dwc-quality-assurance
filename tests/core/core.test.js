@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QaApi, statusOf } from "../../src/core/api";
 import { histogramConfig, layerChartConfig, markerPlugin, timeSeriesConfig, trendConfig } from "../../src/core/charts";
-import { eventDetail, fileName, formatBytes, formatClock, formatDuration, formatPercent, resultColor } from "../../src/core/format";
+import { countedEvents, eventColor, eventDetail, fileName, formatBytes, formatClock, formatDuration, formatPercent, levelColor, resultColor,
+	worstLevel } from "../../src/core/format";
+import { markerColor } from "../../src/core/replay";
 import { LiveClient } from "../../src/core/ws";
 
 describe("QaApi", () => {
@@ -110,6 +112,19 @@ describe("format", () => {
 		expect(eventDetail({ type: "firmware_restart", subtype: "before_job", payload: { upTimeBefore: 30000, upTimeAfter: 5 } }))
 			.toBe("8h 20m → 5s");
 		expect(eventDetail({ type: "unknown", subtype: null, payload: null })).toBe("");
+	});
+});
+
+describe("event levels", () => {
+	it("colours by level and counts warnings and errors only", () => {
+		expect(levelColor("error")).toBe("error");
+		expect(levelColor(undefined)).toBe("grey");
+		expect(eventColor({ type: "heater_load", severity: "warning" })).toBe("warning");
+		expect(markerColor({ severity: "error" })).toBe("#E53935");
+		expect(worstLevel([{ severity: "info" }, { severity: "warning" }])).toBe("warning");
+		expect(worstLevel([])).toBeNull();
+		expect(countedEvents({ info: 14, warning: 2, error: 1 })).toBe(3);
+		expect(countedEvents(null)).toBeNull();
 	});
 });
 

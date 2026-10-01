@@ -8,6 +8,7 @@ import datetime
 import json
 
 import qa_db
+import qa_severity
 
 MAX_POINTS_PER_CHANNEL = 20_000
 
@@ -53,7 +54,23 @@ def _summary_excerpt(summary):
     }
 
 
-def job_list_entry(row):
+def event_levels(con, rows, ranges=None):
+    """Job key -> ``{"info", "warning", "error"}`` counts of its events (qa_severity) for the job rows."""
+    keys = [row["key"] for row in rows]
+    ended = {row["key"]: row["ended_at"] for row in rows}
+    result = {key: dict.fromkeys(qa_severity.LEVELS, 0) for key in keys}
+    for start in range(0, len(keys), 500):
+        chunk = keys[start:start + 500]
+        for event in con.execute(f"SELECT job_key, type, subtype, ts_ms, payload FROM events "
+                                 f"WHERE job_key IN ({','.join('?' * len(chunk))})", chunk):
+            entry = {"type": event["type"], "subtype": event["subtype"], "ts_ms": event["ts_ms"],
+                     "payload": qa_db.loads(event["payload"])}
+            result[event["job_key"]][qa_severity.level(entry, ranges, ended[event["job_key"]])] += 1
+    return result
+
+
+def job_list_entry(row, levels=None):
+    """``levels``: the job's event counts per level (event_levels)."""
     summary = qa_db.loads(row["summary"])
     ended, started = row["ended_at"], row["started_at"]
     return {
@@ -73,10 +90,12 @@ def job_list_entry(row):
         "material": row["material"],
         "rawPruned": bool(row["raw_pruned"]),
         "summary": _summary_excerpt(summary),
+        # warnings and errors rate the job, info does not (qa_severity)
+        "events": levels,
     }
 
 
-def jobs(con, limit=50, offset=0, result=None, material=None):
+def jobs(con, limit=50, offset=0, result=None, material=None, ranges=None):
     where = []
     args = []
     if result:
@@ -89,14 +108,15 @@ def jobs(con, limit=50, offset=0, result=None, material=None):
     total = con.execute(f"SELECT COUNT(*) FROM jobs {clause}", args).fetchone()[0]
     rows = con.execute(f"SELECT * FROM jobs {clause} ORDER BY started_at DESC LIMIT ? OFFSET ?",
                        (*args, limit, offset)).fetchall()
-    return {"total": total, "offset": offset, "jobs": [job_list_entry(r) for r in rows]}
+    levels = event_levels(con, rows, ranges)
+    return {"total": total, "offset": offset, "jobs": [job_list_entry(r, levels[r["key"]]) for r in rows]}
 
 
-def job(con, job_id):
+def job(con, job_id, ranges=None):
     row = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     if row is None:
         return None
-    out = job_list_entry(row)
+    out = job_list_entry(row, event_levels(con, [row], ranges)[row["key"]])
     out.update({
         "fileCrc32": row["file_crc32"],
         "startLayer": row["start_layer"],
@@ -145,10 +165,12 @@ def layers(con, job_id, load_thresholds=None):
     }
 
 
-def events(con, job_id, type_=None):
-    key = job_key(con, job_id)
-    if key is None:
+def events(con, job_id, type_=None, ranges=None):
+    """The job's events, each with its ``severity`` (qa_severity)."""
+    row = con.execute("SELECT key, ended_at FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row is None:
         return None
+    key, ended_ms = row["key"], row["ended_at"]
     sql = "SELECT * FROM events WHERE job_key=?"
     args = [key]
     if type_:
@@ -161,6 +183,7 @@ def events(con, job_id, type_=None):
         entry = _loads(row, "positions", "offsets", "payload")
         entry.pop("job_key", None)
         entry["ts"] = iso(entry["ts_ms"])
+        entry["severity"] = qa_severity.level(entry, ranges, ended_ms)
         out.append(entry)
     return {"jobId": job_id, "events": out}
 
@@ -324,8 +347,8 @@ def spectra_latest(con, axis, limit=5):
     return {"axis": axis, "spectra": sorted(spectra, key=lambda s: order[s["id"]])}
 
 
-def export(con, job_id):
-    detail = job(con, job_id)
+def export(con, job_id, ranges=None):
+    detail = job(con, job_id, ranges)
     if detail is None:
         return None
     return {
@@ -333,7 +356,7 @@ def export(con, job_id):
         "format": "dwc-quality-assurance/job/1",
         "job": detail,
         "layers": layers(con, job_id)["layers"],
-        "events": events(con, job_id)["events"],
+        "events": events(con, job_id, ranges=ranges)["events"],
         "blocks": blocks(con, job_id)["blocks"],
         "spectra": spectra(con, job_id)["spectra"],
     }
@@ -370,16 +393,18 @@ TREND_METRICS = ("heater_load_mean", "fm_avg_percentage", "filament_ratio", "est
                  "heat_up_s", "duration_s", "events", "spectrum_peak_hz", "spectrum_rms", "fan_rpm", "fan_amplitude")
 
 
-def trends(con, metric, limit=100, material=None):
+def trends(con, metric, limit=100, material=None, ranges=None):
     """One point per job (newest first), grouped where the plan asks for it (§5.4.1 Trends)."""
     if metric not in TREND_METRICS:
         raise ValueError(f"unknown metric {metric}; one of {', '.join(TREND_METRICS)}")
-    sql = "SELECT id, started_at, result, material, duration_s, context, summary FROM jobs WHERE result != 'running'"
+    sql = ("SELECT key, id, started_at, ended_at, result, material, duration_s, context, summary FROM jobs "
+           "WHERE result != 'running'")
     args = []
     if material:
         sql += " AND material=?"
         args.append(material)
     rows = con.execute(sql + " ORDER BY started_at DESC LIMIT ?", (*args, limit)).fetchall()
+    levels = event_levels(con, rows, ranges) if metric == "events" else {}
     points = []
     for row in rows:
         summary = qa_db.loads(row["summary"]) or {}
@@ -425,8 +450,8 @@ def trends(con, metric, limit=100, material=None):
                                    "amplitudeMax": stats.get("amplitudeMax"), "recordings": stats.get("recordings")})
         elif metric == "events":
             counts = {k: v.get("count") for k, v in (summary.get("events") or {}).items()}
-            routine = ("job_start", "job_end", "calibration")   # every job has them
-            points.append({**base, "value": sum(c for t, c in counts.items() if t not in routine), "byType": counts})
+            by_level = levels[row["key"]]
+            points.append({**base, "value": qa_severity.counted(by_level), "byLevel": by_level, "byType": counts})
     return {"metric": metric, "points": points}
 
 
