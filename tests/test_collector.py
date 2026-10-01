@@ -331,7 +331,55 @@ def test_heater_monitor_only_while_the_heater_regulates(rig):
                                     {"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]}]}})
     assert rig.events("heater_monitor") == []
     rig.patch({"heat": {"heaters": [{}, {"state": "active", "active": 60}]}})  # switched on above its cap
-    assert [(e["device"], e["payload"]["limit"]) for e in rig.events("heater_monitor")] == [(1, 50)]
+    started = rig.t
+    rig.tick(2000)
+    events = rig.events("heater_monitor")
+    assert [(e["device"], e["payload"]["limit"], e["ts_ms"]) for e in events] == [(1, 50, started)]
+    assert events[0]["block_id"] is not None
+
+
+def test_heater_monitor_ignores_a_remote_heaters_late_state(rig):
+    """Jobs 20260929-125727 and 20260930-075116: M568 A0 switched the tool board's heater off, M143 S50 A2 capped
+    it, and QA saw the new limit while the heater's state (the board's last report) still read active."""
+    rig.start_job()
+    rig.patch({"heat": {"heaters": [{}, {"current": 204.66}]}})
+    rig.patch({"heat": {"heaters": [{}, {"monitors": [{"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]}]}})
+    rig.patch({"heat": {"heaters": [{}, {"state": "off", "active": 0}]}}, dt_ms=300)   # the board's next report
+    rig.tick(3000)
+    assert rig.events("heater_monitor") == []
+
+
+def test_heater_monitor_that_raised_a_fault_counts_at_once(rig):
+    """M143 A0: RRF turns the violation into a heater fault on its next sample, so it never lasts 2 s."""
+    rig.start_job()
+    rig.patch({"heat": {"heaters": [{}, {"monitors": [{"condition": "tooHigh", "limit": 280, "action": 0, "sensor": -1}]}]}})
+    rig.patch({"heat": {"heaters": [{}, {"current": 281}]}})
+    started = rig.t
+    rig.patch({"heat": {"heaters": [{}, {"state": "fault"}]}}, dt_ms=250)
+    events = sorted((e["ts_ms"], e["type"]) for e in rig.events() if e["type"].startswith("heater_"))
+    assert events == [(started, "heater_monitor"), (rig.t, "heater_fault")]
+
+
+def test_no_events_after_the_job_end(rig):
+    """Job 20260930-075116: DSF delivered the CE default mode of stop.g after the job end (machine_mode +5 ms,
+    heater_monitor +37 ms, fm.calibrated +1.9 s), while QA waited for DSF's outcome flags. A firmware restart
+    in that time belongs to the next job."""
+    rig.patch({"global": {"machine_mode": "automatic"}, "state": {"upTime": 1000}})
+    rig.start_job()
+    rig.patch({"state": {"status": "idle", "upTime": 1001}, "job": {"duration": None}})
+    ended = rig.t
+    rig.patch({"global": {"machine_mode": "default"}}, dt_ms=5)
+    rig.patch({"heat": {"heaters": [{}, {"current": 203.68, "monitors": [
+        {"condition": "tooHigh", "limit": 50, "action": 2, "sensor": -1}]}]}}, dt_ms=32)
+    rig.patch({"move": {"extruders": [{"pressAdv": {"k0": 0.02}}]}}, dt_ms=1900)
+    rig.tick(3000)
+    rig.patch({"state": {"upTime": 2}}, dt_ms=1000)
+    rig.patch({"job": {"lastFileCancelled": True}})
+    events = rig.events()
+    assert [e["type"] for e in events] == ["job_start", "job_end"] and events[-1]["ts_ms"] == ended
+    rig.start_job()
+    assert [e["type"] for e in rig.events()][-2:] == ["firmware_restart", "job_start"]
+    assert rig.events("firmware_restart")[0]["subtype"] == "before_job"
 
 
 def test_driver_status_bits_and_messages(rig):

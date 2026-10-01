@@ -82,6 +82,14 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
 - A job runs while `job.duration is not None`; `job.file.fileName` keeps the last name after a
   job on DSF 3.7. The outcome flags `lastFileCancelled/Aborted` arrive **after** the job-end
   patch: wait for them to change, or 10 s (dwc-vigil `VigilTracker`, same DSF source).
+  Detectors record nothing in that wait: DSF polls the live values (`job.duration` is live) before the
+  keys that changed with them (`UpdateService.cs:282-330` @ 3ae80501), and RRF runs cancel.g after the
+  print stopped (RRF 3.7-dev @ 3796dc422 `GCodes2.cpp:787-792`), so stop.g's/cancel.g's CE default mode
+  arrived as job events (2026-10-01).
+- A heater on a CAN board reports its `state` from the board's last report (`RemoteHeater::GetMode`,
+  RRF 3.7-dev @ 3796dc422 `RemoteHeater.cpp:436-446`; offline after 2 s without one), while M143 changes
+  `monitors[].limit` at once: `heater_monitor` counts a violation after 2 s, or at once when it ends in a
+  heater fault (M143 A0), 2026-10-01.
 - dsf-python serves each endpoint in its own thread + asyncio loop; `read_request` reads
   ≤ 32 KiB. The shared `CommandConnection` is used only under `ApiContext.cmd_lock`.
 - ⚠️ DSF does **not** authorize plugin endpoints (`/machine/*` routes require a session, plugin
