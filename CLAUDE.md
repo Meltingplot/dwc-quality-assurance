@@ -43,6 +43,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_machine.py             MFM globals of chx350-config, context globals
   qa_context.py             job context snapshot, CRC32
   qa_summary.py             layer aggregates, job summary (time-weighted)
+  qa_severity.py            event levels info/warning/error, worked out when read
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts), per-layer stats, toolpath
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
@@ -106,6 +107,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   `plugins.QualityAssurance.data.<key>`. QA writes plugin data as strings (`PluginData.set`).
 
 ## Recording decisions (details in the module docstrings)
+- Event levels (Tim 2026-10-01): every event is info, warning or error; a job's warnings + errors are a QA
+  criterion (more events, a worse print), info never counts. `qa_severity.level()` decides when an event is read,
+  nothing is stored, so every job is counted by the current rules. One incident counts once (follow-ups are
+  info), setpoint changes are info inside `expectedRanges`. A new event type needs a rule (`tests/test_severity.py`
+  finds every type in `dsf/`).
 - Timestamps are epoch ms (wall clock); jobs have a text id for the API and an integer key for
   the sample tables. Samples: coarse every `sampleIntervalS`; fine rows only for changed values
   inside a block (ring buffer + `postTriggerS`).
@@ -211,7 +217,8 @@ scripts/sideload.sh [status|remove]             # onto a CHX 350 through its HMI
 
 ## Checklist for a change
 1. Interface read, not guessed (Rule 1); facts dated (Rule 2).
-2. New `set_plugin_data` key → `plugin.json#data` and `PLUGIN_DATA_KEYS`.
+2. New `set_plugin_data` key → `plugin.json#data` and `PLUGIN_DATA_KEYS`. New event type → a level in
+   `qa_severity.RULES`, a name in `eventTypes` (en, de), a row in docs/api.md.
 3. New dsf-python patch → `qa_patches.py` + a case in `tests/test_patches.py` (real library).
 4. Persistent data only under `/opt/dsf/sd/QualityAssurance/`. A new endpoint goes into
    `ENDPOINTS` (so `qa_api.call` refuses requests without a session), never around it.

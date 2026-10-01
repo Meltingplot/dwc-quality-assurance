@@ -1,7 +1,14 @@
 <template>
 	<div>
+		<div class="d-flex flex-wrap ga-1 mb-1">
+			<v-chip v-for="level in levels" :key="level" size="small" :color="levelColor(level)" class="qa-level"
+				:variant="hiddenLevels.includes(level) ? 'outlined' : 'flat'" @click="toggleLevel(level)">
+				{{ $t(`plugins.QualityAssurance.levels.${level}`) }} ({{ levelCounts[level] }})
+			</v-chip>
+			<span class="text-caption text-medium-emphasis align-self-center ml-1">{{ $t("plugins.QualityAssurance.events.countedHint") }}</span>
+		</div>
 		<div class="d-flex flex-wrap ga-1 mb-2">
-			<v-chip v-for="type in types" :key="type" size="small" :color="eventColor(type)"
+			<v-chip v-for="type in types" :key="type" size="small" :color="typeColor(type)" class="qa-type"
 				:variant="hidden.includes(type) ? 'outlined' : 'tonal'" @click="toggle(type)">
 				{{ $t(`plugins.QualityAssurance.eventTypes.${type}`) }} ({{ counts[type] }})
 			</v-chip>
@@ -21,7 +28,8 @@
 					<td class="text-no-wrap">{{ clock(event.ts_ms) }}</td>
 					<td>{{ event.layer ?? "—" }}</td>
 					<td>
-						<v-chip size="x-small" :color="eventColor(event.type)" variant="tonal">
+						<v-chip size="x-small" :color="eventColor(event)" variant="tonal"
+							:title="$t(`plugins.QualityAssurance.levels.${event.severity}`)">
 							{{ $t(`plugins.QualityAssurance.eventTypes.${event.type}`) }}
 						</v-chip>
 						<span v-if="event.subtype" class="text-caption ml-1">{{ event.subtype }}</span>
@@ -46,7 +54,7 @@
 import { defineComponent, type PropType } from "vue";
 
 import type { QaEvent } from "../core/api";
-import { eventColor, eventDetail, formatClock } from "../core/format";
+import { EVENT_LEVELS, type EventLevel, eventColor, eventDetail, formatClock, levelColor, worstLevel } from "../core/format";
 
 export default defineComponent({
 	props: {
@@ -56,9 +64,16 @@ export default defineComponent({
 	},
 	emits: ["select"],
 	data() {
-		return { hidden: [] as Array<string> };
+		return { hidden: [] as Array<string>, hiddenLevels: [] as Array<EventLevel>, levels: EVENT_LEVELS };
 	},
 	computed: {
+		levelCounts(): Record<EventLevel, number> {
+			const counts = { error: 0, warning: 0, info: 0 };
+			for (const event of this.events) {
+				counts[event.severity] = (counts[event.severity] ?? 0) + 1;
+			}
+			return counts;
+		},
 		counts(): Record<string, number> {
 			const counts: Record<string, number> = {};
 			for (const event of this.events) {
@@ -70,12 +85,20 @@ export default defineComponent({
 			return Object.keys(this.counts).sort();
 		},
 		visible(): Array<QaEvent> {
-			return this.events.filter((e) => !this.hidden.includes(e.type));
+			return this.events.filter((e) => !this.hidden.includes(e.type) && !this.hiddenLevels.includes(e.severity));
 		}
 	},
 	methods: {
 		eventColor,
 		eventDetail,
+		levelColor,
+		/** A type's chip: the highest level among its events */
+		typeColor(type: string): string {
+			return levelColor(worstLevel(this.events.filter((e) => e.type === type)));
+		},
+		toggleLevel(level: EventLevel) {
+			this.hiddenLevels = this.hiddenLevels.includes(level) ? this.hiddenLevels.filter((l) => l !== level) : [...this.hiddenLevels, level];
+		},
 		clock(ts: number): string {
 			return formatClock((ts - this.startMs) / 1000);
 		},

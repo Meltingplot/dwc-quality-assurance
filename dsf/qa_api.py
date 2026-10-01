@@ -227,15 +227,20 @@ def handle_settings_post(ctx, request):
     return json_response({"saved": True, "settings": settings, "errors": []})
 
 
+def _ranges(ctx):
+    """The setpoints' expected ranges, which decide an event's level (qa_severity)."""
+    return ctx.settings.current()["expectedRanges"] if ctx.settings is not None else None
+
+
 def handle_jobs(ctx, request):
     return json_response(qa_queries.jobs(_con(ctx), limit=_int(request, "limit", 50, 1, 1000),
                                          offset=_int(request, "offset", 0, 0), result=query(request, "result"),
-                                         material=query(request, "material")))
+                                         material=query(request, "material"), ranges=_ranges(ctx)))
 
 
 def handle_job(ctx, request):
     job_id = _job_id(request)
-    job = qa_queries.job(_con(ctx), job_id)
+    job = qa_queries.job(_con(ctx), job_id, _ranges(ctx))
     if job is not None:
         job["journal"] = qa_journal.info(_journal_dir(ctx, job_id))
     return _found(job)
@@ -318,7 +323,7 @@ def _layer_index(ctx, job):
 
 
 def handle_events(ctx, request):
-    return _found(qa_queries.events(_con(ctx), _job_id(request), query(request, "type")))
+    return _found(qa_queries.events(_con(ctx), _job_id(request), query(request, "type"), _ranges(ctx)))
 
 
 def handle_blocks(ctx, request):
@@ -358,7 +363,7 @@ def handle_trends(ctx, request):
         raise ApiError(400, f"missing 'metric' ({', '.join(qa_queries.TREND_METRICS)})")
     try:
         return json_response(qa_queries.trends(_con(ctx), metric, _int(request, "limit", 100, 1, 1000),
-                                               query(request, "material")))
+                                               query(request, "material"), _ranges(ctx)))
     except ValueError as exc:
         raise ApiError(400, str(exc))
 
@@ -502,7 +507,7 @@ def _tmp_dir(ctx):
 
 def handle_export(ctx, request):
     """The job as one JSON file, sent by DSF from disk (large answers do not go through the socket)."""
-    data = qa_queries.export(_con(ctx), _job_id(request))
+    data = qa_queries.export(_con(ctx), _job_id(request), _ranges(ctx))
     if data is None:
         raise ApiError(404, "job not found")
     directory = _tmp_dir(ctx)

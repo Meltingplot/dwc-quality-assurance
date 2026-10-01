@@ -30,7 +30,7 @@
 				<div class="text-subtitle-2">{{ $t("plugins.QualityAssurance.replay.events") }}</div>
 				<div v-if="layerEvents.length === 0" class="text-caption text-medium-emphasis mb-2">{{ $t("plugins.QualityAssurance.events.none") }}</div>
 				<div v-for="event in layerEvents" :key="event.id" class="text-caption">
-					<v-chip size="x-small" :color="eventColor(event.type)" variant="tonal">{{ $t(`plugins.QualityAssurance.eventTypes.${event.type}`) }}</v-chip>
+					<v-chip size="x-small" :color="eventColor(event)" variant="tonal">{{ $t(`plugins.QualityAssurance.eventTypes.${event.type}`) }}</v-chip>
 					{{ event.subtype }} {{ eventDetail(event) }}
 				</div>
 				<div class="text-subtitle-2 mt-3">{{ $t("plugins.QualityAssurance.replay.curves") }}</div>
@@ -131,7 +131,7 @@ export default defineComponent({
 		},
 		markers(): Array<ReplayMarker> {
 			const shown = (e: QaEvent) => e.x !== null && e.y !== null && !(e.object_id !== null && this.hiddenObjects.includes(e.object_id));
-			const marker = (e: QaEvent) => ({ ...this.userPoint(e.x as number, e.y as number, e.ts_ms), color: markerColor(e.type), label: e.type });
+			const marker = (e: QaEvent) => ({ ...this.userPoint(e.x as number, e.y as number, e.ts_ms), color: markerColor(e), label: e.type });
 			if (!this.stacked) {
 				return this.layerEvents.filter(shown).map(marker);
 			}
@@ -177,7 +177,7 @@ export default defineComponent({
 				{ label: `${this.$t("plugins.QualityAssurance.layers.loadMean")} T${h.tool ?? h.index}`, unit: "0..1",
 					points: clip(channels[`heater.${h.index}.load`]), secondary: true }
 			]);
-			const markers = this.layerEvents.map((e) => ({ ts: e.ts_ms, label: e.type, color: markerColor(e.type) }));
+			const markers = this.layerEvents.map((e) => ({ ts: e.ts_ms, label: e.type, color: markerColor(e) }));
 			return timeSeriesConfig(series, from, { markers });
 		}
 	},

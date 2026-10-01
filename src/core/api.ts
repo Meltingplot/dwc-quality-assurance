@@ -1,4 +1,5 @@
 import { PLUGIN_ID } from "./backend";
+import type { EventLevel } from "./format";
 import type { HostAdapter } from "./host";
 
 /**
@@ -34,6 +35,8 @@ export interface JobEntry {
 	material: string | null;
 	rawPruned: boolean;
 	summary: JobSummaryExcerpt | null;
+	/** Events per level; warnings and errors rate the job (docs/api.md) */
+	events: Record<EventLevel, number> | null;
 }
 
 export interface JobDetail extends Omit<JobEntry, "summary"> {
@@ -172,6 +175,7 @@ export interface QaEvent {
 	device: number | null;
 	payload: Record<string, any> | null;
 	block_id: number | null;
+	severity: EventLevel;
 }
 
 export type Resolution = "coarse" | "fine" | "auto";

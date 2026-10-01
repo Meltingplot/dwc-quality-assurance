@@ -27,6 +27,7 @@ import qa_db
 import qa_gcode
 import qa_heaterload
 import qa_machine
+import qa_severity
 import qa_summary
 
 logger = logging.getLogger("qa.collector")
@@ -902,8 +903,7 @@ class Collector:
         self.writer.submit("event_insert", event, urgent=True)
         job.events.append({"id": eid, "type": type_, "subtype": subtype, "layer": layer, "ts_ms": ts_ms,
                            "payload": payload})
-        self.broadcast({"type": "event", "ts": ts_ms, "jobId": job.id, "event": {
-            k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device", "payload")}})
+        self._broadcast_event(event, job.id)
         return eid
 
     def external_event(self, job_key, ts_ms, type_, subtype=None, payload=None):
@@ -916,9 +916,15 @@ class Collector:
                  "x": None, "y": None, "z": None, "positions": None, "workplace": None, "offsets": None,
                  "tool": None, "object_id": None, "device": None, "payload": payload, "block_id": None}
         self.writer.submit("event_insert", event, urgent=True)
-        self.broadcast({"type": "event", "ts": ts_ms, "jobId": job.id if job is not None else None, "event": {
-            k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device", "payload")}})
+        self._broadcast_event(event, job.id if job is not None else None)
         return eid
+
+    def _broadcast_event(self, event, job_id):
+        """The live frame of a new event, with its level."""
+        frame = {k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device",
+                                       "payload")}
+        frame["severity"] = qa_severity.level(event, self.cfg().get("expectedRanges"))
+        self.broadcast({"type": "event", "ts": event["ts_ms"], "jobId": job_id, "event": frame})
 
     def _end_event(self, key, ts_ms, extra=None):
         ongoing = self._ongoing.pop(key, None)

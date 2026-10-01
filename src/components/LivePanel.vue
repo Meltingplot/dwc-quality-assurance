@@ -21,7 +21,7 @@
 		</div>
 		<div v-if="lastEvent" class="text-caption mt-2">
 			{{ $t("plugins.QualityAssurance.live.lastEvent") }}:
-			<v-chip size="x-small" :color="eventColor(lastEvent.type)" variant="tonal">
+			<v-chip size="x-small" :color="eventColor(lastEvent)" variant="tonal">
 				{{ $t(`plugins.QualityAssurance.eventTypes.${lastEvent.type}`) }}
 			</v-chip>
 			<span class="ml-1">{{ lastEvent.subtype }}</span>
@@ -45,7 +45,7 @@ export default defineComponent({
 	data() {
 		return {
 			sample: null as LiveFrame | null,
-			lastEvent: null as { type: string; subtype: string | null } | null
+			lastEvent: null as { type: string; subtype: string | null; severity?: string } | null
 		};
 	},
 	computed: {

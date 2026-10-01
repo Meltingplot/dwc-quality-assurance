@@ -44,7 +44,7 @@
 		"ratio": "Gemessen/befohlen",
 		"avgPercentage": "Monitor-Mittel",
 		"loadMean": "Heizlast (Mittel)",
-		"events": "Ereignisse",
+		"events": "Events (Warnungen + Fehler)",
 		"tabLayers": "Lagen",
 		"tabChannels": "Kanäle",
 		"tabEvents": "Ereignisse",
@@ -94,7 +94,8 @@
 		"position": "Position (Maschine)",
 		"none": "Keine Ereignisse",
 		"unconfirmed": "unbestätigt",
-		"unconfirmedHint": "Nach weniger als 500 ms verschwunden: das Board selbst meldet Open Load erst nach 500 ms"
+		"unconfirmedHint": "Nach weniger als 500 ms verschwunden: das Board selbst meldet Open Load erst nach 500 ms",
+		"countedHint": "Warnungen und Fehler zählen gegen den Job, Info nicht."
 	},
 	"eventTypes": {
 		"filament_status": "Filamentmonitor",
@@ -125,6 +126,11 @@
 		"timelapse_failed": "Zeitraffer fehlgeschlagen",
 		"accelerometer_failed": "Beschleunigungssensor fehlgeschlagen",
 		"daemon_started_mid_job": "Aufzeichnung im Job begonnen"
+	},
+	"levels": {
+		"error": "Fehler",
+		"warning": "Warnung",
+		"info": "Info"
 	},
 	"trends": {
 		"metric": "Kennzahl",
@@ -164,7 +170,7 @@
 			"esteps_suggested": "Die Korrektur, die der Flow-Bias-Detektor der Maschine vorgeschlagen hat.",
 			"heat_up_s": "Zeit von einem neuen Sollwert bis zum Erreichen, jeweils das erste Mal im Job.",
 			"duration_s": "Jobdauer, wie RRF sie meldet.",
-			"events": "Ereignisse eines Jobs ohne Start, Ende und Kalibrierungen.",
+			"events": "Warnungen und Fehler eines Jobs; Info zählt nicht. Je mehr, desto schlechter der Druck.",
 			"spectrum_peak_hz": "Mittlere Spitzenfrequenz der Accelerometer-Spektren eines Jobs je Achse (ab 5 Hz). Eine Verschiebung deutet auf Riemenspannung, Lager oder lose Teile. Ist die Linie eines Lüfters die größte Spitze (siehe die Lüfter-Kennzahlen), folgt dieser Wert der Lüfterdrehzahl.",
 			"spectrum_rms": "Mittlerer Schwingungs-RMS der Accelerometer-Aufnahmen eines Jobs je Achse, ohne Schwerkraft.",
 			"fan_rpm": "Mittlere Drehzahl jedes Lüfters mit Tacho während der Accelerometer-Aufnahmen eines Jobs. Langsamer bei gleichem PWM oder Stillstand trotz Ansteuerung: Der Lüfter verschleißt oder ist blockiert.",
@@ -177,6 +183,7 @@
 		"chamber": "Kammertemperatur",
 		"context": "Job-Kontext",
 		"timelapse": "Zeitraffer",
+		"eventLevels": "Event-Stufen",
 		"save": "Speichern",
 		"reset": "Änderungen verwerfen",
 		"timelapseM240": "Sendet der G-Code M240 (Kamera auslösen, z. B. aus einem Slicer-Makro, das den Kopf parkt), kommen die Bilder des Jobs von M240; der Druck wartet auf jedes Foto. Die Kamera zeigt die Maschine verzögert, daher wartet das Foto, bis das Bild still steht (0 = nur die feste Wartezeit). Sonst entsteht ein Bild bei jedem Lagenwechsel.",
@@ -224,12 +231,18 @@
 			"accelIntervalMin": "Alle",
 			"accelSamples": "Samples je Aufnahme",
 			"journal": "Jede Änderung des Objektmodells aufzeichnen (Journal)",
-			"journalSnapshotMin": "Journal-Schnappschuss alle"
+			"journalSnapshotMin": "Journal-Schnappschuss alle",
+			"rangeSetpoint": "Sollwert",
+			"rangeLow": "Von",
+			"rangeHigh": "Bis"
 		},
 		"accelerometer": "Accelerometer",
 		"accelHint": "Spektren nimmt QA nur vom Accelerometer auf diesem Board auf (CHX 350: das SZP, 60).",
 		"accelAvailable": "Konfigurierte Accelerometer (Board und Port): {list}.",
-		"accelNone": "Die Maschine hat kein Accelerometer konfiguriert (M955)."
+		"accelNone": "Die Maschine hat kein Accelerometer konfiguriert (M955).",
+		"rangesHint": "Eine Sollwertänderung im Job ist Info, solange der neue Wert im erwarteten Bereich liegt, außerhalb eine Warnung. Leer = auf dieser Seite keine Grenze.",
+		"rangeAdd": "Bereich hinzufügen",
+		"rangeRemove": "Entfernen"
 	},
 	"live": {
 		"recording": "Zeichnet auf",

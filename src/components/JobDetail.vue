@@ -82,7 +82,7 @@ import { defineComponent, type PropType } from "vue";
 
 import type { JobDetail, LayersAnswer, QaApi, QaEvent } from "../core/api";
 import { histogramConfig } from "../core/charts";
-import { fileName, formatDateTime, formatDuration, formatPercent, resultColor } from "../core/format";
+import { countedEvents, fileName, formatDateTime, formatDuration, formatPercent, resultColor } from "../core/format";
 import ChannelChart from "./ChannelChart.vue";
 import ChartCanvas from "./ChartCanvas.vue";
 import ContextTable from "./ContextTable.vue";
@@ -92,8 +92,6 @@ import ObjectModelView from "./ObjectModelView.vue";
 import ReplayView from "./ReplayView.vue";
 import SpectrumView from "./SpectrumView.vue";
 import TimelapseViewer from "./TimelapseViewer.vue";
-
-const QUIET_EVENTS = new Set(["job_start", "job_end", "setpoint_change", "pause", "resume", "babystep", "daemon_started_mid_job"]);
 
 export default defineComponent({
 	components: { ChannelChart, ChartCanvas, ContextTable, EventList, LayerCharts, ObjectModelView, ReplayView, SpectrumView, TimelapseViewer },
@@ -135,16 +133,15 @@ export default defineComponent({
 			const summary = (this.job?.summary ?? {}) as Record<string, any>;
 			const filament = Object.values(summary.filament ?? {})[0] as Record<string, any> | undefined;
 			const loads = Object.values(summary.thermal?.heaterLoad ?? {}).filter((l: any) => l?.nozzle) as Array<Record<string, any>>;
-			// unconfirmed: a driver's open load that cleared within 500 ms (listed, not counted here)
-			const events = Object.entries(summary.events ?? {}).filter(([type]) => !QUIET_EVENTS.has(type))
-				.reduce((sum, [, e]) => sum + (((e as { count: number }).count ?? 0) - ((e as { unconfirmed?: number }).unconfirmed ?? 0)), 0);
+			// warnings and errors (qa_severity); counted while the job runs, too
+			const events = countedEvents(this.job?.events);
 			return [
 				{ key: "duration", value: formatDuration(this.job?.durationS) },
 				{ key: "layers", value: String(this.layers?.layers.length ?? "—") },
 				{ key: "ratio", value: formatPercent(filament?.ratio, 1) },
 				{ key: "avgPercentage", value: filament?.avgPercentage !== undefined && filament?.avgPercentage !== null ? `${filament.avgPercentage} %` : "—" },
 				{ key: "loadMean", value: loads.length ? formatPercent(Math.max(...loads.map((l) => l.mean ?? 0))) : "—" },
-				{ key: "events", value: this.job?.summary ? String(events) : "—" }
+				{ key: "events", value: events === null ? "—" : String(events) }
 			];
 		}
 	},

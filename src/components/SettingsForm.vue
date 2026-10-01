@@ -42,6 +42,30 @@
 			<v-switch :model-value="get('journal.enabled')" color="primary" density="compact" hide-details
 				:label="$t('plugins.QualityAssurance.settings.fields.journal')" @update:model-value="set('journal.enabled', !!$event)" />
 
+			<div class="text-subtitle-2 mb-1 mt-2">{{ $t("plugins.QualityAssurance.settings.eventLevels") }}</div>
+			<div class="text-caption text-medium-emphasis mb-2">{{ $t("plugins.QualityAssurance.settings.rangesHint") }}</div>
+			<v-row v-for="(range, i) in ranges" :key="i" density="compact" class="align-center qa-range">
+				<v-col cols="12" sm="5">
+					<v-combobox :model-value="range.name" :items="setpointNames" density="compact" variant="outlined" hide-details
+						:label="$t('plugins.QualityAssurance.settings.fields.rangeSetpoint')" @update:model-value="setRange(i, 'name', $event ?? '')" />
+				</v-col>
+				<v-col cols="5" sm="3">
+					<v-text-field :model-value="range.low" type="number" density="compact" variant="outlined" hide-details
+						:label="$t('plugins.QualityAssurance.settings.fields.rangeLow')" @update:model-value="setRange(i, 'low', toNumber($event))" />
+				</v-col>
+				<v-col cols="5" sm="3">
+					<v-text-field :model-value="range.high" type="number" density="compact" variant="outlined" hide-details
+						:label="$t('plugins.QualityAssurance.settings.fields.rangeHigh')" @update:model-value="setRange(i, 'high', toNumber($event))" />
+				</v-col>
+				<v-col cols="2" sm="1">
+					<v-btn icon="mdi-delete" variant="text" size="small" :title="$t('plugins.QualityAssurance.settings.rangeRemove')" @click="removeRange(i)" />
+				</v-col>
+			</v-row>
+			<div v-for="e in fieldErrors('expectedRanges')" :key="e" class="text-caption text-error">{{ e }}</div>
+			<v-btn variant="text" size="small" prepend-icon="mdi-plus" class="qa-range-add" @click="addRange">
+				{{ $t("plugins.QualityAssurance.settings.rangeAdd") }}
+			</v-btn>
+
 			<div class="text-subtitle-2 mb-1 mt-2">{{ $t("plugins.QualityAssurance.settings.timelapse") }}</div>
 			<v-row density="compact">
 				<v-col cols="12" sm="3">
@@ -136,6 +160,12 @@ const ACCEL_FIELDS = [
 	{ key: "accelSamples", path: "accelerometer.samples", unit: "", nullable: false }
 ];
 
+/** Numeric setpoints whose changes are events (qa_collector._read_setpoints), and babystep */
+const SETPOINT_NAMES = ["pressAdv.k0", "pressAdv.k1", "pressAdv.d", "heater.active", "heater.standby", "heater.maxPwm",
+	"stepsPerMm", "nonlinear.a", "nonlinear.b", "nonlinear.upperLimit", "babystep"];
+
+interface ExpectedRange { name: string; low: number | null; high: number | null }
+
 /** The settings QA exposes in the UI; everything else stays as stored (the daemon validates) */
 export default defineComponent({
 	props: {
@@ -152,7 +182,10 @@ export default defineComponent({
 			timelapseFields: TIMELAPSE_FIELDS,
 			accelFields: ACCEL_FIELDS,
 			accelerometers: null as Array<{ index: number; port: string; board: number }> | null,
-			timelapseReason: null as string | null
+			timelapseReason: null as string | null,
+			// expectedRanges as rows: its keys hold dots, which get()/set() would split
+			ranges: [] as Array<ExpectedRange>,
+			setpointNames: SETPOINT_NAMES
 		};
 	},
 	computed: {
@@ -179,6 +212,7 @@ export default defineComponent({
 			try {
 				const answer = await this.api.settings();
 				this.form = JSON.parse(JSON.stringify(answer.settings));
+				this.readRanges();
 				this.errors = answer.errors;
 			} catch (e) {
 				this.errors = [e instanceof Error ? e.message : String(e)];
@@ -214,6 +248,29 @@ export default defineComponent({
 		fieldErrors(path: string): Array<string> {
 			return this.saveErrors.filter((e) => e.startsWith(`${path}: `)).map((e) => e.slice(path.length + 2));
 		},
+		readRanges() {
+			const ranges = (this.form?.expectedRanges ?? {}) as Record<string, [number | null, number | null]>;
+			this.ranges = Object.entries(ranges).map(([name, [low, high]]) => ({ name, low, high }));
+		},
+		/** The rows back into the form; rows without a setpoint are left out */
+		writeRanges() {
+			if (this.form) {
+				this.form.expectedRanges = Object.fromEntries(this.ranges.filter((r) => r.name).map((r) => [r.name, [r.low, r.high]]));
+				this.saved = false;
+				this.saveErrors = this.saveErrors.filter((e) => !e.startsWith("expectedRanges: "));
+			}
+		},
+		setRange(index: number, key: keyof ExpectedRange, value: string | number | null) {
+			this.ranges[index] = { ...this.ranges[index], [key]: value };
+			this.writeRanges();
+		},
+		addRange() {
+			this.ranges.push({ name: "", low: null, high: null });
+		},
+		removeRange(index: number) {
+			this.ranges.splice(index, 1);
+			this.writeRanges();
+		},
 		toNumber(value: unknown): number | null {
 			const n = Number(value);
 			return value === "" || value === null || !Number.isFinite(n) ? null : n;
@@ -232,6 +289,7 @@ export default defineComponent({
 				const answer = await this.api.saveSettings(this.form);
 				if (answer.saved) {
 					this.form = JSON.parse(JSON.stringify(answer.settings));
+					this.readRanges();
 					this.saved = true;
 					await this.loadStatus();
 				} else {
