@@ -87,39 +87,28 @@ export function resultColor(result: string): string {
 	}
 }
 
-const EVENT_COLORS: Record<string, string> = {
-	heater_fault: "error",
-	driver_error: "error",
-	heater_monitor: "error",
-	voltage_dip: "error",
-	phantom_reading: "warning",
-	filament_status: "warning",
-	filament_percent_window: "warning",
-	filament_percent_level: "warning",
-	filament_percent_drift: "warning",
-	heater_load: "warning",
-	mfm_error_tolerated: "warning",
-	mfm_recovery: "warning",
-	mfm_flow_bias: "warning",
-	gear_passes: "warning",
-	gear_passes_forecast: "warning",
-	frame_change: "warning",
-	pause: "info",
-	resume: "info",
-	setpoint_change: "primary",
-	babystep: "primary",
-	calibration: "primary",
-	machine_mode: "warning",
-	firmware_restart: "error",
-	job_start: "success",
-	job_end: "success",
-	daemon_started_mid_job: "grey",
-	timelapse_failed: "warning",
-	accelerometer_failed: "warning"
-};
+/** An event's level (qa_severity.py, Tim 2026-10-01): warnings and errors rate a job, info does not */
+export type EventLevel = "info" | "warning" | "error";
+export const EVENT_LEVELS: Array<EventLevel> = ["error", "warning", "info"];
 
-export function eventColor(type: string): string {
-	return EVENT_COLORS[type] ?? "grey";
+/** Chip colour of a level */
+export function levelColor(level: string | null | undefined): string {
+	return level === "error" || level === "warning" || level === "info" ? level : "grey";
+}
+
+/** Chip colour of an event: its level */
+export function eventColor(event: { severity?: string | null }): string {
+	return levelColor(event.severity);
+}
+
+/** The highest of the events' levels, null without events */
+export function worstLevel(events: Array<{ severity?: string | null }>): EventLevel | null {
+	return EVENT_LEVELS.find((level) => events.some((e) => e.severity === level)) ?? null;
+}
+
+/** The number that rates a job: its warnings and errors; null when unknown */
+export function countedEvents(levels: Partial<Record<EventLevel, number>> | null | undefined): number | null {
+	return levels ? (levels.warning ?? 0) + (levels.error ?? 0) : null;
 }
 
 /** Short, language-neutral detail of an event payload for a table cell */

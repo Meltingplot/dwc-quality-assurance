@@ -77,6 +77,7 @@ Errors: `{"error": "..."}` with 400 (bad parameter), 404 (unknown job/layer), 40
 | `qaResult` | QA's own result: `running`, `completed`, `cancelled`, `aborted`, `unknown` |
 | `startedAt`, `endedAt`, `partial`, `numLayers`, `material`, `rawPruned` | |
 | `summary` | excerpt: `abortReason`, `layers`, `events` (count per type), `filamentRatio` and `avgPercentage` per monitor, `heaterLoadMean` and `heaterLoadEvents` per nozzle heater, `spoolUsageG` per tool |
+| `events` | `{info, warning, error}`: the job's events per level (see "Event levels"), also while it runs; warnings + errors rate the job. In `job` too |
 
 `partial`: the daemon started while this job was already running (records begin at `startLayer`).
 `rawPruned`: samples and blocks were removed by retention; summary, layers and events remain.
@@ -117,7 +118,8 @@ object_id, device, payload, block_id}`. `positions`/`x,y,z` are machine position
 and `offsets` (that workplace's offsets per axis) allow converting to user coordinates. `device`
 is the heater, monitor, board or driver number the event is about. Ongoing conditions get
 `end_ms` and `payload.durationS` when they end. Nothing is recorded between the job end and
-`job_end` (QA waits for DSF's outcome flags then, while stop.g/cancel.g run).
+`job_end` (QA waits for DSF's outcome flags then, while stop.g/cancel.g run). `severity`: the
+event's level, see below.
 
 | type | subtype | payload |
 |---|---|---|
@@ -149,6 +151,25 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `phantom_reading` | `heater` / `sensor` | `channel`, `before`, `peak`, `durationMs` |
 | `timelapse_failed` | `snapshot` (first failed snapshot of a job; later ones only in the index), `encode`, `empty` (no frame at all) | `error`, `snapshot` also `layer`; written by the timelapse threads, so no position, tool or object |
 | `accelerometer_failed` | `start` (M956 answered with an error), `timeout` (`runs` did not advance), `run` (RRF's reason, e.g. `Received bad data`, or `points` 0), `overflow` (samples lost), `error` | `error`; `code`, `points` or `overflows` where known; no position (written by the recorder thread) |
+
+## Event levels
+
+Every event read through the API carries `severity`: `info`, `warning` or `error` (`dsf/qa_severity.py`, Tim
+2026-10-01). A job's number of events is a quality criterion and counts warnings and errors, never info. The level
+is worked out when the event is read, not stored, so every job is counted by the current rules and ranges.
+
+| level | events |
+|---|---|
+| `error` | `heater_fault`, `heater_monitor`, `heater_load` limit, `driver_error` error, `firmware_restart` during_job, `mfm_recovery` real_issue |
+| `warning` | `heater_load` high, `filament_status`, `filament_percent_window`/`level`/`drift`, `mfm_flow_bias`, `voltage_dip`, `phantom_reading`, `driver_error` warning (a confirmed open load) and stall, `gear_passes`, `frame_change`, `setpoint_change` and `babystep` outside their expected range; an unknown type |
+| `info` | `job_start`, `job_end`, `pause`, `resume`, `calibration`, `setpoint_change`/`babystep` inside their range or without one, `machine_mode`, `mfm_error_tolerated`, `mfm_recovery` requested/false_positive, `gear_passes_forecast`, `firmware_restart` before_job, `daemon_started_mid_job`, `timelapse_failed`, `accelerometer_failed`, an open load that cleared within 500 ms |
+
+One incident counts once: what follows from an observed problem is info (the tolerated MFM error, the pause, the
+M92 of a flow-bias correction: a `setpoint_change` with `cause`). `machine_mode` is info: on the CHX 350 a door
+opened while axes move halts the machine (M112, counted as `firmware_restart` during_job); at standstill (a pause,
+heating) and in stop.g/cancel.g the switch to the default mode is routine. Expected ranges: setting `expectedRanges`,
+`{setpoint: [low, high]}` with null for an open side; the key is a `setpoint_change` subtype or `babystep`,
+default `{"pressAdv.k0": [0, 0.25]}`. A range applies to every change of that setpoint in a job, of every device.
 
 ## Channels
 
@@ -248,7 +269,7 @@ for line in gzip.open("qa-<job>-om.jsonl.gz", "rt"):
 
 `metric`: `heater_load_mean` (per nozzle heater and setpoint, with `nozzleDiameter`), `fm_avg_percentage`,
 `filament_ratio`, `mm_per_rev` (per monitor), `esteps_suggested`, `heat_up_s` (per heater), `duration_s`,
-`events` (count without start, end and calibrations, `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
+`events` (warnings + errors, with `byLevel` and `byType`), `spectrum_peak_hz` and `spectrum_rms` (per `axis`: mean
 of the job's recordings, from `summary.mechanics`, with `spectra`), `fan_rpm` and `fan_amplitude` (per `fan` with its
 `name`: `rpmMean` and `amplitudeMean` from `summary.fans`, with `pwm`, `stalled`, `amplitudeMax`, `recordings`). Each
 point carries `jobId`, `ts`, `result`, `material`, `value`.
@@ -296,7 +317,7 @@ closed with 1008, also when no frame arrives within 10 s. Frames (JSON text):
 |---|---|
 | `hello` | after the client's first frame: `version`, `status` |
 | `sample` | at most once a second while a job records: `values` (all channels plus `heater.<n>.load` of nozzle heaters), `heaterLoad` per heater `{mean, level}` |
-| `event` | every event as stored |
+| `event` | every event as stored, with `severity` as far as known then (no job end yet) |
 | `layer` | a layer started (`layer`) or finished (`finished`, `durationS`) |
 | `job` | `event: "end"`, `jobId`, `result` |
 | `status` | while idle, every 25 s |

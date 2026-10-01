@@ -244,11 +244,11 @@ export function replayChannels(nozzles: Array<{ index: number }>): Array<string>
 		...nozzles.flatMap((h) => [`heater.${h.index}.current`, `heater.${h.index}.load`])];
 }
 
-const MARKER_COLORS: Record<string, string> = { error: "#E53935", warning: "#FB8C00", info: "#1E88E5", primary: "#1976D2", success: "#43A047", grey: "#9E9E9E" };
+const MARKER_COLORS: Record<string, string> = { error: "#E53935", warning: "#FB8C00", info: "#1E88E5", grey: "#9E9E9E" };
 
 /** Ring colour of an event on the canvas (the event's chip colour as RGB) */
-export function markerColor(type: string): string {
-	return MARKER_COLORS[eventColor(type)] ?? MARKER_COLORS.grey;
+export function markerColor(event: { severity?: string | null }): string {
+	return MARKER_COLORS[eventColor(event)] ?? MARKER_COLORS.grey;
 }
 
 /** Events a layer's replay marks: the ones of that layer with a position, without job start and end */

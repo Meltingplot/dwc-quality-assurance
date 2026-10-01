@@ -163,6 +163,33 @@ def test_events_and_type_filter(ctx, rig):
     assert body["events"][0]["positions"] == {"X": 0.0, "Y": 0.0, "Z": 0.0}
 
 
+def test_event_levels(ctx, rig):
+    """Warnings and errors rate a job, info does not (qa_severity, Tim 2026-10-01); the levels are worked
+    out when read, so a changed expected range applies to the jobs recorded before."""
+    rig.start_job()
+    rig.patch({"move": {"extruders": [{"pressAdv": {"k0": 0.06}}]}})    # in its expected range: info
+    rig.patch({"move": {"extruders": [{"pressAdv": {"k0": 0.4}}]}})     # outside: warning
+    rig.patch({"heat": {"heaters": [{}, {"state": "fault"}]}})          # error
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None}})
+    rig.collector.resolve_pending_end(rig.t, force=True)
+    rig.writer.flush()
+    job_id = rig.rows("SELECT id FROM jobs")[0]["id"]
+    levels = get(ctx, "jobs")[1]["jobs"][0]["events"]
+    assert (levels["warning"], levels["error"]) == (1, 1) and levels["info"] >= 3
+    assert get(ctx, "job", id=job_id)[1]["events"] == levels
+    events = get(ctx, "job/events", id=job_id)[1]["events"]
+    assert [(e["type"], e["severity"]) for e in events if e["type"] != "setpoint_change" or e["subtype"] == "pressAdv.k0"] == [
+        ("job_start", "info"), ("setpoint_change", "info"), ("setpoint_change", "warning"), ("heater_fault", "error"),
+        ("job_end", "info")]
+    point = get(ctx, "trends", metric="events")[1]["points"][0]
+    assert point["value"] == 2 and point["byLevel"] == levels
+    live = [(f["event"]["type"], f["event"]["severity"]) for f in rig.frames if f["type"] == "event"]
+    assert ("heater_fault", "error") in live and ("setpoint_change", "warning") in live
+    response = qa_api.call(ctx, qa_api.ENDPOINTS[("POST", "settings")], Req(body=json.dumps({"expectedRanges": {}})))
+    assert response.body["saved"] is True
+    assert get(ctx, "jobs")[1]["jobs"][0]["events"]["warning"] == 0
+
+
 def test_samples_with_derived_load(ctx, rig):
     job_id = run_job(rig)
     status, body = get(ctx, "job/samples", id=job_id, channels="heater.1.current,heater.1.load", resolution="coarse")
