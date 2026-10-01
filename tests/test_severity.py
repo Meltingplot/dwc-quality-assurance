@@ -29,8 +29,8 @@ def test_every_event_type_has_a_rule():
     assert types == set(qa_severity.RULES)
 
 
-def level(type_, subtype=None, payload=None, ranges=None, ended_ms=None, ts_ms=0):
-    return qa_severity.level({"type": type_, "subtype": subtype, "ts_ms": ts_ms, "payload": payload}, ranges, ended_ms)
+def level(type_, subtype=None, payload=None, ranges=None):
+    return qa_severity.level({"type": type_, "subtype": subtype, "payload": payload}, ranges)
 
 
 @pytest.mark.parametrize("type_, subtype, expected", [
@@ -54,7 +54,7 @@ def level(type_, subtype=None, payload=None, ranges=None, ended_ms=None, ts_ms=0
     ("driver_error", "stall", WARNING),
     ("filament_status", "tooLittleMovement", WARNING),
     ("machine_mode", "automatic", INFO),
-    ("machine_mode", "default", ERROR),
+    ("machine_mode", "default", INFO),     # a door opened at standstill; while moving it halts (firmware_restart)
     ("timelapse_failed", "snapshot", INFO),
     ("calibration", "mesh", INFO),
     ("something_new", None, WARNING),
@@ -67,15 +67,6 @@ def test_an_open_load_that_cleared_within_500_ms_is_info():
     assert level("driver_error", "warning", {"confirmed": False}) == INFO
     assert level("driver_error", "warning", {"confirmed": True}) == WARNING
     assert level("driver_error", "warning", {"source": "message"}) == WARNING
-
-
-def test_the_default_mode_of_the_end_sequence_is_info():
-    """stop.g's default mode came 1.3 s before job_end (20260929-125727) and 5 ms after it (20260930-075116)"""
-    ended = 10_000_000
-    assert level("machine_mode", "default", ts_ms=ended - 1288, ended_ms=ended) == INFO
-    assert level("machine_mode", "default", ts_ms=ended + 5, ended_ms=ended) == INFO
-    assert level("machine_mode", "default", ts_ms=ended - 600_000, ended_ms=ended) == ERROR   # doors opened
-    assert level("machine_mode", "default", ts_ms=ended - 1288) == ERROR                       # job still runs
 
 
 def test_a_setpoint_counts_outside_its_expected_range():

@@ -36,7 +36,10 @@ RULES = {
     "accelerometer_failed": INFO,
     "firmware_restart": {"during_job": ERROR, None: INFO},     # before_job explains gaps in the recording
     "mfm_recovery": {"real_issue": ERROR, None: INFO},         # requested: its verdict follows
-    "machine_mode": {"default": ERROR, None: INFO},            # see END_SEQUENCE_MS
+    # chx350-config 3.7 @ ef0ff7d trigger4.g: a door opened while axes move halts the machine (M112, which counts
+    # as firmware_restart during_job); at standstill (a pause, heating) it switches to the default mode, an
+    # operator's intervention like the end sequence of stop.g/cancel.g (Tim 2026-10-01)
+    "machine_mode": INFO,
     "heater_fault": ERROR,
     "heater_monitor": ERROR,
     "heater_load": {"limit": ERROR, None: WARNING},
@@ -52,12 +55,6 @@ RULES = {
     "frame_change": WARNING,
 }
 
-# stop.g and cancel.g switch the CHX 350 into its restrictive default mode (chx350-config operating-mode/
-# default.g); that switch came 1.3 s before job_end in job 20260929-125727 and 5 ms after it in 20260930-075116.
-# A switch this close to the job end is the end sequence, not doors opened during the print.
-END_SEQUENCE_MS = 30_000
-
-
 def outside(value, bounds):
     """Whether a number lies outside ``[low, high]`` (None: no bound on that side)."""
     if bounds is None or not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -66,18 +63,15 @@ def outside(value, bounds):
     return (low is not None and value < low) or (high is not None and value > high)
 
 
-def level(event, ranges=None, ended_ms=None):
-    """The level of ``event`` (a dict with type, subtype, ts_ms, payload). ``ranges``: the settings'
-    expectedRanges; ``ended_ms``: its job's end, None while the job runs."""
+def level(event, ranges=None):
+    """The level of ``event`` (a dict with type, subtype and payload). ``ranges``: the settings'
+    expectedRanges."""
     type_ = event.get("type")
     subtype = event.get("subtype")
     payload = event.get("payload") or {}
     rule = RULES.get(type_, WARNING)
     result = rule.get(subtype, rule[None]) if isinstance(rule, dict) else rule
     if type_ == "driver_error" and payload.get("confirmed") is False:
-        return INFO
-    if type_ == "machine_mode" and result == ERROR and ended_ms is not None and \
-            event.get("ts_ms") is not None and event["ts_ms"] >= ended_ms - END_SEQUENCE_MS:
         return INFO
     if type_ in ("setpoint_change", "babystep") and payload.get("cause") is None:
         name = subtype if type_ == "setpoint_change" else "babystep"
@@ -86,11 +80,11 @@ def level(event, ranges=None, ended_ms=None):
     return result
 
 
-def counts(events, ranges=None, ended_ms=None):
+def counts(events, ranges=None):
     """``{"info": n, "warning": n, "error": n}`` of ``events``."""
     result = dict.fromkeys(LEVELS, 0)
     for event in events:
-        result[level(event, ranges, ended_ms)] += 1
+        result[level(event, ranges)] += 1
     return result
 
 

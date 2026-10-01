@@ -920,7 +920,7 @@ class Collector:
         return eid
 
     def _broadcast_event(self, event, job_id):
-        """The live frame of a new event, with its level as far as known now (no job end yet)."""
+        """The live frame of a new event, with its level."""
         frame = {k: event[k] for k in ("id", "type", "subtype", "layer", "x", "y", "z", "tool", "object_id", "device",
                                        "payload")}
         frame["severity"] = qa_severity.level(event, self.cfg().get("expectedRanges"))

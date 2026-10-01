@@ -57,15 +57,13 @@ def _summary_excerpt(summary):
 def event_levels(con, rows, ranges=None):
     """Job key -> ``{"info", "warning", "error"}`` counts of its events (qa_severity) for the job rows."""
     keys = [row["key"] for row in rows]
-    ended = {row["key"]: row["ended_at"] for row in rows}
     result = {key: dict.fromkeys(qa_severity.LEVELS, 0) for key in keys}
     for start in range(0, len(keys), 500):
         chunk = keys[start:start + 500]
-        for event in con.execute(f"SELECT job_key, type, subtype, ts_ms, payload FROM events "
+        for event in con.execute(f"SELECT job_key, type, subtype, payload FROM events "
                                  f"WHERE job_key IN ({','.join('?' * len(chunk))})", chunk):
-            entry = {"type": event["type"], "subtype": event["subtype"], "ts_ms": event["ts_ms"],
-                     "payload": qa_db.loads(event["payload"])}
-            result[event["job_key"]][qa_severity.level(entry, ranges, ended[event["job_key"]])] += 1
+            entry = {"type": event["type"], "subtype": event["subtype"], "payload": qa_db.loads(event["payload"])}
+            result[event["job_key"]][qa_severity.level(entry, ranges)] += 1
     return result
 
 
@@ -167,10 +165,9 @@ def layers(con, job_id, load_thresholds=None):
 
 def events(con, job_id, type_=None, ranges=None):
     """The job's events, each with its ``severity`` (qa_severity)."""
-    row = con.execute("SELECT key, ended_at FROM jobs WHERE id=?", (job_id,)).fetchone()
-    if row is None:
+    key = job_key(con, job_id)
+    if key is None:
         return None
-    key, ended_ms = row["key"], row["ended_at"]
     sql = "SELECT * FROM events WHERE job_key=?"
     args = [key]
     if type_:
@@ -183,7 +180,7 @@ def events(con, job_id, type_=None, ranges=None):
         entry = _loads(row, "positions", "offsets", "payload")
         entry.pop("job_key", None)
         entry["ts"] = iso(entry["ts_ms"])
-        entry["severity"] = qa_severity.level(entry, ranges, ended_ms)
+        entry["severity"] = qa_severity.level(entry, ranges)
         out.append(entry)
     return {"jobId": job_id, "events": out}
 
@@ -397,7 +394,7 @@ def trends(con, metric, limit=100, material=None, ranges=None):
     """One point per job (newest first), grouped where the plan asks for it (§5.4.1 Trends)."""
     if metric not in TREND_METRICS:
         raise ValueError(f"unknown metric {metric}; one of {', '.join(TREND_METRICS)}")
-    sql = ("SELECT key, id, started_at, ended_at, result, material, duration_s, context, summary FROM jobs "
+    sql = ("SELECT key, id, started_at, result, material, duration_s, context, summary FROM jobs "
            "WHERE result != 'running'")
     args = []
     if material:

@@ -271,8 +271,10 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
 - **Stufen** (neu 2026-10-01, Tim): `info`, `warning`, `error`, beim Lesen bestimmt (`qa_severity.py`, Tabelle in
   docs/api.md „Event levels“); gezählt werden warning und error. Ein Vorfall zählt einmal: das beobachtete Problem
   (`filament_status`, `mfm_recovery` real_issue), nicht seine Folgen (`mfm_error_tolerated`, `pause`, der M92 der
-  Flow-Bias-Korrektur). `job_end` ist info, das Job-Ergebnis ist ein eigenes Kriterium. `machine_mode` → default
-  ist im Job ein error, in den 30 s vor `job_end` die Endsequenz von stop.g/cancel.g (info). Sollwertänderungen
+  Flow-Bias-Korrektur). `job_end` ist info, das Job-Ergebnis ist ein eigenes Kriterium. `machine_mode` ist info: eine
+  Tür, die geöffnet wird, während Achsen fahren, hält die Maschine an (M112, zählt als `firmware_restart` im Job,
+  chx350-config `trigger4.g`); im Stillstand (Pause, Aufheizen) und in stop.g/cancel.g wechselt die Maschine
+  regulär in den Default-Modus (Tim 2026-10-01). Sollwertänderungen
   (und Babystep) sind info, solange der neue Wert im erwarteten Bereich liegt (`expectedRanges`, Standard
   `pressAdv.k0` 0…0,25 s; die Filamente der CHX 350 setzen 0,02–0,2), außerhalb warning.
 - **Sollwert-Änderung**: Vergleich alter/neuer Wert je Patch für die definierten Felder.

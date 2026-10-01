@@ -158,13 +158,14 @@ is worked out when the event is read, not stored, so every job is counted by the
 
 | level | events |
 |---|---|
-| `error` | `heater_fault`, `heater_monitor`, `heater_load` limit, `driver_error` error, `firmware_restart` during_job, `machine_mode` default during the job, `mfm_recovery` real_issue |
+| `error` | `heater_fault`, `heater_monitor`, `heater_load` limit, `driver_error` error, `firmware_restart` during_job, `mfm_recovery` real_issue |
 | `warning` | `heater_load` high, `filament_status`, `filament_percent_window`/`level`/`drift`, `mfm_flow_bias`, `voltage_dip`, `phantom_reading`, `driver_error` warning (a confirmed open load) and stall, `gear_passes`, `frame_change`, `setpoint_change` and `babystep` outside their expected range; an unknown type |
-| `info` | `job_start`, `job_end`, `pause`, `resume`, `calibration`, `setpoint_change`/`babystep` inside their range or without one, `machine_mode` automatic, `mfm_error_tolerated`, `mfm_recovery` requested/false_positive, `gear_passes_forecast`, `firmware_restart` before_job, `daemon_started_mid_job`, `timelapse_failed`, `accelerometer_failed`, an open load that cleared within 500 ms |
+| `info` | `job_start`, `job_end`, `pause`, `resume`, `calibration`, `setpoint_change`/`babystep` inside their range or without one, `machine_mode`, `mfm_error_tolerated`, `mfm_recovery` requested/false_positive, `gear_passes_forecast`, `firmware_restart` before_job, `daemon_started_mid_job`, `timelapse_failed`, `accelerometer_failed`, an open load that cleared within 500 ms |
 
 One incident counts once: what follows from an observed problem is info (the tolerated MFM error, the pause, the
-M92 of a flow-bias correction: a `setpoint_change` with `cause`). `machine_mode` default within 30 s before
-`job_end` (or after it) is the end sequence of stop.g/cancel.g, info. Expected ranges: setting `expectedRanges`,
+M92 of a flow-bias correction: a `setpoint_change` with `cause`). `machine_mode` is info: on the CHX 350 a door
+opened while axes move halts the machine (M112, counted as `firmware_restart` during_job); at standstill (a pause,
+heating) and in stop.g/cancel.g the switch to the default mode is routine. Expected ranges: setting `expectedRanges`,
 `{setpoint: [low, high]}` with null for an open side; the key is a `setpoint_change` subtype or `babystep`,
 default `{"pressAdv.k0": [0, 0.25]}`. A range applies to every change of that setpoint in a job, of every device.
 
