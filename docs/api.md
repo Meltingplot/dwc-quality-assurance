@@ -116,7 +116,8 @@ active setpoint that was reached (the CHX UI banner's definition, PLAN.md §5.4.
 object_id, device, payload, block_id}`. `positions`/`x,y,z` are machine positions; `workplace`
 and `offsets` (that workplace's offsets per axis) allow converting to user coordinates. `device`
 is the heater, monitor, board or driver number the event is about. Ongoing conditions get
-`end_ms` and `payload.durationS` when they end.
+`end_ms` and `payload.durationS` when they end. Nothing is recorded between the job end and
+`job_end` (QA waits for DSF's outcome flags then, while stop.g/cancel.g run).
 
 | type | subtype | payload |
 |---|---|---|
@@ -133,7 +134,7 @@ is the heater, monitor, board or driver number the event is about. Ongoing condi
 | `gear_passes_forecast` | `high` | once per job, when a layer has started (print_start has set M207) and the layer index is ready: the file's runs of layers expected at `thresholds.gearPasses` or more, with the M207 and the macros valid then (context `gearForecast` holds every layer); none when no layer reaches it: `threshold`, `runs` `[{firstLayer, lastLayer, max, maxLayer}]`, `layers` (how many reach it), `max`, `maxLayer`, `retraction` |
 | `frame_change` | `layer` / `pause` (a pause lay between the run's first frame and the one before) | a run of M240 timelapse frames whose thumbnail differs from the M240 frame before in `thresholds.frameChangePixels` (default 8) pixels or more (see "Timelapse"), from the first one's photo to the photo of the first frame below; written at the first frame, so a reader can react while the job prints: `threshold`, `firstLayer`, `lastLayer`, `max`, `maxLayer`, `box` (of the max frame); end: `durationS`, `closedBy` `job_end` when the job ended first; written by the timelapse thread, so no position, tool or object |
 | `heater_fault` | – | `heater`, `previousState`, `current` |
-| `heater_monitor` | `tooHigh` / `tooLow` | `heater`, `monitor`, `limit`, `reading`, `sensor`, `action` |
+| `heater_monitor` | `tooHigh` / `tooLow` | an M143 monitor's limit violated while the heater regulates, for 2 s or until RRF raised a heater fault for it (a CAN board's heater reports its state late, see CLAUDE.md); stamped with the violation's start: `heater`, `monitor`, `limit`, `reading`, `sensor`, `action` |
 | `heater_load` | `high` / `limit` | `heater`, `tool`, `setpoint`, `level`, `peakMean`, `levels`, `volumetricFlow`, `speedFactor` |
 | `mfm_error_tolerated` | – | `count` + the MFM globals |
 | `mfm_recovery` | `requested` / `false_positive` / `real_issue` | `result` + the MFM globals |

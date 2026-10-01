@@ -52,6 +52,15 @@ PAUSE_CAUSE_TYPES = ("filament_status", "filament_percent_window", "mfm_error_to
 FIRMWARE_RESTART_MARGIN_S = 2
 FIRMWARE_RESTARTS_KEPT = 10     # restarts seen between two jobs that the next job lists
 
+# A heater monitor's violation counts once it lasted this long. A remote heater's state is the last report of its
+# board (RemoteHeater::GetMode returns lastMode), while M143 sets the limit at once (RepRapFirmware 3.7-dev @
+# 3796dc422 RemoteHeater.cpp:436-446, 2026-10-01). After M568 A0 + M143 S50 A2 (chx350-config's CE default mode, at
+# every job end) QA saw the nozzle heater (on the CHX 350's tool board) still regulating at 204 °C against its new
+# cap of 50 (jobs 20260929-125727, 20260930-075116), most likely before the board reported the switch-off. A
+# remote heater without a report for RemoteStatusTimeout (2 s, RemoteHeater.h:71) reads offline, so no stale
+# state outlasts this.
+HEATER_MONITOR_CONFIRM_MS = 2000
+
 # RRF event texts (Event::GetTextDescription, RepRapFirmware 3.7-dev @ 3638836, Platform/Event.cpp):
 # "Driver <board>.<driver> error: ...", "... warning: ...", "... stall". RRF prints them only when
 # no handler macro (driver-error.g etc.) exists (GCodes::ProcessEvent).
@@ -195,7 +204,7 @@ class Collector:
         self._ongoing = {}          # key -> event dict (ongoing events that get an end)
         self._setpoints = None
         self._heater_states = {}
-        self._monitor_violations = set()
+        self._monitor_violations = {}   # (heater, monitor) -> {"ts_ms", "condition", "payload", "recorded"}
         self._driver_status = {}
         self._phantom = {}          # channel -> {"ts", "before", "peak"}
         self._jump_base = {}        # channel -> (ts_ms, value): its last non-null value, for _jump_triggers
@@ -265,11 +274,13 @@ class Collector:
             self.accel.observe_fans(qa_accel.fans_from_model(model))
         if self.job is not None and not self._simulating:
             self._track_layer(model, snapshot, now_ms)
-            self._calibrations(model, calibrations, now_ms)
+            if self._detecting():
+                self._calibrations(model, calibrations, now_ms)
             self._accelerometer(status, now_ms)
             if self.job.job_acc is not None:
                 self.job.job_acc.heater_setpoints(snapshot, now_ms)
-            self._detect(model, patch, snapshot, status, now_ms)
+            if self._detecting():
+                self._detect(model, patch, snapshot, status, now_ms)
             self._jump_triggers(snapshot, now_ms)
             self._write_fine(snapshot, now_ms)
             self._write_coarse(snapshot, now_ms)
@@ -287,12 +298,14 @@ class Collector:
         self._prev_ms = now_ms
         calibrations = self.calibration.tick(now_ms)
         if self.job is not None and not self._simulating:
-            self._calibrations(self.model, calibrations, now_ms)
             status = qa_channels.enum_value(getattr(getattr(self.model, "state", None), "status", None))
-            self._heater_load(self.model, status, now_ms)
-            self._fm_window_check(self.model, now_ms)
-            self._fm_level_check(self.model, now_ms)
-            self._driver_events(self.model, None, now_ms)  # confirms an open load that persisted without a patch
+            if self._detecting():
+                self._calibrations(self.model, calibrations, now_ms)
+                self._heater_events(self.model, now_ms)    # confirms a monitor violation that lasted without a patch
+                self._heater_load(self.model, status, now_ms)
+                self._fm_window_check(self.model, now_ms)
+                self._fm_level_check(self.model, now_ms)
+                self._driver_events(self.model, None, now_ms)  # confirms an open load that persisted without a patch
             self._close_block_if_due(now_ms)
             self._accelerometer(status, now_ms)
             self._write_coarse(self._prev_snapshot, now_ms)
@@ -300,6 +313,15 @@ class Collector:
         elif now_ms - self._last_live_ms >= LIVE_HEARTBEAT_MS:
             self._last_live_ms = now_ms
             self.broadcast({"type": "status", "ts": now_ms, **self.status()})
+
+    def _detecting(self):
+        """Whether the detectors record events for the job: not in a simulation, and not once it ended. DSF
+        polls the live values (``job.duration`` turning null ends the job) before the keys that changed in the
+        same moment (DuetSoftwareFramework v3.7-dev @ 3ae80501 UpdateService.cs:282-330), and RRF runs cancel.g
+        after it has stopped the print (RepRapFirmware 3.7-dev @ 3796dc422 GCodes2.cpp:787-792; 2026-10-01).
+        So while the outcome flags were awaited, the CE default mode of stop.g/cancel.g arrived as events of the
+        job (20260930-075116: machine_mode, heater_monitor and fm.calibrated 0.005-1.9 s after its end)."""
+        return self.job is not None and not self._simulating and self._pending_end is None
 
     def camera_state(self):
         """For the M240 trigger (its own thread): ``(job_key, layer, simulating)``, None without a job."""
@@ -878,7 +900,7 @@ class Collector:
         if restart is None:
             return
         logger.info("firmware restarted: upTime %s s -> %s s", restart["upTimeBefore"], restart["upTimeAfter"])
-        if self.job is not None and not self._simulating:
+        if self._detecting():
             self._event(model, now_ms, "firmware_restart", "during_job", payload=restart)
         else:
             self.firmware.keep(restart)
@@ -938,7 +960,7 @@ class Collector:
         self._calibration_events = {}
         self._setpoints = self._read_setpoints(model)
         self._heater_states = {}
-        self._monitor_violations = set()
+        self._monitor_violations = {}
         self._driver_status = self._read_driver_status(model)
         self._phantom = {}
         self._fm_status = {}
@@ -984,17 +1006,29 @@ class Collector:
                     reading = getattr(heater, "current", None)
                 # RRF checks monitors only while the heater regulates (LocalHeater.cpp:459-570, RRF
                 # 3.7-dev @ 3638836, 2026-09-28); an off heater above a cap such as the CE default
-                # mode's M143 S50 A2 (chx350-config operating-mode/default.g) is no violation
+                # mode's M143 S50 A2 (chx350-config operating-mode/default.g) is no violation, and one
+                # counts once it lasted HEATER_MONITOR_CONFIRM_MS
                 violated = (state in ("active", "standby") and limit is not None and reading is not None and
                             ((condition == "tooHigh" and reading > limit) or (condition == "tooLow" and reading < limit)))
                 key = (i, m)
-                if violated and key not in self._monitor_violations:
-                    self._monitor_violations.add(key)
-                    self._event(model, now_ms, "heater_monitor", condition, device=i,
-                                payload={"heater": i, "monitor": m, "limit": limit, "reading": reading,
-                                         "sensor": sensor, "action": qa_channels.enum_value(getattr(monitor, "action", None))})
-                elif not violated:
-                    self._monitor_violations.discard(key)
+                pending = self._monitor_violations.get(key)
+                if not violated:
+                    self._monitor_violations.pop(key, None)
+                    # unless RRF ended it itself: M143 A0 raises a heater fault at once
+                    if pending is not None and not pending["recorded"] and state == "fault":
+                        self._monitor_event(model, i, pending)
+                    continue
+                if pending is None:
+                    payload = {"heater": i, "monitor": m, "limit": limit, "reading": reading, "sensor": sensor,
+                               "action": qa_channels.enum_value(getattr(monitor, "action", None))}
+                    pending = self._monitor_violations[key] = {"ts_ms": now_ms, "condition": condition,
+                                                               "payload": payload, "recorded": False}
+                if not pending["recorded"] and now_ms - pending["ts_ms"] >= HEATER_MONITOR_CONFIRM_MS:
+                    self._monitor_event(model, i, pending)
+
+    def _monitor_event(self, model, heater, pending):
+        pending["recorded"] = True
+        self._event(model, pending["ts_ms"], "heater_monitor", pending["condition"], device=heater, payload=pending["payload"])
 
     def _heater_load(self, model, status, now_ms):
         heaters = {}
