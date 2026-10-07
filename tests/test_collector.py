@@ -52,6 +52,47 @@ def test_simulation_is_ignored(rig):
     assert rig.rows("SELECT * FROM jobs") == []
 
 
+def test_simulation_whose_status_comes_late_is_ignored(rig):
+    """DSF reports job.duration before "simulating" (lab CHX 350, 20261007-102100: 0.84 s later)."""
+    rig.patch({"state": {"status": "busy"}})
+    rig.patch({"job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode"}}})
+    rig.patch({"state": {"status": "simulating"}, "job": {"duration": 33, "layer": 1}})
+    for layer in (2, 3):
+        rig.patch({"job": {"duration": 100 * layer, "layer": layer}})
+    rig.patch({"state": {"status": "idle"}, "job": {"duration": None}})
+    assert rig.rows("SELECT * FROM jobs") == []
+    assert rig.collector.status()["state"] == "idle"
+
+
+def test_print_whose_status_comes_late_starts_with_it(rig):
+    """20261002-151712: "processing" came 0.3 s after job.duration."""
+    rig.patch({"job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode"}}})
+    assert rig.rows("SELECT * FROM jobs") == []
+    rig.patch({"state": {"status": "processing"}}, dt_ms=300)
+    jobs = rig.rows("SELECT * FROM jobs")
+    assert len(jobs) == 1 and jobs[0]["started_at"] == rig.t and not jobs[0]["partial"]
+    assert [e["type"] for e in rig.events()] == ["job_start"]
+
+
+def test_job_without_print_status_starts_after_the_wait(rig, monkeypatch):
+    now = [qa_collector.time.monotonic()]
+    monkeypatch.setattr(qa_collector.time, "monotonic", lambda: now[0])
+    rig.patch({"state": {"status": "busy"}, "job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode"}}})
+    now[0] += qa_collector.JOB_STATUS_WAIT_S - 1
+    rig.patch({"job": {"duration": 9}})
+    assert rig.rows("SELECT * FROM jobs") == []
+    now[0] += 1
+    rig.patch({"job": {"duration": 10}})
+    assert len(rig.rows("SELECT * FROM jobs")) == 1
+
+
+def test_job_that_ends_before_its_status_is_not_recorded(rig):
+    rig.patch({"job": {"duration": 0, "file": {"fileName": "0:/gcodes/a.gcode"}}})
+    rig.patch({"job": {"duration": None}})
+    rig.patch({"state": {"status": "processing"}})
+    assert rig.rows("SELECT * FROM jobs") == []
+
+
 def test_outcome_waits_for_dsf_flags(rig):
     rig.start_job()
     rig.patch({"job": {"duration": 60}})

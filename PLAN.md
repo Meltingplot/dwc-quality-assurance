@@ -250,7 +250,9 @@ dieselbe Korrektur), `_set_model_prop(None)`, generischer `_missing_`-Hook +
 ### 5.4 Erfassungslogik (qa_collector.py)
 
 - **Job-Erkennung**: `state.status` → `processing` bei gesetztem `job.file.fileName`
-  startet Job (`simulating` ignoriert). Ende bei Wechsel weg von processing/paused/… mit
+  startet Job (`simulating` ignoriert; der Status kommt oft erst nach `job.duration`, bei M37
+  0,3-3,8 s später: entschieden wird beim ersten Status, der Druck oder Simulation sagt, spätestens
+  nach 10 s; Tim 2026-10-07, drei Simulationen standen als Drucke in der Historie). Ende bei Wechsel weg von processing/paused/… mit
   `job.lastFileCancelled` / `lastFileAborted` → Ergebnis. DSF setzt die Ergebnis-Flags erst
   nach dem Wechsel: auf die Flags warten wie Vigil seit fef16f0 („wait for DSF's job outcome
   flags before counting a finished job“). Job-ID `YYYYMMDD-HHMMSS-<8 hex crc32(fileName + fileCrc32)>`.

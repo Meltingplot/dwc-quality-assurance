@@ -8,7 +8,15 @@ the full model) and ``tick(now_ms)`` when the subscription was idle (3 s heartbe
 Job lifecycle (dwc-vigil ``VigilTracker``, verified against DSF v3.7-dev and RRF 3.7-dev on
 2026-09-26): a job runs while ``job.duration is not None``; ``job.file.fileName`` keeps the last
 name on DSF 3.7. DSF sets ``lastFileCancelled/Aborted`` after the job-end patch, so the outcome
-waits until they change or ``JOB_OUTCOME_GRACE_S`` passed. Simulations are ignored.
+waits until they change or ``JOB_OUTCOME_GRACE_S`` passed.
+
+Simulations are ignored. Whether a job is one is known only from ``state.status``, which can come
+after ``job.duration``: DSF selects the file and tells RRF before it lets RRF run the M37
+(DuetSoftwareFramework v3.7-dev @ 3ae80501 ``MCodeHandler.cs:478-501``). On the lab CHX 350 the
+"simulating" came 0.3-3.8 s after the job began (20261006-200535, 20261006-204038, 20261007-102100, all
+three recorded as prints before this), "processing" in the same patch or 0.3 s after it (20261002-151712);
+2026-10-07. So a job starts once the status says print or simulation, at the latest after
+``JOB_STATUS_WAIT_S``.
 """
 
 import collections
@@ -33,6 +41,7 @@ import qa_summary
 logger = logging.getLogger("qa.collector")
 
 JOB_OUTCOME_GRACE_S = 10.0
+JOB_STATUS_WAIT_S = 10.0   # a job whose status says neither print nor simulation by then is a print
 PAUSE_CAUSE_WINDOW_MS = 10_000
 ABORT_CAUSE_WINDOW_MS = 60_000
 LIVE_SAMPLE_INTERVAL_MS = 1000
@@ -42,6 +51,7 @@ NOT_READY = object()   # a layer's filament path while the file's layer index is
 
 PAUSED = ("pausing", "paused")
 RESUMING = ("resuming",)
+PRINTING = ("processing", "cancelling", *PAUSED, *RESUMING)   # statuses of a job that is no simulation
 
 # Events that may explain a pause (§5.4 "Pause-Ursache"), or the end of a job that did not complete
 PAUSE_CAUSE_TYPES = ("filament_status", "filament_percent_window", "mfm_error_tolerated", "mfm_recovery",
@@ -188,6 +198,7 @@ class Collector:
         self._last_flags = (False, False)
         self._pending_end = None
         self._simulating = False
+        self._undecided = None      # monotonic time a job began whose status does not say print or simulation yet
 
         self._ring = collections.deque()
         self._current = None        # snapshot of the patch being processed
@@ -374,11 +385,10 @@ class Collector:
             self._resume(model, active, status, now_ms)
         elif active and not self._prev_active:
             self.resolve_pending_end(now_ms, force=True)
-            if status == "simulating":
-                self._simulating = True
-            else:
-                self._simulating = False
-                self._start_job(model, now_ms, partial=False)
+            self._simulating = False
+            self._undecided = time.monotonic()
+        if active and self._undecided is not None:
+            self._decide(model, status, now_ms)
         if active:
             self._job_flags = flags
             if self.job is not None:
@@ -386,6 +396,7 @@ class Collector:
                 self.job.last_pause = getattr(job, "pause_duration", None)
                 self.job.last_duration = getattr(job, "duration", None)
         if self._prev_active and not active:
+            self._undecided = None   # ended before its status came: nothing printed
             if self._simulating:
                 self._simulating = False
             elif self.job is not None:
@@ -396,6 +407,16 @@ class Collector:
             self._pause_resume(model, status, now_ms)
         self.resolve_pending_end(now_ms)
         self._prev_active = active
+
+    def _decide(self, model, status, now_ms):
+        """A job began: a print or a simulation, as soon as the status says it (module docstring)."""
+        if status == "simulating":
+            self._simulating = True
+        elif status in PRINTING or time.monotonic() - self._undecided >= JOB_STATUS_WAIT_S:
+            self._start_job(model, now_ms, partial=False)
+        else:
+            return
+        self._undecided = None
 
     def _resume(self, model, active, status, now_ms):
         """First model after the daemon started."""
