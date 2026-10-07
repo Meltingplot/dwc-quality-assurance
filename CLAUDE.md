@@ -86,6 +86,9 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   keys that changed with them (`UpdateService.cs:282-330` @ 3ae80501), and RRF runs cancel.g after the
   print stopped (RRF 3.7-dev @ 3796dc422 `GCodes2.cpp:787-792`), so stop.g's/cancel.g's CE default mode
   arrived as job events (2026-10-01).
+- `state.status` can come after `job.duration`: DSF selects the file before RRF runs the M37
+  (`MCodeHandler.cs:478-501` @ 3ae80501), "simulating" came 0.3-3.8 s after the job began on the lab CHX 350,
+  "processing" up to 0.3 s after it (2026-10-07). A job starts on the first status saying print or simulation.
 - A heater on a CAN board reports its `state` from the board's last report (`RemoteHeater::GetMode`,
   RRF 3.7-dev @ 3796dc422 `RemoteHeater.cpp:436-446`; offline after 2 s without one), while M143 changes
   `monitors[].limit` at once: `heater_monitor` counts a violation after 2 s, or at once when it ends in a
