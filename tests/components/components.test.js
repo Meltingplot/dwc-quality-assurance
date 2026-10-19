@@ -482,6 +482,36 @@ describe("QualityAssurance page", () => {
 		expectNoVueWarnings(warn);
 	});
 
+	it("changes views by its tabs only, never by a touch gesture", async () => {
+		const host = { pluginEntry: () => ({ pid: 42 }), startBackend: () => Promise.resolve(), webSocketUrl: () => null,
+			request: vi.fn(async (method, path) => ({
+				"machine/QualityAssurance/jobs": { total: 1, offset: 0, jobs: [JOB] }, "machine/QualityAssurance/job": DETAIL, "machine/QualityAssurance/job/layers": LAYERS,
+				"machine/QualityAssurance/job/events": { jobId: JOB.id, events: EVENTS }
+			})[path] ?? {}) };
+		const wrapper = mountInDwc(QualityAssurance, { props: { host }, attachTo: document.body });
+		wrapper.vm.openJob(JOB.id);
+		await flush();
+		await flush();
+		const detail = wrapper.findComponent(JobDetail);
+		const touch = (el, type, x, y) => el.dispatchEvent(new TouchEvent(type, { bubbles: true,
+			changedTouches: [new Touch({ identifier: 0, target: el, clientX: x, clientY: y })] }));
+		const tap = (el, x, y) => { touch(el, "touchstart", x, y); touch(el, "touchend", x, y); };
+		// the touch kiosk (2026-10-19): a tap on the job's Replay tab, then one on Replay's "3D stack" switch to the
+		// right of it. The detail's window stopped the second touchstart, the page's window took both for one swipe
+		// right and went back to the job list.
+		tap(detail.find(".v-tabs").element, 100, 300);
+		const inside = detail.find(".v-window .v-window-item").element;
+		tap(inside, 500, 360);
+		expect(wrapper.vm.tab).toBe("job");
+		// a drag in the replay's 3D view flipped the job's tabs
+		touch(inside, "touchstart", 500, 360);
+		touch(inside, "touchend", 100, 360);
+		expect(detail.vm.tab).toBe("layers");
+		expect(wrapper.vm.tab).toBe("job");
+		wrapper.unmount();
+		expectNoVueWarnings(warn);
+	});
+
 	it("reloads a running job's detail on its layer changes, at most every 30 s", async () => {
 		vi.useFakeTimers({ now: 1_000_000 });
 		try {

@@ -38,8 +38,8 @@
 				<v-tab value="context">{{ $t("plugins.QualityAssurance.job.tabContext") }}</v-tab>
 				<v-tab value="om">{{ $t("plugins.QualityAssurance.job.tabObjectModel") }}</v-tab>
 			</v-tabs>
-			<!-- gap inside the window, see QualityAssurance.vue -->
-			<v-window v-model="tab" class="pt-2">
+			<!-- gap inside the window and no swipe, see QualityAssurance.vue (a drag in the replay's 3D view flipped these tabs) -->
+			<v-window v-model="tab" :touch="false" class="pt-2">
 				<v-window-item value="layers">
 					<layer-charts :answer="layers" />
 					<div v-if="distribution.length" class="mt-4">

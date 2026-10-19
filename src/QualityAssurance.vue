@@ -8,8 +8,11 @@
 			<v-tab value="trends" prepend-icon="mdi-chart-line">{{ $t("plugins.QualityAssurance.tabs.trends") }}</v-tab>
 			<v-tab value="settings" prepend-icon="mdi-cog-outline">{{ $t("plugins.QualityAssurance.tabs.settings") }}</v-tab>
 		</v-tabs>
-		<!-- the gap lives inside the window: v-window clips, and an outlined field's floating label sits above its box -->
-		<v-window v-model="tab" class="pt-2">
+		<!-- the gap lives inside the window: v-window clips, and an outlined field's floating label sits above its box.
+			No swipe: the job detail's window stops each touchstart, so this one measured a tap there from the last touch it
+			saw and took the job tab, then the replay's "3D stack" switch, for a swipe back to the job list (touch kiosk,
+			2026-10-19; Vuetify 4.2.2 VWindow.js:183-200, directives/touch/index.js) -->
+		<v-window v-model="tab" :touch="false" class="pt-2">
 			<v-window-item value="jobs">
 				<job-list :api="api" :selected="selectedJob" :reload-key="jobsVersion" @select="openJob" />
 			</v-window-item>
