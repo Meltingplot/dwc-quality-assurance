@@ -51,9 +51,9 @@ SBC account:
 | web files `QualityAssurance-*` into `/opt/dsf/sd/www`: an older sideload's go, the image's stay (DWC loads the ones the manifest lists); DWC's directories keep owner and mode | yes |
 | the data directory of the table above | the data yes, the drop-in no |
 | the image's plugin AppArmor profile plus QA's block (`docs/apparmor-QualityAssurance.inc`, the rules the image build adds), **enforcing**, loaded with `apparmor_parser -r -K` (no cache) | no |
-| restarts DSF when the manifest or the environment is new (restarts Vigil and CHX350 too), starts QA, reports its status, its output and any AppArmor denials | – |
+| restarts DSF when the manifest or the environment is new (restarts Vigil and CHX350 too), then sends M999: Meltingplot's RRF halts when DCS times out, and the restart is such a timeout (Tim, 2026-10-20); starts QA, reports its status, its output and any AppArmor denials | – |
 
-`sideload.sh remove` stops QA and loads the image's profile again. On an image with QA it puts the
+`sideload.sh remove` stops QA and loads the image's profile again, then restarts DSF and sends M999 as `install` does. On an image with QA it puts the
 image's QA back as mp-dsf-seed does at boot (copy, read-only mount); on an older one it deletes QA's
 code and web files. The data stays either way.
 
