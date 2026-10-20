@@ -83,6 +83,37 @@ bundled() {  # the image carries QA itself (from rc.49 on)
     [ -f "$SKEL/plugins/$ID.json" ]
 }
 
+dsf_up() {  # DSF answers with a session; DuetWebServer answers 503 while DCS is down
+    curl -s -f --max-time 2 -o /dev/null "http://127.0.0.1/machine/connect"
+}
+
+wait_dsf() {  # until DSF is up, up to $1 s
+    for _ in $(seq "$1"); do
+        dsf_up && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# Meltingplot's RRF halts when DCS times out (Tim, 2026-10-20), and restarting DSF is such a timeout: on the lab
+# CHX 350 the new DSF found the machine halted and its expansion boards reset (2026-10-20 20:33, "M552: Machine is
+# halted", the boards "stopped sending status"). M999 resets the controller; DSF terminates on that and systemd
+# starts it again (14 s there, M999 at 20:34:52, the new DSF at 20:35:06).
+restart_dsf() {  # why
+    say "restart DSF ($1; restarts every plugin)"
+    systemctl restart duetcontrolserver
+    wait_dsf 60 || die "DSF did not come back"
+    say "M999: RRF halts when DCS times out, and the restart was one"
+    api POST code "M999" >/dev/null
+    for _ in $(seq 30); do  # DSF goes down with the reset
+        dsf_up || break
+        sleep 1
+    done
+    wait_dsf 90 || die "DSF did not come back after M999"
+    echo "machine $(model_field 'm["state"]["status"]')"
+    sleep 3
+}
+
 require_idle() {
     local status
     status=$(model_field 'm["state"]["status"]')
@@ -367,13 +398,7 @@ PY
     fi
 
     if [ "$restart" = 1 ]; then
-        say "restart DSF (new manifest or environment; restarts every plugin)"
-        systemctl restart duetcontrolserver
-        for _ in $(seq 60); do
-            curl -s --max-time 2 -o /dev/null "http://127.0.0.1/machine/connect" && break
-            sleep 1
-        done
-        sleep 3
+        restart_dsf "new manifest or environment"
     fi
 
     say "start $ID"
@@ -411,8 +436,7 @@ do_remove() {
         apparmor_parser -r -K "$PROFILE"
         echo "the image's profile is loaded again"
     fi
-    systemctl restart duetcontrolserver
-    echo "DSF restarted"
+    restart_dsf "the image's manifest and profile again"
 }
 
 case "$MODE" in
