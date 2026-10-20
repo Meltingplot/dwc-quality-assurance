@@ -262,7 +262,7 @@
 		"layerOf": "Layer {layer} of {total}",
 		"speed": "Speed",
 		"travel": "Travel moves",
-		"legend": "Colour: commanded volumetric flow from the G-code; dots: extrusion rate RRF planned for the move it was executing, sampled (same scale; not measured); rings: events. Wheel zooms, drag pans, double click fits.",
+		"legend": "Rings: events. Wheel zooms, drag pans, double click fits.",
 		"objects": "Objects",
 		"events": "Events of the layer",
 		"curves": "Temperature and heater load of the layer",
@@ -270,9 +270,23 @@
 		"fileGone": "The job file is no longer on the printer, or it was changed after the job.",
 		"noLayer": "The G-code file has no such layer.",
 		"stack": "3D stack",
-		"stackLegend": "3D: the layers below in grey, lit like a solid; the layer shown coloured by commanded flow; rings: events at their exact positions, smaller for the layers below. The daemon reduces the stack: lines and arcs within {resolution} mm, sparse infill left out, a layer step of {step}. Drag turns and tilts, shift or right drag pans, wheel zooms, double click returns to the isometric view.",
+		"stackLegend": "3D: the layers below in grey, lit like a solid; rings: events at their exact positions, smaller for the layers below. The daemon reduces the stack: lines and arcs within {resolution} mm, sparse infill left out, a layer step of {step}. Drag turns and tilts, shift or right drag pans, wheel zooms, double click returns to the isometric view.",
 		"stackLoading": "Loading the 3D stack: up to layer {layer} of {total}…",
-		"stackFailed": "The 3D stack could not be loaded: {message}"
+		"stackFailed": "The 3D stack could not be loaded: {message}",
+		"flow": "Volumetric flow",
+		"flowGcode": "G-code",
+		"flowOm": "Object model",
+		"flowDiff": "Difference",
+		"colour": {
+			"gcode": "Colour: commanded volumetric flow from the G-code; dots: extrusion rate RRF planned for the move it was executing, sampled (same scale; not measured).",
+			"om": "Colour: volumetric flow RRF planned for each move at its top speed (move.currentMove.extrusionRate × filament cross-section from the object model journal, matched to its G-code line by move.currentMove.filePosition; not measured), on the G-code view's scale; faint grey: moves without a sample (DSF reports the current move about every 130 ms).",
+			"diff": "Colour: planned minus commanded flow; blue: RRF planned less, e.g. a short move that does not reach its feed rate, red: more; faint grey: moves without a sample."
+		},
+		"omLoading": "Loading the flow RRF planned for the layer's moves…",
+		"omNone": "There is no object model journal for this layer.",
+		"omFailed": "The object model's flow could not be loaded: {message}",
+		"omNoFilePosition": "The journal has no position of the current move here: the firmware does not report move.currentMove.filePosition.",
+		"omCoverage": "Object model: {share} of the layer's extrusion length has a planned flow ({samples} samples)."
 	},
 	"timelapse": {
 		"states": {

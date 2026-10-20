@@ -163,6 +163,14 @@ def layers(con, job_id, load_thresholds=None):
     }
 
 
+def layer_span(con, job_id, layer):
+    """``(started_at, ended_at)`` of a job's layer in epoch ms (``ended_at`` None while it prints), None when
+    the job has no such layer."""
+    row = con.execute("SELECT l.started_at, l.ended_at FROM job_layers l JOIN jobs j ON j.key = l.job_key "
+                      "WHERE j.id=? AND l.layer=?", (job_id, layer)).fetchone()
+    return (row[0], row[1]) if row and row[0] is not None else None
+
+
 def events(con, job_id, type_=None, ranges=None):
     """The job's events, each with its ``severity`` (qa_severity)."""
     key = job_key(con, job_id)

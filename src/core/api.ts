@@ -288,10 +288,33 @@ export interface ToolpathAnswer {
 	segments: {
 		x0: Array<number>; y0: Array<number>; x1: Array<number>; y1: Array<number>; z: Array<number>;
 		e: Array<number>; flow: Array<number>; object: Array<number | null>; type: Array<number>; travel: Array<0 | 1>;
+		/** byte offset of the segment's G-code line: the file position RRF reports for the move */
+		pos: Array<number>;
 	};
 	types: Array<string | null>;
 	objects: Record<string, string>;
 	meta: { numLayers: number; source: "comments" | "z"; objects: Record<string, string>; filamentDiameter: number };
+}
+
+/**
+ * The flow RRF planned for a layer's moves (``job/toolpath/om``): ``move.currentMove`` from the object model
+ * journal, per G-code line (``pos`` as the toolpath's), sampled as often as DSF patches (≈ 130 ms)
+ */
+export interface ToolpathOmAnswer {
+	layer: number;
+	/** journal window read (epoch ms): the layer from its start to 30 s after its end; ``to`` null while it prints */
+	from: number;
+	to: number | null;
+	moves: {
+		pos: Array<number>;
+		/** mm³/s: ``extrusionRate`` (at the move's top speed) × filament cross-section, the line's samples averaged */
+		flow: Array<number>;
+		n: Array<number>;
+	};
+	/** samples of the layer's moves */
+	samples: number;
+	/** samples with a file position in the window, any layer: 0 when the firmware reports none */
+	seen: number;
 }
 
 /** Printed extent of a job file (``job/toolpath/stack`` meta; from the layer index) */
@@ -459,6 +482,11 @@ export class QaApi {
 
 	toolpath(id: string, layer: number) {
 		return this.get<ToolpathAnswer | { state: "building" }>("job/toolpath", { id, layer });
+	}
+
+	/** The flow RRF planned for the layer's moves, from the object model journal */
+	toolpathOm(id: string, layer: number) {
+		return this.get<ToolpathOmAnswer | { state: "building" }>("job/toolpath/om", { id, layer }, "json", REPLAY_TIMEOUT_MS);
 	}
 
 	/** The reduced layers of the 3D stack from layer ``from`` on, as many as one answer holds */

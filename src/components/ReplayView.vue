@@ -11,13 +11,21 @@
 				:label="$t('plugins.QualityAssurance.replay.speed')" />
 			<v-switch v-model="showTravel" color="primary" density="compact" hide-details :label="$t('plugins.QualityAssurance.replay.travel')" />
 			<v-switch v-model="stacked" color="primary" density="compact" hide-details :label="$t('plugins.QualityAssurance.replay.stack')" />
+			<v-btn-toggle v-model="flowMode" mandatory divided density="compact" variant="outlined" color="primary"
+				:aria-label="$t('plugins.QualityAssurance.replay.flow')">
+				<v-btn value="gcode" size="small">{{ $t("plugins.QualityAssurance.replay.flowGcode") }}</v-btn>
+				<v-btn value="om" size="small" :disabled="!hasJournal">{{ $t("plugins.QualityAssurance.replay.flowOm") }}</v-btn>
+				<v-btn value="diff" size="small" :disabled="!hasJournal">{{ $t("plugins.QualityAssurance.replay.flowDiff") }}</v-btn>
+			</v-btn-toggle>
 		</div>
 		<v-alert v-if="message" :type="messageType" variant="tonal" density="compact" class="mb-2">{{ message }}</v-alert>
 		<div v-if="stacked && stackStatus" class="text-caption text-medium-emphasis mb-1">{{ stackStatus }}</div>
+		<div v-if="omStatus" class="text-caption text-medium-emphasis mb-1">{{ omStatus }}</div>
 		<v-row density="compact">
 			<v-col cols="12" md="8">
 				<replay-canvas :toolpath="toolpath" :executed="executed" :markers="markers" :hidden-objects="hiddenObjects"
-					:show-travel="showTravel" :stack="stacked ? stackLayers : null" :stack-bounds="stackMeta?.bounds ?? null" :layer="layer" />
+					:show-travel="showTravel" :stack="stacked ? stackLayers : null" :stack-bounds="stackMeta?.bounds ?? null" :layer="layer"
+					:flow-mode="flowMode" :om-flow="omFlow" />
 				<div class="text-caption text-medium-emphasis mt-1">{{ legend }}</div>
 			</v-col>
 			<v-col cols="12" md="4">
@@ -43,12 +51,14 @@
 <script lang="ts">
 import { defineComponent, markRaw, type PropType } from "vue";
 
-import type { JobDetail, LayersAnswer, QaApi, QaEvent, SamplesAnswer, TimelapseMeta, ToolpathAnswer, ToolpathStackAnswer } from "../core/api";
+import type {
+	JobDetail, LayersAnswer, QaApi, QaEvent, SamplesAnswer, TimelapseMeta, ToolpathAnswer, ToolpathOmAnswer, ToolpathStackAnswer
+} from "../core/api";
 import { timeSeriesConfig } from "../core/charts";
-import { eventColor, eventDetail } from "../core/format";
+import { eventColor, eventDetail, formatPercent } from "../core/format";
 import {
-	executedPoints, fetchToolpath, frameAt, layerEvents, layerSpan, machineToUser, markerColor, nozzleHeaters, replayChannels,
-	SAMPLE_LEAD_MS, stackEvents, toolOffsets, TOOLPATH_RETRY_MS
+	executedPoints, fetchToolpath, fetchToolpathOm, frameAt, layerEvents, layerSpan, machineToUser, markerColor, nozzleHeaters, omCoverage,
+	replayChannels, SAMPLE_LEAD_MS, segmentOmFlow, stackEvents, toolOffsets, TOOLPATH_RETRY_MS, type FlowMode, type ToolpathOmResult
 } from "../core/replay";
 import { fetchStack, toolpathZ, toStackLayer, zAtLayer, type StackLayer } from "../core/stack";
 import { layersWithFrames } from "../core/timelapse";
@@ -59,7 +69,9 @@ import TimelapseFrame from "./TimelapseFrame.vue";
 /** Layer by layer: toolpath from the G-code (parsed on demand by the daemon), the executed moves' flow and
  * events on top, temperature and heater-load curves of the layer beside it (PLAN.md §3 Replay). The 3D
  * stack shows the layers below as well, reduced by the daemon and loaded piece by piece once it is
- * switched on, with the events of every layer up to the one shown */
+ * switched on, with the events of every layer up to the one shown. The flow switch colours the layer by
+ * the G-code's commanded flow, by the flow RRF planned for each move (object model journal, loaded per
+ * layer once chosen) or by their difference */
 export default defineComponent({
 	components: { ChartCanvas, ReplayCanvas, TimelapseFrame },
 	props: {
@@ -95,7 +107,14 @@ export default defineComponent({
 			stackBuilding: false,
 			stackRetry: null as ReturnType<typeof setTimeout> | null,
 			/** Bumped per job and when the stack is switched off; answers of a superseded one are dropped */
-			stackRequest: 0
+			stackRequest: 0,
+			flowMode: "gcode" as FlowMode,
+			/** The object model's flow of a layer, once the flow switch left the G-code */
+			om: null as ToolpathOmAnswer | null,
+			omState: "idle" as "idle" | "loading" | ToolpathOmResult["state"],
+			omError: null as string | null,
+			omRequest: 0,
+			omRetry: null as ReturnType<typeof setTimeout> | null
 		};
 	},
 	computed: {
@@ -118,6 +137,36 @@ export default defineComponent({
 		},
 		layerEvents(): Array<QaEvent> {
 			return layerEvents(this.events, this.layer);
+		},
+		hasJournal(): boolean {
+			return !!this.job.journal;
+		},
+		/** Per segment of the layer shown the flow RRF planned, NaN without a sample; null until it is loaded */
+		omFlow(): Float64Array | null {
+			return this.toolpath && this.om && this.om.layer === this.toolpath.layer ? segmentOmFlow(this.toolpath, this.om) : null;
+		},
+		omStatus(): string | null {
+			if (this.flowMode === "gcode") {
+				return null;
+			}
+			switch (this.omState) {
+				case "loading":
+					return this.$t("plugins.QualityAssurance.replay.omLoading");
+				case "none":
+					return this.$t("plugins.QualityAssurance.replay.omNone");
+				case "error":
+					return this.$t("plugins.QualityAssurance.replay.omFailed", { message: this.omError });
+				case "ready":
+					if (!this.om?.seen) {
+						return this.$t("plugins.QualityAssurance.replay.omNoFilePosition");
+					}
+					return this.$t("plugins.QualityAssurance.replay.omCoverage", {
+						share: formatPercent(this.toolpath && this.omFlow ? omCoverage(this.toolpath, this.omFlow) : null),
+						samples: this.om.samples
+					});
+				default:
+					return null;  // building and a missing file show as the layer's message
+			}
 		},
 		/** Z of the layers known so far: the stack's and the one shown */
 		knownZ(): Array<{ layer: number; z: number }> {
@@ -147,9 +196,10 @@ export default defineComponent({
 		},
 		legend(): string {
 			const meta = this.stackMeta;
-			return this.stacked && meta
+			const colour = this.$t(`plugins.QualityAssurance.replay.colour.${this.flowMode}`);
+			return `${colour} ${this.stacked && meta
 				? this.$t("plugins.QualityAssurance.replay.stackLegend", { resolution: meta.resolution, step: meta.step })
-				: this.$t("plugins.QualityAssurance.replay.legend");
+				: this.$t("plugins.QualityAssurance.replay.legend")}`;
 		},
 		stackStatus(): string | null {
 			if (this.stackError) {
@@ -184,6 +234,7 @@ export default defineComponent({
 	watch: {
 		layer() {
 			this.load();
+			this.loadOm();
 		},
 		"job.id"() {
 			this.init();
@@ -194,6 +245,9 @@ export default defineComponent({
 			} else {
 				this.stopStack();
 			}
+		},
+		flowMode() {
+			this.loadOm();
 		}
 	},
 	mounted() {
@@ -205,6 +259,7 @@ export default defineComponent({
 		if (this.retry !== null) {
 			clearTimeout(this.retry);
 		}
+		this.stopOm();
 	},
 	methods: {
 		eventColor,
@@ -212,7 +267,13 @@ export default defineComponent({
 		init() {
 			this.maxLayer = this.layers?.layers.length ? Math.max(...this.layers.layers.map((l) => l.layer)) : (this.job.numLayers ?? 0);
 			this.layer = 1;
+			this.om = null;
+			this.omState = "idle";
+			if (!this.hasJournal) {
+				this.flowMode = "gcode";
+			}
 			this.load();
+			this.loadOm();
 			this.loadTimelapse();
 			this.stopStack();
 			this.stackLayers = markRaw([]);
@@ -268,6 +329,34 @@ export default defineComponent({
 				}
 			} catch {
 				this.timelapse = null;  // the replay works without it
+			}
+		},
+		/** The object model's flow of the layer shown, while the flow switch is off the G-code */
+		async loadOm() {
+			this.stopOm();
+			const request = this.omRequest;
+			const jobId = this.job.id, layer = this.layer;
+			if (this.flowMode === "gcode" || !this.hasJournal || (this.om?.layer === layer && this.omState === "ready")) {
+				return;
+			}
+			this.omState = "loading";
+			const result = await fetchToolpathOm(this.api, jobId, layer);
+			if (request !== this.omRequest) {
+				return;
+			}
+			this.omState = result.state;
+			this.omError = result.state === "error" ? result.message : null;
+			if (result.state === "building") {
+				this.omRetry = setTimeout(() => this.loadOm(), TOOLPATH_RETRY_MS);
+			} else {
+				this.om = result.state === "ready" ? markRaw(result.answer) : null;
+			}
+		},
+		stopOm() {
+			this.omRequest++;
+			if (this.omRetry !== null) {
+				clearTimeout(this.omRetry);
+				this.omRetry = null;
 			}
 		},
 		/** Machine X/Y at ``ts`` in G-code coordinates, with the workplace and tool of that time */

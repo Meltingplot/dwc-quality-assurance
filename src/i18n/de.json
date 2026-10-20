@@ -262,7 +262,7 @@
 		"layerOf": "Lage {layer} von {total}",
 		"speed": "Tempo",
 		"travel": "Leerfahrten",
-		"legend": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: von RRF geplante Extrusionsrate des gerade ausgeführten Moves, abgetastet (gleiche Skala; nicht gemessen); Ringe: Ereignisse. Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein.",
+		"legend": "Ringe: Ereignisse. Mausrad zoomt, Ziehen verschiebt, Doppelklick passt ein.",
 		"objects": "Objekte",
 		"events": "Ereignisse der Lage",
 		"curves": "Temperatur und Heizlast der Lage",
@@ -270,9 +270,23 @@
 		"fileGone": "Die Jobdatei ist nicht mehr auf dem Drucker oder wurde nach dem Job geändert.",
 		"noLayer": "Die G-Code-Datei hat diese Lage nicht.",
 		"stack": "3D-Stapel",
-		"stackLegend": "3D: die Lagen darunter in Grau, beleuchtet wie ein Körper; die gezeigte Lage nach befohlenem Volumenstrom gefärbt; Ringe: Ereignisse an ihrer genauen Position, kleiner für die Lagen darunter. Der Daemon reduziert den Stapel: Linien und Bögen auf {resolution} mm genau, ohne Innenfüllung, Lagenschritt {step}. Ziehen dreht und kippt, Umschalt- oder Rechtsziehen verschiebt, Mausrad zoomt, Doppelklick kehrt zur isometrischen Ansicht zurück.",
+		"stackLegend": "3D: die Lagen darunter in Grau, beleuchtet wie ein Körper; Ringe: Ereignisse an ihrer genauen Position, kleiner für die Lagen darunter. Der Daemon reduziert den Stapel: Linien und Bögen auf {resolution} mm genau, ohne Innenfüllung, Lagenschritt {step}. Ziehen dreht und kippt, Umschalt- oder Rechtsziehen verschiebt, Mausrad zoomt, Doppelklick kehrt zur isometrischen Ansicht zurück.",
 		"stackLoading": "Lade den 3D-Stapel: bis Lage {layer} von {total}…",
-		"stackFailed": "Der 3D-Stapel ließ sich nicht laden: {message}"
+		"stackFailed": "Der 3D-Stapel ließ sich nicht laden: {message}",
+		"flow": "Volumenstrom",
+		"flowGcode": "G-Code",
+		"flowOm": "Objektmodell",
+		"flowDiff": "Differenz",
+		"colour": {
+			"gcode": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: von RRF geplante Extrusionsrate des gerade ausgeführten Moves, abgetastet (gleiche Skala; nicht gemessen).",
+			"om": "Farbe: von RRF geplanter Volumenstrom jedes Moves bei seiner Top-Speed (move.currentMove.extrusionRate × Filamentquerschnitt aus dem Objektmodell-Journal, über move.currentMove.filePosition seiner G-Code-Zeile zugeordnet; nicht gemessen), auf der Skala der G-Code-Ansicht; blasses Grau: Moves ohne Abtastwert (DSF meldet den aktuellen Move etwa alle 130 ms).",
+			"diff": "Farbe: geplanter minus befohlener Volumenstrom; Blau: RRF plante weniger, z. B. ein kurzer Move, der seinen Vorschub nicht erreicht, Rot: mehr; blasses Grau: Moves ohne Abtastwert."
+		},
+		"omLoading": "Lade den von RRF geplanten Volumenstrom der Moves dieser Lage…",
+		"omNone": "Für diese Lage gibt es kein Objektmodell-Journal.",
+		"omFailed": "Der Volumenstrom aus dem Objektmodell ließ sich nicht laden: {message}",
+		"omNoFilePosition": "Das Journal hat hier keine Position des aktuellen Moves: die Firmware meldet move.currentMove.filePosition nicht.",
+		"omCoverage": "Objektmodell: {share} der Extrusionslänge dieser Lage haben einen geplanten Volumenstrom ({samples} Abtastwerte)."
 	},
 	"timelapse": {
 		"states": {

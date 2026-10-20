@@ -127,6 +127,20 @@ def test_state_at_a_time_and_history_of_a_value(journal, data_dir):
         qa_journal.history(folder, "")
 
 
+def test_current_moves_of_the_job_file(journal, data_dir):
+    """move.currentMove: a patch carries what changed; no filePosition between moves and in a macro"""
+    journal.job_started(JOB, T0)
+    journal.patch('{"move":{"currentMove":{"extrusionRate":1.5,"filePosition":100}}}', T0 + 100)
+    journal.patch('{"move":{"currentMove":{"filePosition":160}}}', T0 + 230)
+    journal.patch('{"move":{"currentMove":{"extrusionRate":0,"filePosition":null}}}', T0 + 360)
+    journal.patch('{"global":{"machine_mode":"default"}}', T0 + 400)
+    journal.patch('{"move":{"currentMove":{"extrusionRate":2.25,"filePosition":220}}}', T0 + 500)
+    journal.shutdown()
+    folder = directory(data_dir)
+    assert list(qa_journal.current_moves(folder)) == [(T0 + 100, 100, 1.5), (T0 + 230, 160, 1.5), (T0 + 500, 220, 2.25)]
+    assert list(qa_journal.current_moves(folder, T0 + 200, T0 + 400)) == [(T0 + 230, 160, 1.5)]
+
+
 def test_a_shorter_list_ends_the_value(journal, data_dir):
     journal.job_started(JOB, T0)
     journal.patch('{"move":{"axes":[{}]}}', T0 + 1000)

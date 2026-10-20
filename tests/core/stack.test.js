@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fitView, toScreen } from "../../src/core/replay";
+import { fitView, rampColor, toScreen } from "../../src/core/replay";
 import {
 	drawStackLayer, drawToolpath, fetchStack, fitStack, ISO_ELEVATION, isoCamera, levelOfDetail, MIN_ELEVATION, orbit, Projection, Scratch,
 	TOP_CAMERA, toolpathZ, toStackLayer, zAtLayer
@@ -178,10 +178,11 @@ describe("drawing a toolpath", () => {
 		}
 	};
 	const p = new Projection(TOP_CAMERA, { scale: 1, originX: 0, originY: 0, height: 100 });
+	const flow = { values: TP.segments.flow, range: [2, 4], color: rampColor };
 
 	it("one stroke per flow colour, joined where segments meet", () => {
 		const { ctx, calls } = recorder();
-		drawToolpath(ctx, TP, p, [2, 4], [], false, new Scratch());
+		drawToolpath(ctx, TP, p, flow, [], false, new Scratch());
 		const strokes = calls.filter((c) => c[0] === "=strokeStyle").map((c) => c[1]);
 		expect(strokes).toEqual(["rgb(68,1,84)", "rgb(253,231,37)"]);
 		// the first two segments are one polyline
@@ -192,9 +193,17 @@ describe("drawing a toolpath", () => {
 
 	it("travel on top when shown, hidden objects left out", () => {
 		const { ctx, calls } = recorder();
-		drawToolpath(ctx, TP, p, [2, 4], [1], true, new Scratch());
+		drawToolpath(ctx, TP, p, flow, [1], true, new Scratch());
 		const strokes = calls.filter((c) => c[0] === "=strokeStyle").map((c) => c[1]);
 		expect(strokes).toEqual(["rgb(68,1,84)", "rgba(128,128,128,0.35)"]);
+	});
+
+	it("a segment without a value thin and faint, under the coloured ones", () => {
+		const { ctx, calls } = recorder();
+		drawToolpath(ctx, TP, p, { ...flow, values: [Number.NaN, 2, 0, 4] }, [], false, new Scratch());
+		const strokes = calls.filter((c) => c[0] === "=strokeStyle").map((c) => c[1]);
+		expect(strokes).toEqual(["rgba(128,128,128,0.45)", "rgb(68,1,84)", "rgb(253,231,37)"]);
+		expect(calls.find((c) => c[0] === "=lineWidth")).toEqual(["=lineWidth", 1]);
 	});
 });
 

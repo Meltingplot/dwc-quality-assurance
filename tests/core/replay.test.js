@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { executedPoints, fitView, flowRange, frameAt, machineToUser, pan, rampColor, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt } from "../../src/core/replay";
+import {
+	diffRange, divergingColor, executedPoints, fetchToolpathOm, fitView, flowColouring, flowDiff, flowRange, frameAt, machineToUser, omCoverage,
+	pan, rampColor, segmentOmFlow, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt
+} from "../../src/core/replay";
 
 const TP = {
 	layer: 1,
 	segments: {
 		x0: [0, 10, 10], y0: [0, 0, 10], x1: [10, 10, 50], y1: [0, 10, 50], z: [0.2, 0.2, 0.2],
-		e: [1, 1, 0], flow: [2, 4, 0], object: [0, 0, null], type: [0, 0, 0], travel: [0, 0, 1]
+		e: [1, 1, 0], flow: [2, 4, 0], object: [0, 0, null], type: [0, 0, 0], travel: [0, 0, 1], pos: [100, 130, 160]
 	},
 	types: [null], objects: { 0: "cube" }, meta: { numLayers: 2, source: "comments", objects: {}, filamentDiameter: 1.75 }
 };
@@ -73,5 +76,58 @@ describe("coordinates", () => {
 		expect(frameAt(events, 300)).toEqual({ offsets: { X: 20 }, tool: 1 });
 		expect(frameAt(events, 50)).toEqual({ offsets: { X: 10 }, tool: 0 });
 		expect(frameAt([], 50)).toEqual({ offsets: null, tool: null });
+	});
+});
+
+describe("flow RRF planned (object model)", () => {
+	// a 30 mm move in three chords (an arc: one line), a move without a sample, travel with one
+	const ARC = {
+		...TP,
+		segments: {
+			x0: [0, 10, 20, 30, 40], y0: [0, 0, 0, 0, 0], x1: [10, 20, 30, 40, 50], y1: [0, 0, 0, 0, 0], z: [0.2, 0.2, 0.2, 0.2, 0.2],
+			e: [1, 1, 1, 1, 0], flow: [4, 4, 4, 2, 0], object: [0, 0, 0, 0, null], type: [0, 0, 0, 0, 0], travel: [0, 0, 0, 0, 1],
+			pos: [100, 100, 100, 140, 180]
+		}
+	};
+	const OM = { layer: 1, from: 0, to: 1, samples: 3, seen: 5, moves: { pos: [100, 180, 999], flow: [3, 7, 1], n: [1, 1, 1] } };
+
+	it("joins the moves to the segments by their line's file position", () => {
+		const om = segmentOmFlow(ARC, OM);
+		expect(Array.from(om.slice(0, 3))).toEqual([3, 3, 3]);  // every chord of the line
+		expect(om[3]).toBeNaN();  // no sample
+		expect(om[4]).toBeNaN();  // travel
+		expect(Array.from(flowDiff(ARC, om).slice(0, 3))).toEqual([-1, -1, -1]);
+		expect(omCoverage(ARC, om)).toBeCloseTo(0.75);
+		expect(omCoverage({ ...ARC, segments: { ...ARC.segments, travel: [1, 1, 1, 1, 1] } }, om)).toBeNull();
+	});
+
+	it("colours: the G-code's scale for both flows, a symmetric one for the difference", () => {
+		const om = segmentOmFlow(ARC, OM);
+		expect(flowColouring(ARC, "gcode", om).values).toBe(ARC.segments.flow);
+		const planned = flowColouring(ARC, "om", om);
+		expect(planned.range).toEqual(flowRange(ARC));
+		expect(planned.values).toBe(om);
+		const diff = flowColouring(ARC, "diff", om);
+		expect(diff.range).toEqual([-1, 1]);
+		expect(diff.color(0.5)).toBe("rgb(143,143,139)");  // no difference: neutral grey
+		// not loaded yet: no value anywhere
+		expect(Array.from(flowColouring(ARC, "om", null).values).every(Number.isNaN)).toBe(true);
+	});
+
+	it("diverging colours and range", () => {
+		expect(divergingColor(0)).toBe("rgb(42,120,214)");
+		expect(divergingColor(1)).toBe("rgb(227,73,72)");
+		expect(diffRange([Number.NaN, -0.5, 0.1, 0.2])).toEqual([-0.5, 0.5]);
+		expect(diffRange([0, Number.NaN])).toEqual([-0.01, 0.01]);
+	});
+
+	it("fetches the layer's moves: ready, building, none, file gone, error", async () => {
+		const api = (answer) => ({ toolpathOm: vi.fn(answer) });
+		expect(await fetchToolpathOm(api(async () => OM), "j", 1)).toEqual({ state: "ready", answer: OM });
+		expect(await fetchToolpathOm(api(async () => ({ state: "building" })), "j", 1)).toEqual({ state: "building" });
+		const fail = (name, message) => api(async () => { throw Object.assign(new Error(message), { name }); });
+		expect(await fetchToolpathOm(fail("FileNotFoundError", "no journal"), "j", 1)).toEqual({ state: "none" });
+		expect(await fetchToolpathOm(fail("OperationFailedError", "bad status code 409"), "j", 1)).toEqual({ state: "fileGone" });
+		expect(await fetchToolpathOm(fail("OperationFailedError", "timeout"), "j", 1)).toEqual({ state: "error", message: "timeout" });
 	});
 });
