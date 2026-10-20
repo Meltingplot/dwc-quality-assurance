@@ -280,13 +280,16 @@
 		"colour": {
 			"gcode": "Farbe: befohlener Volumenstrom aus dem G-Code; Punkte: von RRF geplante Extrusionsrate des gerade ausgeführten Moves, abgetastet (gleiche Skala; nicht gemessen).",
 			"om": "Farbe: von RRF geplanter Volumenstrom jedes Moves bei seiner Top-Speed (move.currentMove.extrusionRate × Filamentquerschnitt aus dem Objektmodell-Journal, über move.currentMove.filePosition seiner G-Code-Zeile zugeordnet; nicht gemessen), auf der Skala der G-Code-Ansicht; blasses Grau: Moves ohne Abtastwert (DSF meldet den aktuellen Move etwa alle 130 ms).",
+			"fused": "Farbe: von RRF geplanter Volumenstrom jedes Moves: der Abtastwert aus dem Objektmodell, wo es einen gibt, sonst eine Nachbildung von RRFs Look-ahead über den G-Code (M204/M205/M220/M221 der Datei, Beschleunigungen, Jerk und Kinematik der Maschine aus dem Journal), mit den Abtastwerten der Lage korrigiert; auf der Skala der G-Code-Ansicht; nicht gemessen.",
 			"diff": "Farbe: geplanter minus befohlener Volumenstrom; Blau: RRF plante weniger, z. B. ein kurzer Move, der seinen Vorschub nicht erreicht, Rot: mehr; blasses Grau: Moves ohne Abtastwert."
 		},
 		"omLoading": "Lade den von RRF geplanten Volumenstrom der Moves dieser Lage…",
 		"omNone": "Für diese Lage gibt es kein Objektmodell-Journal.",
 		"omFailed": "Der Volumenstrom aus dem Objektmodell ließ sich nicht laden: {message}",
 		"omNoFilePosition": "Das Journal hat hier keine Position des aktuellen Moves: die Firmware meldet move.currentMove.filePosition nicht.",
-		"omCoverage": "Objektmodell: {share} der Extrusionslänge dieser Lage haben einen geplanten Volumenstrom ({samples} Abtastwerte)."
+		"omCoverage": "Objektmodell: {share} der Extrusionslänge dieser Lage haben einen geplanten Volumenstrom ({samples} Abtastwerte).",
+		"flowFused": "Fusion",
+		"omFused": "Fusion: {share} der Extrusionslänge dieser Lage abgetastet ({samples} Abtastwerte), der Rest geplant, mit den Abtastwerten ×{correction} korrigiert."
 	},
 	"timelapse": {
 		"states": {

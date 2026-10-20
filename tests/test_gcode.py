@@ -5,6 +5,7 @@ import os
 import pytest
 
 import qa_gcode
+import qa_planner
 
 DSF_SAMPLES = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "DuetSoftwareFramework",
                                             "src", "UnitTests", "File", "GCodes"))
@@ -231,10 +232,35 @@ def test_executed_flow_joins_the_moves_by_file_position(prusa_file):
     assert qa_gcode.executed_flow(index, 9, iter(moves)) is None
 
 
+def test_motion_settings_and_the_planned_flow(tmp_path):
+    """M204/M205/M566/M220/M221 follow the file into the index's states; the plan of a layer: a short move does not
+    reach its feed rate, a feed rate alone does not stop the motion, a retraction does"""
+    path = tmp_path / "m.gcode"
+    path.write_text("M83\nM204 P500 T2000\nM566 X600 Y600\nM205 X5\nM220 S90\nM221 S105\n;LAYER_CHANGE\nG1 Z0.2\n"
+                    "G1 X0 Y0 F6000\nG1 X100 Y0 E1 F1200\nG1 F3000\nG1 X100 Y1 E0.01\nG1 E-0.5\nG1 X101 Y1 E0.01\n")
+    index = qa_gcode.build_index(str(path))
+    assert index["layers"][0]["state"]["motion"] == {"accP": 500, "accT": 2000, "jerkX": 5, "jerkY": 10,
+                                                     "maxJerkX": 10, "maxJerkY": 10, "speed": 0.9, "extrude": 1.05}
+    limits = qa_planner.Limits({"axes": [{"letter": "X", "jerk": 600}, {"letter": "Y", "jerk": 600}]})
+    data = path.read_bytes()
+    plan = qa_gcode.planned_flow(str(path), index, 1, limits, 1.75)
+    long, short, after = (data.index(b"G1 X100 Y0"), data.index(b"G1 X100 Y1"), data.index(b"G1 X101 Y1"))
+    assert plan["pos"] == [long, short, after]
+    area = math.pi * (1.75 / 2) ** 2
+    flow = dict(zip(plan["pos"], plan["flow"]))
+    assert flow[long] == pytest.approx(1.05 / 100 * 18 * area, rel=1e-3)   # 1200 mm/min × M220 90 %, M221 105 %
+    # 1 mm after a 90° corner (X within M205's 5 mm/s), stopping before the retraction: 500 mm/s² to ≈ 22.6 mm/s,
+    # below the 45 mm/s the feed-only line asked for
+    top = flow[short] / (1.05 * 0.01 * area)
+    assert top == pytest.approx(math.sqrt((2 * 500 * 1 + 5 ** 2) / 2), rel=1e-3)
+    assert flow[after] / (1.05 * 0.01 * area) == pytest.approx(math.sqrt(500 * 1), rel=1e-3)   # from standstill
+    assert qa_gcode.planned_flow(str(path), index, 9, limits) is None
+
+
 def test_index_bounds(prusa_file):
     """Bounds of the printing moves: travel and the unretract leave them alone."""
     index = qa_gcode.build_index(prusa_file, "abc")
-    assert index["version"] == 4
+    assert index["version"] == qa_gcode.INDEX_VERSION
     assert index["bounds"] == {"minX": 10, "minY": 10, "maxX": 30, "maxY": 40, "maxZ": 0.4}
 
 

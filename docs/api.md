@@ -201,7 +201,7 @@ of the segment's line in the file (every chord of an arc has its G2/G3's).
 
 ## Toolpath flow from the object model
 
-`job/toolpath/om`: `{layer, from, to, moves: {pos, flow, n}, samples, seen}`. RRF reports the move it executes
+`job/toolpath/om`: `{layer, from, to, moves: {pos, flow, n}, samples, seen, plan: {pos, flow}, correction}`. RRF reports the move it executes
 in `move.currentMove`, with `filePosition` the byte offset of the move's line in the job file (none between moves
 and for a move of a macro; RRF 3.7-dev @ ea93885 `Move.cpp:214`, `GCodeBuffer::GetJobFilePosition`; upstream
 since 2026-10-13, the CHX 350's 3.7.0-mp.2 has it). DSF gives a code the same position (`Code.FilePosition`), so it
@@ -214,8 +214,16 @@ matches `job/toolpath`'s `pos`: on the Benchy 20261008-120236 every one of 24 69
   not a measurement: below the G-code's flow where a move is too short to reach its feed rate, scaled by M221 (the
   factor multiplies the move's E, `GCodes.cpp:2103-2105` @ ea93885).
 - `samples`: samples of the layer's moves; `seen`: samples with a file position in the window, any layer (0: the
-  firmware reports none). DSF sends the current move about every 130 ms, so most short moves have no sample (Benchy:
-  13-23 % of a layer's moves, 40-84 % of its extrusion length).
+  firmware reports none). DSF sends the current move about every 130 ms (its `ModelUpdateInterval` of 100 ms plus
+  the round trip to RRF; 7.8 Hz in the Benchy), so most short moves have no sample (Benchy: 13-23 % of a layer's
+  moves, 40-84 % of its extrusion length).
+- `plan`: every printing move of the layer as a look-ahead over the G-code plans it (`dsf/qa_planner.py`: RRF 3.7's
+  rules, the file's M204/M205/M566/M201/M220/M221 and the machine's accelerations, jerk, speeds and kinematics from
+  the journal's snapshot before the layer), `flow` in mm³/s at the move's top speed like `moves`.
+- `correction`: median of sampled / planned over the layer's sampled moves (null without one). The replay's fusion
+  shows the sample where there is one, else `plan` × `correction`: on the Benchy (21 815 sampled moves, each left
+  out in turn) within 0.23 % of the sample for half the moves, 1.3 % for 90 %, 1.9 % for 95 % (the G-code's flow:
+  83 % for 90 %). The misses are moves of about 0.1 mm at over 100 mm/s, where RRF plans slower.
 
 ## Toolpath stack
 

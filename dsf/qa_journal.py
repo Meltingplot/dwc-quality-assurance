@@ -285,6 +285,23 @@ def entries(directory, start=None):
                 yield int(line[5:comma]), kind, line
 
 
+def snapshot_before(directory, at_ms=None):
+    """The model of the last snapshot at or before ``at_ms`` (the first one when none is before it, the last
+    one without ``at_ms``), None without a snapshot."""
+    snapshots = [entry for entry in read_index(directory) if entry.get("snapshot")]
+    if not snapshots:
+        return None
+    entry = next((e for e in reversed(snapshots) if at_ms is None or e["start"] <= at_ms), snapshots[0])
+    try:
+        with open(os.path.join(directory, DATA_FILE), "rb") as handle:
+            handle.seek(entry["offset"])
+            text = zlib.decompress(handle.read(entry["length"]), 31).decode("utf-8")
+        return json.loads(text.split("\n", 1)[0]).get("snapshot")
+    except (OSError, zlib.error, UnicodeDecodeError, ValueError) as exc:
+        logger.warning("object model journal %s: bad snapshot at %d: %s", directory, entry["offset"], exc)
+        return None
+
+
 def merge(state, patch):
     """DSF's patch onto a model (in place where possible; returns the result)."""
     if isinstance(patch, dict):

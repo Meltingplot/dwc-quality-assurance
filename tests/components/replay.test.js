@@ -97,11 +97,12 @@ describe("ReplayView", () => {
 	it("switches the flow between G-code, object model and their difference", async () => {
 		const tp = (layer) => ({ ...TOOLPATH, layer, segments: { ...TOOLPATH.segments, pos: [40 * layer] } });
 		const a = { ...api(async (id, layer) => tp(layer)),
-			toolpathOm: vi.fn(async (id, layer) => ({ layer, from: 0, to: 1, samples: 2, seen: 9, moves: { pos: [40 * layer], flow: [2.5], n: [2] } })) };
+			toolpathOm: vi.fn(async (id, layer) => ({ layer, from: 0, to: 1, samples: 2, seen: 9, moves: { pos: [40 * layer], flow: [2.5], n: [2] },
+				plan: { pos: [40 * layer], flow: [2.6] }, correction: 0.96 })) };
 		const plain = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: [] } });
 		await flush();
 		// without a journal only the G-code
-		expect(plain.findAll(".v-btn-toggle .v-btn").map((b) => b.attributes("disabled") !== undefined)).toEqual([false, true, true]);
+		expect(plain.findAll(".v-btn-toggle .v-btn").map((b) => b.attributes("disabled") !== undefined)).toEqual([false, true, true, true]);
 		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: { ...JOB, journal: { bytes: 1, start: T0, end: T1, snapshots: 1 } },
 			layers: LAYERS, events: EVENTS } });
 		await flush();
@@ -113,7 +114,7 @@ describe("ReplayView", () => {
 		await flush();
 		expect(a.toolpathOm).toHaveBeenCalledWith("j1", 1);
 		expect(canvas.props("flowMode")).toBe("om");
-		expect(Array.from(canvas.props("omFlow"))).toEqual([2.5]);
+		expect(Array.from(canvas.props("segmentFlow"))).toEqual([2.5]);
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omCoverage");
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.colour.om");
 		// the next layer loads its own; back to the same mode loads nothing again
@@ -121,6 +122,15 @@ describe("ReplayView", () => {
 		await flush();
 		await flush();
 		expect(a.toolpathOm).toHaveBeenLastCalledWith("j1", 2);
+		// the fusion and the difference use the layer's answer already loaded
+		wrapper.vm.flowMode = "fused";
+		await flush();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omFused");
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.colour.fused");
+		expect(Array.from(canvas.props("segmentFlow"))).toEqual([2.5]);  // sampled: the sample
+		wrapper.vm.om = { ...wrapper.vm.om, moves: { pos: [], flow: [], n: [] } };
+		await flush();
+		expect(Array.from(canvas.props("segmentFlow"))).toEqual([2.6 * 0.96]);  // not sampled: the plan, corrected
 		wrapper.vm.flowMode = "diff";
 		await flush();
 		expect(a.toolpathOm).toHaveBeenCalledTimes(2);
@@ -137,7 +147,7 @@ describe("ReplayView", () => {
 		await flush();
 		await flush();
 		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omNone");
-		expect(canvas.props("omFlow")).toBeNull();
+		expect(canvas.props("segmentFlow")).toBeNull();
 		expectNoVueWarnings(warn);
 	});
 

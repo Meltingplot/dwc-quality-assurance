@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	diffRange, divergingColor, executedPoints, fetchToolpathOm, fitView, flowColouring, flowDiff, flowRange, frameAt, machineToUser, omCoverage,
-	pan, rampColor, segmentOmFlow, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt
+	pan, rampColor, segmentFusedFlow, segmentOmFlow, toolOffsets, toolpathBounds, toScreen, toWorld, zoomAt
 } from "../../src/core/replay";
 
 const TP = {
@@ -89,7 +89,8 @@ describe("flow RRF planned (object model)", () => {
 			pos: [100, 100, 100, 140, 180]
 		}
 	};
-	const OM = { layer: 1, from: 0, to: 1, samples: 3, seen: 5, moves: { pos: [100, 180, 999], flow: [3, 7, 1], n: [1, 1, 1] } };
+	const OM = { layer: 1, from: 0, to: 1, samples: 3, seen: 5, moves: { pos: [100, 180, 999], flow: [3, 7, 1], n: [1, 1, 1] },
+		plan: { pos: [100, 140], flow: [3.5, 1.5] }, correction: 0.9 };
 
 	it("joins the moves to the segments by their line's file position", () => {
 		const om = segmentOmFlow(ARC, OM);
@@ -99,6 +100,14 @@ describe("flow RRF planned (object model)", () => {
 		expect(Array.from(flowDiff(ARC, om).slice(0, 3))).toEqual([-1, -1, -1]);
 		expect(omCoverage(ARC, om)).toBeCloseTo(0.75);
 		expect(omCoverage({ ...ARC, segments: { ...ARC.segments, travel: [1, 1, 1, 1, 1] } }, om)).toBeNull();
+	});
+
+	it("fuses: the sample where there is one, else the plan times the layer's correction", () => {
+		const fused = segmentFusedFlow(ARC, OM);
+		expect(Array.from(fused.slice(0, 4))).toEqual([3, 3, 3, 1.5 * 0.9]);
+		expect(fused[4]).toBeNaN();  // travel
+		expect(segmentFusedFlow(ARC, { ...OM, correction: null })[3]).toBe(1.5);
+		expect(flowColouring(ARC, "fused", fused).range).toEqual(flowRange(ARC));
 	});
 
 	it("colours: the G-code's scale for both flows, a symmetric one for the difference", () => {

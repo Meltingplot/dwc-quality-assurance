@@ -46,6 +46,7 @@ dsf/                        Python daemon (copied verbatim into the package, min
   qa_severity.py            event levels info/warning/error, worked out when read
   qa_slicer.py              CONFIG_BLOCK parser (copy from the CHX350 backend)
   qa_gcode.py               layer index (as job.layer counts), per-layer stats, toolpath
+  qa_planner.py             RRF's look-ahead: planned top speed of every move (replay fusion view)
   qa_timelapse.py           snapshot per layer, AV1 encoding after the job (ffmpeg), frames
   qa_intercept.py           M240 "trigger camera": holds the code, photo at standstill, resolves
   qa_accel.py               M956 recordings, CSV, spectra (pure-Python FFT), references
@@ -117,7 +118,14 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   moves and for macro moves: `GCodeBuffer::GetJobFilePosition`); DSF's `Code.FilePosition` is the same offset, so it
   joins the journal to the G-code (`job/toolpath/om`). RRF 3.7-dev @ ea93885 `Move.cpp:214` (upstream since 2026-10-13;
   the CHX 350's 3.7.0-mp.2 has it), DuetSoftwareFramework 3.7.0+mp.4 @ fb3b475a; all 24 692 positions of Benchy
-  20261008-120236 were line starts (2026-10-20). DSF patches `currentMove` about every 130 ms.
+  20261008-120236 were line starts (2026-10-20). DSF patches `currentMove` about every 130 ms (7.8 Hz:
+  `ModelUpdateInterval` 100 ms + the round trip; DuetControlServer Settings.cs:278, UpdateService.cs:359).
+- RRF's planner as `qa_planner.py` models it (RRF 3.7-dev @ ea93885, 2026-10-20; DDA.cpp, DDA_3rdOrder.cpp,
+  CoreKinematics.cpp): M204 P/T per move within M201 and the motors (CoreXY family: X+Y and X−Y, the CHX 350's
+  diagonals get 6000/√2 = 4242.6 mm/s²); junctions within M566 (max) and M205 (printing, ≤ M566) jerk, only
+  print↔print with ≥ 1/5 of the extrusion per mm or travel↔travel (jerk policy 0); M201, M400, G4, G10/G11,
+  macros stop the motion, M204/M205/M566/M106/M220/M221 do not. OM units: `axes[].acceleration` mm/s², `jerk`,
+  `printingJerk`, `speed`, `minSpeed` mm/min.
 - DSF evaluates `plugins.*` in expressions itself (`Plugins` is `[SbcProperty(false)]`, DuetAPI `ObjectModel.cs:100`;
   `Expressions.IsSbcExpression`; v3.7-dev @ 82822bcf, 2026-09-29), so a macro can read
   `plugins.QualityAssurance.data.<key>`. QA writes plugin data as strings (`PluginData.set`).

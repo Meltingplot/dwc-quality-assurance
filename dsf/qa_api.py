@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 import qa_db
 import qa_gcode
 import qa_journal
+import qa_planner
 import qa_queries
 from qa_log import PLUGIN_ID, logger
 
@@ -493,8 +494,10 @@ LAYER_MOVES_LAG_MS = 30_000
 
 
 def handle_toolpath_om(ctx, request):
-    """The flow RRF planned for the layer's moves, from the object model journal (``qa_gcode.executed_flow``),
-    joined to ``job/toolpath``'s segments by ``pos``."""
+    """The flow RRF planned for the layer's moves: sampled from the object model journal
+    (``qa_gcode.executed_flow``), and for every printing move from a look-ahead over the G-code with the machine's
+    limits of the snapshot before the layer (``qa_gcode.planned_flow``), with the median correction the samples
+    give it; both joined to ``job/toolpath``'s segments by ``pos``."""
     layer = _int(request, "layer", None, 0)
     if layer is None:
         raise ApiError(400, "missing 'layer'")
@@ -510,7 +513,11 @@ def handle_toolpath_om(ctx, request):
         raise ApiError(404, "layer not recorded")
     start, end = span[0], None if span[1] is None else span[1] + LAYER_MOVES_LAG_MS
     result = qa_gcode.executed_flow(index, layer, qa_journal.current_moves(directory, start, end), diameter)
-    result.update({"from": start, "to": end})
+    limits = qa_planner.Limits((qa_journal.snapshot_before(directory, start) or {}).get("move"))
+    plan = qa_gcode.planned_flow(path, index, layer, limits, diameter)
+    sampled = dict(zip(result["moves"]["pos"], result["moves"]["flow"]))
+    result.update({"from": start, "to": end, "plan": plan,
+                   "correction": qa_planner.correction(sampled, dict(zip(plan["pos"], plan["flow"])))})
     return json_response(result)
 
 
