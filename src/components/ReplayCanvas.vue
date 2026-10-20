@@ -3,9 +3,9 @@
 		@pointerleave="onUp" @dblclick="fit()" @contextmenu="onContextMenu">
 		<canvas ref="canvas" />
 		<div class="qa-replay__legend text-caption">
-			<span>{{ formatNumber(range[0], 1) }}</span>
+			<span>{{ legendEnds[0] }}</span>
 			<span class="qa-replay__ramp" :style="{ background: rampCss }" />
-			<span>{{ formatNumber(range[1], 1) }} mm³/s</span>
+			<span>{{ legendEnds[1] }} mm³/s</span>
 		</div>
 	</div>
 </template>
@@ -15,7 +15,7 @@ import { defineComponent, markRaw, type PropType } from "vue";
 
 import type { PrintBounds, ToolpathAnswer } from "../core/api";
 import { formatNumber } from "../core/format";
-import { fitView, flowRange, pan, rampColor, toolpathBounds, zoomAt, type View } from "../core/replay";
+import { fitView, flowColouring, pan, rampColor, toolpathBounds, zoomAt, type FlowColouring, type FlowMode, type View } from "../core/replay";
 import {
 	drawStackLayer, drawToolpath, fitStack, isoCamera, levelOfDetail, lineWidth, orbit, Projection, Scratch, TOP_CAMERA, toolpathZ,
 	type Camera, type StackLayer
@@ -38,7 +38,9 @@ const SETTLE_MS = 200;
 
 /**
  * One layer's toolpath on a 2D canvas, coloured by commanded volumetric flow; the planned rate of the
- * executed moves as dots coloured on the same scale, events as rings. Wheel zooms, drag pans, double click fits.
+ * executed moves as dots coloured on the same scale, events as rings. ``flowMode`` ``om`` colours the
+ * segments by the flow RRF planned for their moves instead (``omFlow``, NaN where none; the G-code's scale),
+ * ``diff`` by that minus the commanded flow; both without the dots. Wheel zooms, drag pans, double click fits.
  * With ``stack`` the view is 3D: the stack's layers below ``layer`` in grey under the layer, events of
  * those layers as smaller rings; drag turns and tilts, shift or right drag pans, double click returns to
  * the isometric view. The drawn stack is kept in an offscreen canvas that stepping up only adds to.
@@ -57,7 +59,10 @@ export default defineComponent({
 		/** Printed extent of the job file: the 3D view turns about its centre and fits it */
 		stackBounds: { type: Object as PropType<PrintBounds | null>, default: null },
 		/** The layer shown: the stack below it is drawn */
-		layer: { type: Number, default: 0 }
+		layer: { type: Number, default: 0 },
+		flowMode: { type: String as PropType<FlowMode>, default: "gcode" },
+		/** Per segment the flow RRF planned for its move, NaN without a sample (``segmentOmFlow``) */
+		omFlow: { type: Float64Array as PropType<Float64Array | null>, default: null }
 	},
 	data() {
 		return {
@@ -88,11 +93,21 @@ export default defineComponent({
 		is3d(): boolean {
 			return this.stack !== null;
 		},
+		colouring(): FlowColouring | null {
+			return this.toolpath ? flowColouring(this.toolpath, this.flowMode, this.omFlow) : null;
+		},
 		range(): [number, number] {
-			return this.toolpath ? flowRange(this.toolpath) : [0, 1];
+			return this.colouring?.range ?? [0, 1];
+		},
+		legendEnds(): [string, string] {
+			const [lo, hi] = this.range;
+			return this.flowMode === "diff"
+				? [formatNumber(lo, 2), `+${formatNumber(hi, 2)}`]
+				: [formatNumber(lo, 1), formatNumber(hi, 1)];
 		},
 		rampCss(): string {
-			return `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map(rampColor).join(", ")})`;
+			const color = this.colouring?.color ?? rampColor;
+			return `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map(color).join(", ")})`;
 		},
 		/** Bounds the 3D view fits: the file's, else the layer's own */
 		bounds3d(): PrintBounds | null {
@@ -117,6 +132,8 @@ export default defineComponent({
 		hiddenObjects() { this.draw(); },
 		showTravel() { this.draw(); },
 		layer() { this.draw(); },
+		flowMode() { this.draw(); },
+		omFlow() { this.draw(); },
 		stack(next: Array<StackLayer> | null, previous: Array<StackLayer> | null) {
 			if ((next === null) !== (previous === null)) {
 				this.fit();  // 2D ↔ 3D
@@ -298,13 +315,15 @@ export default defineComponent({
 				}
 			}
 			const tp = this.toolpath;
-			if (!tp) {
+			const colouring = this.colouring;
+			if (!tp || !colouring) {
 				return;
 			}
-			const [lo, hi] = this.range;
-			drawToolpath(ctx, tp, projection, [lo, hi], this.hiddenObjects, this.showTravel, this.raw.scratch);
+			const [lo, hi] = colouring.range;
+			drawToolpath(ctx, tp, projection, colouring, this.hiddenObjects, this.showTravel, this.raw.scratch);
 			const z = toolpathZ(tp) ?? 0;
-			for (const p of this.executed) {
+			// the dots sample what the object model views show on the segments
+			for (const p of this.flowMode === "gcode" ? this.executed : []) {
 				const [px, py] = projection.screen(p.x, p.y, z);
 				ctx.beginPath();
 				ctx.arc(px, py, 3, 0, Math.PI * 2);

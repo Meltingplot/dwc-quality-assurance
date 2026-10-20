@@ -94,6 +94,53 @@ describe("ReplayView", () => {
 		expectNoVueWarnings(warn);
 	});
 
+	it("switches the flow between G-code, object model and their difference", async () => {
+		const tp = (layer) => ({ ...TOOLPATH, layer, segments: { ...TOOLPATH.segments, pos: [40 * layer] } });
+		const a = { ...api(async (id, layer) => tp(layer)),
+			toolpathOm: vi.fn(async (id, layer) => ({ layer, from: 0, to: 1, samples: 2, seen: 9, moves: { pos: [40 * layer], flow: [2.5], n: [2] } })) };
+		const plain = mountInDwc(ReplayView, { props: { api: a, job: JOB, layers: LAYERS, events: [] } });
+		await flush();
+		// without a journal only the G-code
+		expect(plain.findAll(".v-btn-toggle .v-btn").map((b) => b.attributes("disabled") !== undefined)).toEqual([false, true, true]);
+		const wrapper = mountInDwc(ReplayView, { props: { api: a, job: { ...JOB, journal: { bytes: 1, start: T0, end: T1, snapshots: 1 } },
+			layers: LAYERS, events: EVENTS } });
+		await flush();
+		const canvas = wrapper.findComponent(ReplayCanvas);
+		expect(canvas.props("flowMode")).toBe("gcode");
+		expect(a.toolpathOm).not.toHaveBeenCalled();  // only once it is chosen
+		await wrapper.findAll(".v-btn-toggle .v-btn")[1].trigger("click");
+		await flush();
+		await flush();
+		expect(a.toolpathOm).toHaveBeenCalledWith("j1", 1);
+		expect(canvas.props("flowMode")).toBe("om");
+		expect(Array.from(canvas.props("omFlow"))).toEqual([2.5]);
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omCoverage");
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.colour.om");
+		// the next layer loads its own; back to the same mode loads nothing again
+		wrapper.vm.step(1);
+		await flush();
+		await flush();
+		expect(a.toolpathOm).toHaveBeenLastCalledWith("j1", 2);
+		wrapper.vm.flowMode = "diff";
+		await flush();
+		expect(a.toolpathOm).toHaveBeenCalledTimes(2);
+		expect(canvas.props("flowMode")).toBe("diff");
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.colour.diff");
+		// a firmware without move.currentMove.filePosition, a job without a journal for the layer
+		a.toolpathOm.mockImplementationOnce(async (id, layer) => ({ layer, from: 0, to: 1, samples: 0, seen: 0, moves: { pos: [], flow: [], n: [] } }));
+		wrapper.vm.step(1);
+		await flush();
+		await flush();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omNoFilePosition");
+		a.toolpathOm.mockImplementationOnce(async () => { throw Object.assign(new Error("no journal"), { name: "FileNotFoundError" }); });
+		wrapper.vm.step(-1);
+		await flush();
+		await flush();
+		expect(wrapper.text()).toContain("plugins.QualityAssurance.replay.omNone");
+		expect(canvas.props("omFlow")).toBeNull();
+		expectNoVueWarnings(warn);
+	});
+
 	it("shows the camera frame of the layer when there is a timelapse", async () => {
 		vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:frame");
 		vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

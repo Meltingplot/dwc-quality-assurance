@@ -203,6 +203,34 @@ def test_toolpath_arc(prusa_file):
     assert qa_gcode.toolpath(prusa_file, index, 9, 2.85) is None
 
 
+def test_toolpath_pos_is_the_lines_file_position(tmp_path):
+    """``pos`` is the byte offset of the move's line, as DSF's Code.FilePosition and RRF's
+    move.currentMove.filePosition give it; every chord of an arc has the G2's"""
+    for newline in ("\n", "\r\n"):
+        data = PRUSA_LIKE.replace("\n", newline).encode()
+        path = tmp_path / "p.gcode"
+        path.write_bytes(data)
+        index = qa_gcode.build_index(str(path), "abc")
+        pos = qa_gcode.toolpath(str(path), index, 1)["segments"]["pos"]
+        assert [data[p:].split(newline.encode(), 1)[0] for p in pos] == [
+            b"G1 X10 Y10 F6000", b"G1 X20 Y10 E1.0 F1200", b"G1 X20 Y20 E1.0", b"G1 X30 Y30 F9000"]
+        assert set(qa_gcode.toolpath(str(path), index, 2)["segments"]["pos"]) == {data.index(b"G2 X30")}
+
+
+def test_executed_flow_joins_the_moves_by_file_position(prusa_file):
+    """The journal's moves of the layer, by the line's offset; a line sampled twice is averaged"""
+    index = qa_gcode.build_index(prusa_file, "abc")
+    data = PRUSA_LIKE.encode()
+    first, second, arc = data.index(b"G1 X20 Y10"), data.index(b"G1 X20 Y20"), data.index(b"G2 X30")
+    moves = [(1, first, 2.0), (2, first, 1.0), (3, second, 2.0), (4, arc, 1.0)]
+    area = math.pi * (2.85 / 2) ** 2
+    om = qa_gcode.executed_flow(index, 1, iter(moves), 2.85)
+    assert om == {"layer": 1, "samples": 3, "seen": 4, "moves": {
+        "pos": [first, second], "flow": [round(1.5 * area, 3), round(2.0 * area, 3)], "n": [2, 1]}}
+    assert qa_gcode.executed_flow(index, 2, iter(moves), 2.85)["moves"]["pos"] == [arc]
+    assert qa_gcode.executed_flow(index, 9, iter(moves)) is None
+
+
 def test_index_bounds(prusa_file):
     """Bounds of the printing moves: travel and the unretract leave them alone."""
     index = qa_gcode.build_index(prusa_file, "abc")
@@ -277,13 +305,13 @@ def test_fit_path_arcs_and_lines():
 
 def _segments(*moves, z=0.2, obj=0, type_="Outer wall"):
     """``_layer_segments`` tuples of the extruding moves through ``moves``"""
-    return [(a[0], a[1], b[0], b[1], z, 1.0, 20.0, obj, type_) for a, b in zip(moves, moves[1:])]
+    return [(a[0], a[1], b[0], b[1], z, 1.0, 20.0, obj, type_, 0) for a, b in zip(moves, moves[1:])]
 
 
 def test_reduce_layer():
     segments = (
         _segments((0, 0), (10, 0), (20, 0), (20, 10))                        # one path, the middle point merged
-        + [(20, 10, 40, 40, 0.2, 0.0, 150.0, 0, "Outer wall")]               # travel
+        + [(20, 10, 40, 40, 0.2, 0.0, 150.0, 0, "Outer wall", 0)]            # travel
         + _segments((40, 40), (40, 50), obj=1)                               # another object
         + _segments((60, 60), (60.01, 60.01))                                # below the resolution
         + _segments((0, 0), (20, 20), type_="Sparse infill", z=0.25)         # hidden inside, but its Z counts

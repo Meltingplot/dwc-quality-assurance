@@ -4,6 +4,7 @@ Control plugin rely on (PLAN.md §5.6, §5.10); docs/api.md describes the same s
 
 import asyncio
 import json
+import math
 import os
 import threading
 
@@ -12,6 +13,9 @@ import pytest
 import qa_api
 import qa_db
 import qa_gcode
+import qa_journal
+
+from conftest import GCODE
 
 
 class Req:
@@ -300,6 +304,30 @@ def test_toolpath_stack(ctx, rig, monkeypatch):
     assert get(ctx, "job/toolpath/stack", id="nope")[0] == 404
     rig.gcode.write_text(";LAYER_CHANGE\nG1 X1 Y1 E1\n")
     assert get(ctx, "job/toolpath/stack", id=job_id)[0] == 409
+
+
+def test_toolpath_om(ctx, rig, settings):
+    """The flow RRF planned for the layer's moves, from the journal while the layer printed and a lag after it"""
+    job_id = run_job(rig)
+    crc = rig.rows("SELECT file_crc32 FROM jobs")[0]["file_crc32"]
+    rig.index.ensure(str(rig.gcode), crc, run_async=False)
+    assert get(ctx, "job/toolpath/om", id=job_id, layer=2)[0] == 404   # no journal
+    span = rig.rows("SELECT started_at, ended_at FROM job_layers WHERE layer=2")[0]
+    pos = GCODE.encode().index(b"G1 X20 Y20")
+    journal = qa_journal.Writer(ctx.data_dir, settings, lambda: '{"success":true,"result":{}}')
+    journal.job_started(job_id, span["started_at"] - 5000)
+    for t, rate in ((span["started_at"] - 1000, 9.0), (span["started_at"] + 100, 0.5),
+                    (span["ended_at"] + qa_api.LAYER_MOVES_LAG_MS + 1, 9.0)):
+        journal.patch('{"move":{"currentMove":{"extrusionRate":%s,"filePosition":%d}}}' % (rate, pos), t)
+    journal.shutdown()
+    status, body = get(ctx, "job/toolpath/om", id=job_id, layer=2)
+    assert status == 200
+    area = math.pi * (get(ctx, "job/toolpath", id=job_id, layer=2)[1]["meta"]["filamentDiameter"] / 2) ** 2
+    assert body["moves"] == {"pos": [pos], "flow": [round(0.5 * area, 3)], "n": [1]}
+    assert (body["from"], body["to"]) == (span["started_at"], span["ended_at"] + qa_api.LAYER_MOVES_LAG_MS)
+    assert (body["samples"], body["seen"]) == (1, 1)
+    assert get(ctx, "job/toolpath/om", id=job_id, layer=9)[0] == 404
+    assert get(ctx, "job/toolpath/om", id=job_id)[0] == 400
 
 
 def test_export_is_a_file(ctx, rig):

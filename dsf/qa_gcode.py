@@ -44,6 +44,7 @@ parameters retracts and G11 unretracts by M207 (with P, G10 sets tool offsets or
 M103/M101 do the same for Simplify3D (wiki-content 2262621, 2026-09-26).
 """
 
+import io
 import json
 import math
 import os
@@ -525,16 +526,23 @@ def _arc_points(x0, y0, words, clockwise, x1, y1):
 
 
 def _layer_segments(path, entry, objects):
-    """Every straight piece of ``entry``'s moves, arcs as chords: ``(x0, y0, x1, y1, z, e, feed, obj, type)``
-    with ``feed`` in mm/s (None without one). Moves without X/Y travel (retract, Z hop) yield nothing."""
+    """Every straight piece of ``entry``'s moves, arcs as chords: ``(x0, y0, x1, y1, z, e, feed, obj, type,
+    pos)`` with ``feed`` in mm/s (None without one) and ``pos`` the byte offset of the move's line: the file
+    position DSF gives the code (``Code.FilePosition``, DuetAPI ParserAsync.cs, DuetSoftwareFramework
+    3.7.0+mp.4 @ fb3b475a) and RRF reports for the move it executes (``move.currentMove.filePosition``, RRF
+    3.7-dev @ ea93885 Move.cpp:214; 2026-10-20). Moves without X/Y travel (retract, Z hop) yield nothing."""
     for (start, end), st in zip(entry["ranges"], entry.get("states") or [entry["state"]] * len(entry["ranges"])):
         state = _State.from_dict(st)
         with open(path, "rb") as handle:
             handle.seek(start)
             data = handle.read(max(0, end - start))
         first = True
-        for raw in data.splitlines():
-            line = raw.decode("utf-8", errors="replace")
+        pos = start
+        # lines end at b"\n" as in build_index, so offsets agree with the index's
+        for raw in io.BytesIO(data):
+            line_pos = pos
+            pos += len(raw)
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
             code, comment = _split(line)
             if comment is not None and not code.strip():
                 if first:
@@ -567,7 +575,8 @@ def _layer_segments(path, entry, objects):
             feed = state.f / 60.0 if state.f > 0 else None
             px, py = x0, y0
             for qx, qy in points:
-                yield px, py, qx, qy, state.z, de * math.hypot(qx - px, qy - py) / total, feed, state.obj, state.type
+                yield (px, py, qx, qy, state.z, de * math.hypot(qx - px, qy - py) / total, feed, state.obj, state.type,
+                       line_pos)
                 px, py = qx, qy
 
 
@@ -581,18 +590,22 @@ def _index_objects(index):
     return objects
 
 
+def _area(filament_diameter):
+    return math.pi * ((filament_diameter if filament_diameter and filament_diameter > 0 else 1.75) / 2) ** 2
+
+
 def toolpath(path, index, layer, filament_diameter=1.75):
     """Segments of ``layer`` as columns: x0, y0, x1, y1, z, e, flow (mm³/s), object, type,
-    travel (0/1). ``types`` maps the type ids to names."""
+    travel (0/1), pos (byte offset of the move's line). ``types`` maps the type ids to names."""
     entry = _layer_entry(index, layer)
     if entry is None:
         return None
-    area = math.pi * ((filament_diameter if filament_diameter and filament_diameter > 0 else 1.75) / 2) ** 2
-    cols = {k: [] for k in ("x0", "y0", "x1", "y1", "z", "e", "flow", "object", "type", "travel")}
+    area = _area(filament_diameter)
+    cols = {k: [] for k in ("x0", "y0", "x1", "y1", "z", "e", "flow", "object", "type", "travel", "pos")}
     types = []
     type_ids = {}
     objects = _index_objects(index)
-    for px, py, qx, qy, z, e, feed, obj, type_ in _layer_segments(path, entry, objects):
+    for px, py, qx, qy, z, e, feed, obj, type_, pos in _layer_segments(path, entry, objects):
         if type_ not in type_ids:
             type_ids[type_] = len(types)
             types.append(type_)
@@ -609,8 +622,34 @@ def toolpath(path, index, layer, filament_diameter=1.75):
         cols["object"].append(obj)
         cols["type"].append(type_ids[type_])
         cols["travel"].append(0 if extruding else 1)
+        cols["pos"].append(pos)
     return {"layer": layer, "segments": cols, "types": types,
             "objects": {str(k): v for k, v in sorted(objects.names.items())}}
+
+
+def executed_flow(index, layer, moves, filament_diameter=1.75):
+    """The flow RRF planned for ``layer``'s moves: ``moves`` ``(t, filePosition, extrusionRate)`` as
+    ``qa_journal.current_moves`` yields them, those inside the layer's byte ranges averaged per line (RRF
+    splits a long move or an arc into segments with the line's position, and a long move gets several
+    samples). Columns ``pos`` (as ``toolpath``'s, ascending), ``flow`` (mm³/s at the move's top speed), ``n``
+    (samples); ``samples`` counts the layer's, ``seen`` every move of the file in ``moves`` (0: the journal has
+    no ``filePosition``). None for a layer the index does not have."""
+    entry = _layer_entry(index, layer)
+    if entry is None:
+        return None
+    area = _area(filament_diameter)
+    sums = {}
+    seen = 0
+    for _t, pos, rate in moves:
+        seen += 1
+        if any(start <= pos < end for start, end in entry["ranges"]):
+            total, n = sums.get(pos, (0.0, 0))
+            sums[pos] = (total + rate, n + 1)
+    positions = sorted(sums)
+    return {"layer": layer,
+            "moves": {"pos": positions, "flow": [round(sums[p][0] / sums[p][1] * area, 3) for p in positions],
+                      "n": [sums[p][1] for p in positions]},
+            "samples": sum(n for _, n in sums.values()), "seen": seen}
 
 
 # The replay's 3D stack (PLAN.md §5.8): the layers below the one shown, reduced here so that a print
@@ -669,7 +708,7 @@ def reduce_layer(layer, segments, resolution):
     vertex) and ``object`` per path. ``z`` is the Z of the last extruding move, None without one."""
     paths = []  # [object, [(x, y), ...]]
     z = None
-    for x0, y0, x1, y1, seg_z, e, _feed, obj, type_ in segments:
+    for x0, y0, x1, y1, seg_z, e, _feed, obj, type_, _pos in segments:
         if e <= 0:
             continue
         z = seg_z

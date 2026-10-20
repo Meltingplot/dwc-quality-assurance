@@ -113,6 +113,11 @@ is overwritten index by index by every patch). DSF sends only new messages in a 
   every finished run (`points` 0 = failed). M956 on the SBC channel starts at once without a
   movement lock (RRF 3.7-dev @ 3638836 `Accelerometers.cpp`); in SBC mode `runs` advances before the
   CSV's last line is written.
+- `move.currentMove.filePosition` is the byte offset of the executing move's line in the job file (null between
+  moves and for macro moves: `GCodeBuffer::GetJobFilePosition`); DSF's `Code.FilePosition` is the same offset, so it
+  joins the journal to the G-code (`job/toolpath/om`). RRF 3.7-dev @ ea93885 `Move.cpp:214` (upstream since 2026-10-13;
+  the CHX 350's 3.7.0-mp.2 has it), DuetSoftwareFramework 3.7.0+mp.4 @ fb3b475a; all 24 692 positions of Benchy
+  20261008-120236 were line starts (2026-10-20). DSF patches `currentMove` about every 130 ms.
 - DSF evaluates `plugins.*` in expressions itself (`Plugins` is `[SbcProperty(false)]`, DuetAPI `ObjectModel.cs:100`;
   `Expressions.IsSbcExpression`; v3.7-dev @ 82822bcf, 2026-09-29), so a macro can read
   `plugins.QualityAssurance.data.<key>`. QA writes plugin data as strings (`PluginData.set`).

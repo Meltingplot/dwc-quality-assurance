@@ -446,3 +446,22 @@ def _changes(values):
         if last is MISSING or value != last:
             last = value
             yield t, value
+
+
+def current_moves(directory, start=None, end=None):
+    """``(t, filePosition, extrusionRate)`` of the move RRF executed, at each snapshot and patch that changed
+    ``move.currentMove`` between ``start`` and ``end`` (epoch ms); moves of the job file only. ``filePosition``
+    is the byte offset of the move's line in the job file; RRF reports none between moves and for a move
+    of a macro (``GCodeBuffer::GetJobFilePosition``; RRF 3.7-dev @ ea93885 Move.cpp:214, DDARing.cpp:524-588,
+    GCodeBuffer.cpp:1345-1348, 2026-10-20; upstream since 2026-10-13, the CHX 350's 3.7.0-mp.2 has it).
+    ``extrusionRate`` is the rate RRF planned for the move at its top speed (filament mm/s,
+    ``DDA::GetTotalExtrusionRate``, DDA.cpp:1686-1694). DSF patches it about every 130 ms (Benchy
+    20261008-120236 on the CHX 350: 13-23 % of a layer's moves got a sample)."""
+    for t, move in _values(directory, ["move", "currentMove"], start):
+        if end is not None and t > end:
+            break
+        if (start is not None and t < start) or not isinstance(move, dict):
+            continue
+        pos, rate = move.get("filePosition"), move.get("extrusionRate")
+        if type(pos) is int and isinstance(rate, (int, float)) and not isinstance(rate, bool):
+            yield t, pos, rate

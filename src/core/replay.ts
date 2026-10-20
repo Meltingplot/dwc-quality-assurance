@@ -3,7 +3,7 @@
  * samples of the executed moves and events on top, shared by the replay tab and the embeddable layer view.
  * Pure functions plus the toolpath request, no DOM.
  */
-import { statusOf, type LayersAnswer, type QaApi, type QaEvent, type ToolpathAnswer } from "./api";
+import { statusOf, type LayersAnswer, type QaApi, type QaEvent, type ToolpathAnswer, type ToolpathOmAnswer } from "./api";
 import { eventColor } from "./format";
 
 export interface Bounds {
@@ -71,12 +71,27 @@ const RAMP: Array<[number, number, number]> = [
 	[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]
 ];
 
-export function rampColor(u: number): string {
-	const t = Math.max(0, Math.min(1, Number.isFinite(u) ? u : 0)) * (RAMP.length - 1);
-	const i = Math.min(RAMP.length - 2, Math.floor(t));
+/**
+ * Diverging ramp for a difference: blue (less), neutral grey (none), red (more). Each arm lightens towards the
+ * grey (OKLab L 0.58 and 0.62 to 0.65) and every stop keeps 3:1 against DWC's light and dark background
+ */
+const DIVERGING: Array<[number, number, number]> = [[42, 120, 214], [143, 143, 139], [227, 73, 72]];
+
+function interpolate(stops: Array<[number, number, number]>, u: number): string {
+	const t = Math.max(0, Math.min(1, Number.isFinite(u) ? u : 0)) * (stops.length - 1);
+	const i = Math.min(stops.length - 2, Math.floor(t));
 	const f = t - i;
-	const a = RAMP[i], b = RAMP[i + 1];
+	const a = stops[i], b = stops[i + 1];
 	return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)},${Math.round(a[1] + (b[1] - a[1]) * f)},${Math.round(a[2] + (b[2] - a[2]) * f)})`;
+}
+
+export function rampColor(u: number): string {
+	return interpolate(RAMP, u);
+}
+
+/** u in 0..1, 0.5 = no difference */
+export function divergingColor(u: number): string {
+	return interpolate(DIVERGING, u);
 }
 
 /** Flow range of the extruding segments: 5th and 95th percentile, so a few outliers do not flatten the scale */
@@ -88,6 +103,78 @@ export function flowRange(tp: ToolpathAnswer): [number, number] {
 	const lo = values[Math.floor(values.length * 0.05)];
 	const hi = values[Math.min(values.length - 1, Math.floor(values.length * 0.95))];
 	return hi - lo < 1e-6 ? [lo * 0.9, lo * 1.1 + 1e-6] : [lo, hi];
+}
+
+/** What colours the layer: the G-code's commanded flow, the flow RRF planned (object model), or the difference */
+export type FlowMode = "gcode" | "om" | "diff";
+
+/**
+ * Per segment the flow RRF planned for its move (``job/toolpath/om``, joined by the line's file position, so
+ * every chord of an arc has its G2/G3's); NaN for travel and for a move DSF sent no sample of
+ */
+export function segmentOmFlow(tp: ToolpathAnswer, om: ToolpathOmAnswer): Float64Array {
+	const byPos = new Map<number, number>();
+	om.moves.pos.forEach((pos, i) => byPos.set(pos, om.moves.flow[i]));
+	const s = tp.segments;
+	const values = new Float64Array(s.x0.length).fill(NaN);
+	for (let i = 0; i < values.length; i++) {
+		const flow = s.travel[i] ? undefined : byPos.get(s.pos[i]);
+		if (flow !== undefined) {
+			values[i] = flow;
+		}
+	}
+	return values;
+}
+
+/** The object model's flow minus the G-code's per segment (mm³/s), NaN where the object model has none */
+export function flowDiff(tp: ToolpathAnswer, omFlow: ArrayLike<number>): Float64Array {
+	return Float64Array.from(tp.segments.flow, (flow, i) => omFlow[i] - flow);
+}
+
+/** Share of the layer's extruding length whose move has an object model value, 0..1 (null: nothing extrudes) */
+export function omCoverage(tp: ToolpathAnswer, omFlow: ArrayLike<number>): number | null {
+	const s = tp.segments;
+	let all = 0, known = 0;
+	for (let i = 0; i < s.x0.length; i++) {
+		if (!s.travel[i]) {
+			const length = Math.hypot(s.x1[i] - s.x0[i], s.y1[i] - s.y0[i]);
+			all += length;
+			known += Number.isNaN(omFlow[i]) ? 0 : length;
+		}
+	}
+	return all > 0 ? known / all : null;
+}
+
+/** Symmetric range of a difference: ± the 95th percentile of its size, so the neutral grey means none */
+export function diffRange(values: ArrayLike<number>): [number, number] {
+	const sizes = Array.from(values).filter(Number.isFinite).map(Math.abs).sort((a, b) => a - b);
+	const size = sizes.length ? sizes[Math.min(sizes.length - 1, Math.floor(sizes.length * 0.95))] : 0;
+	const limit = Math.max(size, 0.01);
+	return [-limit, limit];
+}
+
+export interface FlowColouring {
+	/** per segment; NaN: no value, drawn faint */
+	values: ArrayLike<number>;
+	range: [number, number];
+	color: (u: number) => string;
+}
+
+/**
+ * Colours of a layer's segments in ``mode``. The object model's flow uses the G-code's scale, so a colour means
+ * the same flow in both; without its values (still loading, none) the extruding segments have none
+ */
+export function flowColouring(tp: ToolpathAnswer, mode: FlowMode, omFlow: ArrayLike<number> | null): FlowColouring {
+	const range = flowRange(tp);
+	if (mode === "gcode") {
+		return { values: tp.segments.flow, range, color: rampColor };
+	}
+	const om = omFlow ?? new Float64Array(tp.segments.x0.length).fill(NaN);
+	if (mode === "om") {
+		return { values: om, range, color: rampColor };
+	}
+	const diff = flowDiff(tp, om);
+	return { values: diff, range: diffRange(diff), color: divergingColor };
 }
 
 /**
@@ -204,6 +291,30 @@ export async function fetchToolpath(api: QaApi, jobId: string, layer: number): P
 		}
 		if (status === 404) {
 			return { state: "noLayer" };
+		}
+		return { state: "error", message: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+export type ToolpathOmResult =
+	| { state: "ready"; answer: ToolpathOmAnswer }
+	| { state: "building" }
+	/** 404: no object model journal, or the layer was not recorded */
+	| { state: "none" }
+	| { state: "fileGone" }
+	| { state: "error"; message: string };
+
+export async function fetchToolpathOm(api: QaApi, jobId: string, layer: number): Promise<ToolpathOmResult> {
+	try {
+		const answer = await api.toolpathOm(jobId, layer);
+		return "state" in answer ? { state: "building" } : { state: "ready", answer };
+	} catch (e) {
+		const status = statusOf(e);
+		if (status === 409) {
+			return { state: "fileGone" };
+		}
+		if (status === 404) {
+			return { state: "none" };
 		}
 		return { state: "error", message: e instanceof Error ? e.message : String(e) };
 	}

@@ -46,6 +46,7 @@ the background at job start (`job/toolpath` answers 202 until it is ready).
 | GET | `job/spectra` | `id` | `{jobId, spectra: [Spectrum]}`, see "Spectra" |
 | GET | `job/toolpath` | `id`, `layer` | segments of the layer; 202 while the index is built; 409 when the file is gone or changed |
 | GET | `job/toolpath/stack` | `id`, `from` (layer, default the first) | the replay's 3D stack, reduced, in pieces: see "Toolpath stack"; 202 and 409 as `job/toolpath` |
+| GET | `job/toolpath/om` | `id`, `layer` | the flow RRF planned for the layer's moves, from the object model journal: see "Toolpath flow from the object model"; 202 and 409 as `job/toolpath`, 404 without a journal or a recorded layer |
 | GET | `job/export` | `id` | the job as one JSON file (`application/octet-stream`) |
 | GET | `job/om` | `id`, `at` (epoch ms, default the journal's end), `path` (e.g. `move.compensation`, `boards[2].drivers[0]`; default the whole model) | `{at, snapshotAt, path, value}`: the object model or the value at `path` as it was then, see "Object model journal"; 404 without a journal |
 | GET | `job/om/history` | `id`, `path`, `from`, `to` (epoch ms), `limit` (1000, ≤ 10000) | `{path, points: [{t, value}], truncated}`: the value at `from` (or at the first snapshot), then every change; `path` `messages` gives each new message |
@@ -192,10 +193,29 @@ stride (`downsampled: true`).
 
 ## Toolpath
 
-`{layer, segments: {x0, y0, x1, y1, z, e, flow, object, type, travel}, types: [...], objects: {id: name},
+`{layer, segments: {x0, y0, x1, y1, z, e, flow, object, type, travel, pos}, types: [...], objects: {id: name},
 meta: {numLayers, source (comments|z), objects, filamentDiameter}}`, columns of equal length.
 Coordinates are the G-code's (user) coordinates; `flow` in mm³/s from ΔE × cross-section / (length / feed
-rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without extrusion.
+rate); `type` indexes `types` (slicer `;TYPE:`); `travel` 1 for moves without extrusion; `pos` the byte offset
+of the segment's line in the file (every chord of an arc has its G2/G3's).
+
+## Toolpath flow from the object model
+
+`job/toolpath/om`: `{layer, from, to, moves: {pos, flow, n}, samples, seen}`. RRF reports the move it executes
+in `move.currentMove`, with `filePosition` the byte offset of the move's line in the job file (none between moves
+and for a move of a macro; RRF 3.7-dev @ ea93885 `Move.cpp:214`, `GCodeBuffer::GetJobFilePosition`; upstream
+since 2026-10-13, the CHX 350's 3.7.0-mp.2 has it). DSF gives a code the same position (`Code.FilePosition`), so it
+matches `job/toolpath`'s `pos`: on the Benchy 20261008-120236 every one of 24 692 positions was a line start.
+
+- `from`, `to`: the journal read (epoch ms), the layer from its start to 30 s after its end (`job.layer` runs ahead
+  of the motion); `to` null while the layer prints. Only moves inside the layer's byte ranges count.
+- `moves`: per line (`pos` ascending) `flow` = `extrusionRate` × filament cross-section in mm³/s, averaged over its
+  `n` samples. `extrusionRate` is the rate RRF planned for the move at its top speed (`DDA::GetTotalExtrusionRate`),
+  not a measurement: below the G-code's flow where a move is too short to reach its feed rate, scaled by M221 (the
+  factor multiplies the move's E, `GCodes.cpp:2103-2105` @ ea93885).
+- `samples`: samples of the layer's moves; `seen`: samples with a file position in the window, any layer (0: the
+  firmware reports none). DSF sends the current move about every 130 ms, so most short moves have no sample (Benchy:
+  13-23 % of a layer's moves, 40-84 % of its extrusion length).
 
 ## Toolpath stack
 

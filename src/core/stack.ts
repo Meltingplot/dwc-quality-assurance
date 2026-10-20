@@ -7,7 +7,7 @@
  * (``TOP_CAMERA``). Pure functions on a 2D context, no DOM.
  */
 import { statusOf, type PrintBounds, type QaApi, type StackLayerAnswer, type ToolpathAnswer, type ToolpathStackAnswer } from "./api";
-import { fitView, rampColor, type Bounds, type View } from "./replay";
+import { fitView, type Bounds, type FlowColouring, type View } from "./replay";
 
 /** One layer of the stack, typed arrays for drawing */
 export interface StackLayer {
@@ -312,36 +312,42 @@ export function levelOfDetail(layers: Array<StackLayer>, budget: number): Array<
 }
 
 const FLOW_COLORS = 32;
-const FLOW_RAMP = Array.from({ length: FLOW_COLORS }, (_, i) => rampColor(i / (FLOW_COLORS - 1)));
+const TRAVEL = FLOW_COLORS;
+const NO_VALUE = FLOW_COLORS + 1;
+/** Faint first, the values over it, travel on top */
+const DRAW_ORDER = [NO_VALUE, ...Array.from({ length: FLOW_COLORS }, (_, i) => i), TRAVEL];
 
 /**
- * A layer's full toolpath, coloured by commanded flow within ``range``, each segment at its own Z; travel
- * thin and grey on top when shown. Batched by colour, so a large layer costs a few strokes.
+ * A layer's full toolpath, each segment at its own Z and coloured by its value (``colouring``, by default the
+ * commanded flow); a segment without a value thin and faint, travel thin and grey on top when shown. Batched
+ * by colour, so a large layer costs a few strokes.
  */
-export function drawToolpath(ctx: CanvasRenderingContext2D, tp: ToolpathAnswer, p: Projection, range: [number, number],
+export function drawToolpath(ctx: CanvasRenderingContext2D, tp: ToolpathAnswer, p: Projection, colouring: FlowColouring,
 	hidden: ReadonlyArray<number>, showTravel: boolean, scratch: Scratch) {
 	const s = tp.segments;
 	const n = s.x0.length;
 	scratch.ensure(n);
 	const colour = scratch.bucket;
-	const counts = new Int32Array(FLOW_COLORS + 1);
-	const [lo, hi] = range;
+	const counts = new Int32Array(NO_VALUE + 1);
+	const { values, range: [lo, hi] } = colouring;
 	for (let i = 0; i < n; i++) {
 		const obj = s.object[i];
 		if (obj !== null && hidden.includes(obj)) {
 			colour[i] = SKIP;
 		} else if (s.travel[i]) {
-			colour[i] = showTravel ? FLOW_COLORS : SKIP;
+			colour[i] = showTravel ? TRAVEL : SKIP;
+		} else if (Number.isNaN(values[i])) {
+			colour[i] = NO_VALUE;
 		} else {
-			const u = Math.max(0, Math.min(1, (s.flow[i] - lo) / (hi - lo) || 0));
+			const u = Math.max(0, Math.min(1, (values[i] - lo) / (hi - lo) || 0));
 			colour[i] = Math.round(u * (FLOW_COLORS - 1));
 		}
 		if (colour[i] !== SKIP) {
 			counts[colour[i]]++;
 		}
 	}
-	ctx.lineWidth = lineWidth(p.view);
-	for (let c = 0; c <= FLOW_COLORS; c++) {
+	const width = lineWidth(p.view);
+	for (const c of DRAW_ORDER) {
 		if (!counts[c]) {
 			continue;
 		}
@@ -357,11 +363,15 @@ export function drawToolpath(ctx: CanvasRenderingContext2D, tp: ToolpathAnswer, 
 			ctx.lineTo(...p.screen(s.x1[i], s.y1[i], s.z[i]));
 			pen = i;
 		}
-		if (c === FLOW_COLORS) {
+		if (c === TRAVEL) {
 			ctx.strokeStyle = "rgba(128,128,128,0.35)";
 			ctx.lineWidth = 0.5;
+		} else if (c === NO_VALUE) {
+			ctx.strokeStyle = "rgba(128,128,128,0.45)";
+			ctx.lineWidth = 1;
 		} else {
-			ctx.strokeStyle = FLOW_RAMP[c];
+			ctx.strokeStyle = colouring.color(c / (FLOW_COLORS - 1));
+			ctx.lineWidth = width;
 		}
 		ctx.stroke();
 	}

@@ -487,6 +487,33 @@ def handle_toolpath_stack(ctx, request):
     return json_response(result)
 
 
+# job.layer runs ahead of the motion (≈ 2.1 s in job 20260929-125727, CLAUDE.md "Analysing a job"), so a
+# layer's last moves run after the next layer has begun: its journal is read this far beyond its end
+LAYER_MOVES_LAG_MS = 30_000
+
+
+def handle_toolpath_om(ctx, request):
+    """The flow RRF planned for the layer's moves, from the object model journal (``qa_gcode.executed_flow``),
+    joined to ``job/toolpath``'s segments by ``pos``."""
+    layer = _int(request, "layer", None, 0)
+    if layer is None:
+        raise ApiError(400, "missing 'layer'")
+    found = _job_index(ctx, request)
+    if isinstance(found, Response):
+        return found
+    path, index, diameter = found
+    if qa_gcode._layer_entry(index, layer) is None:
+        raise ApiError(404, "layer not in the file")
+    directory = _journal(ctx, request)
+    span = qa_queries.layer_span(_con(ctx), _job_id(request), layer)
+    if span is None:
+        raise ApiError(404, "layer not recorded")
+    start, end = span[0], None if span[1] is None else span[1] + LAYER_MOVES_LAG_MS
+    result = qa_gcode.executed_flow(index, layer, qa_journal.current_moves(directory, start, end), diameter)
+    result.update({"from": start, "to": end})
+    return json_response(result)
+
+
 TMP_MAX_AGE_S = 3600
 
 
@@ -579,6 +606,7 @@ ENDPOINTS = {
     ("GET", "job/spectra"): handle_spectra,
     ("GET", "job/toolpath"): handle_toolpath,
     ("GET", "job/toolpath/stack"): handle_toolpath_stack,
+    ("GET", "job/toolpath/om"): handle_toolpath_om,
     ("GET", "job/export"): handle_export,
     ("GET", "job/om"): handle_om,
     ("GET", "job/om/history"): handle_om_history,
