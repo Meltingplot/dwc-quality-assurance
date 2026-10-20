@@ -15,6 +15,7 @@
 				:aria-label="$t('plugins.QualityAssurance.replay.flow')">
 				<v-btn value="gcode" size="small">{{ $t("plugins.QualityAssurance.replay.flowGcode") }}</v-btn>
 				<v-btn value="om" size="small" :disabled="!hasJournal">{{ $t("plugins.QualityAssurance.replay.flowOm") }}</v-btn>
+				<v-btn value="fused" size="small" :disabled="!hasJournal">{{ $t("plugins.QualityAssurance.replay.flowFused") }}</v-btn>
 				<v-btn value="diff" size="small" :disabled="!hasJournal">{{ $t("plugins.QualityAssurance.replay.flowDiff") }}</v-btn>
 			</v-btn-toggle>
 		</div>
@@ -25,7 +26,7 @@
 			<v-col cols="12" md="8">
 				<replay-canvas :toolpath="toolpath" :executed="executed" :markers="markers" :hidden-objects="hiddenObjects"
 					:show-travel="showTravel" :stack="stacked ? stackLayers : null" :stack-bounds="stackMeta?.bounds ?? null" :layer="layer"
-					:flow-mode="flowMode" :om-flow="omFlow" />
+					:flow-mode="flowMode" :segment-flow="segmentFlow" />
 				<div class="text-caption text-medium-emphasis mt-1">{{ legend }}</div>
 			</v-col>
 			<v-col cols="12" md="4">
@@ -58,7 +59,8 @@ import { timeSeriesConfig } from "../core/charts";
 import { eventColor, eventDetail, formatPercent } from "../core/format";
 import {
 	executedPoints, fetchToolpath, fetchToolpathOm, frameAt, layerEvents, layerSpan, machineToUser, markerColor, nozzleHeaters, omCoverage,
-	replayChannels, SAMPLE_LEAD_MS, segmentOmFlow, stackEvents, toolOffsets, TOOLPATH_RETRY_MS, type FlowMode, type ToolpathOmResult
+	replayChannels, SAMPLE_LEAD_MS, segmentFusedFlow, segmentOmFlow, stackEvents, toolOffsets, TOOLPATH_RETRY_MS, type FlowMode,
+	type ToolpathOmResult
 } from "../core/replay";
 import { fetchStack, toolpathZ, toStackLayer, zAtLayer, type StackLayer } from "../core/stack";
 import { layersWithFrames } from "../core/timelapse";
@@ -71,7 +73,8 @@ import TimelapseFrame from "./TimelapseFrame.vue";
  * stack shows the layers below as well, reduced by the daemon and loaded piece by piece once it is
  * switched on, with the events of every layer up to the one shown. The flow switch colours the layer by
  * the G-code's commanded flow, by the flow RRF planned for each move (object model journal, loaded per
- * layer once chosen) or by their difference */
+ * layer once chosen), by the fusion of those samples with a look-ahead over the G-code for the moves without
+ * one, or by the difference sampled − commanded */
 export default defineComponent({
 	components: { ChartCanvas, ReplayCanvas, TimelapseFrame },
 	props: {
@@ -145,6 +148,13 @@ export default defineComponent({
 		omFlow(): Float64Array | null {
 			return this.toolpath && this.om && this.om.layer === this.toolpath.layer ? segmentOmFlow(this.toolpath, this.om) : null;
 		},
+		/** The flow the canvas colours by in the mode chosen */
+		segmentFlow(): Float64Array | null {
+			if (this.flowMode !== "fused") {
+				return this.omFlow;
+			}
+			return this.toolpath && this.om && this.om.layer === this.toolpath.layer ? segmentFusedFlow(this.toolpath, this.om) : null;
+		},
 		omStatus(): string | null {
 			if (this.flowMode === "gcode") {
 				return null;
@@ -160,9 +170,10 @@ export default defineComponent({
 					if (!this.om?.seen) {
 						return this.$t("plugins.QualityAssurance.replay.omNoFilePosition");
 					}
-					return this.$t("plugins.QualityAssurance.replay.omCoverage", {
+					return this.$t(`plugins.QualityAssurance.replay.${this.flowMode === "fused" ? "omFused" : "omCoverage"}`, {
 						share: formatPercent(this.toolpath && this.omFlow ? omCoverage(this.toolpath, this.omFlow) : null),
-						samples: this.om.samples
+						samples: this.om.samples,
+						correction: this.om.correction?.toFixed(3) ?? "—"
 					});
 				default:
 					return null;  // building and a missing file show as the layer's message

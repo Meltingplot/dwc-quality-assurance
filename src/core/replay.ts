@@ -105,8 +105,11 @@ export function flowRange(tp: ToolpathAnswer): [number, number] {
 	return hi - lo < 1e-6 ? [lo * 0.9, lo * 1.1 + 1e-6] : [lo, hi];
 }
 
-/** What colours the layer: the G-code's commanded flow, the flow RRF planned (object model), or the difference */
-export type FlowMode = "gcode" | "om" | "diff";
+/**
+ * What colours the layer: the G-code's commanded flow, the flow RRF planned (object model samples), the fusion of
+ * samples and plan, or the difference sampled − commanded
+ */
+export type FlowMode = "gcode" | "om" | "fused" | "diff";
 
 /**
  * Per segment the flow RRF planned for its move (``job/toolpath/om``, joined by the line's file position, so
@@ -119,6 +122,24 @@ export function segmentOmFlow(tp: ToolpathAnswer, om: ToolpathOmAnswer): Float64
 	const values = new Float64Array(s.x0.length).fill(NaN);
 	for (let i = 0; i < values.length; i++) {
 		const flow = s.travel[i] ? undefined : byPos.get(s.pos[i]);
+		if (flow !== undefined) {
+			values[i] = flow;
+		}
+	}
+	return values;
+}
+
+/**
+ * Per segment the flow RRF planned, for every move: the sample where the journal has one, else the look-ahead's
+ * plan of the move times the layer's correction (Benchy 20261008-120236, leave one out: within 1.3 % of the sample
+ * for 90 % of the moves, the G-code's flow within 83 %). NaN for travel
+ */
+export function segmentFusedFlow(tp: ToolpathAnswer, om: ToolpathOmAnswer): Float64Array {
+	const planned = new Map<number, number>();
+	om.plan.pos.forEach((pos, i) => planned.set(pos, om.plan.flow[i] * (om.correction ?? 1)));
+	const values = segmentOmFlow(tp, om);
+	for (let i = 0; i < values.length; i++) {
+		const flow = Number.isNaN(values[i]) && !tp.segments.travel[i] ? planned.get(tp.segments.pos[i]) : undefined;
 		if (flow !== undefined) {
 			values[i] = flow;
 		}
@@ -161,19 +182,20 @@ export interface FlowColouring {
 }
 
 /**
- * Colours of a layer's segments in ``mode``. The object model's flow uses the G-code's scale, so a colour means
- * the same flow in both; without its values (still loading, none) the extruding segments have none
+ * Colours of a layer's segments in ``mode`` from ``segmentFlow``, the mode's flow per segment (``segmentOmFlow``,
+ * ``segmentFusedFlow``; the difference subtracts the G-code's). The object model's flows use the G-code's scale,
+ * so a colour means the same flow in each; without values (still loading, none) the extruding segments have none
  */
-export function flowColouring(tp: ToolpathAnswer, mode: FlowMode, omFlow: ArrayLike<number> | null): FlowColouring {
+export function flowColouring(tp: ToolpathAnswer, mode: FlowMode, segmentFlow: ArrayLike<number> | null): FlowColouring {
 	const range = flowRange(tp);
 	if (mode === "gcode") {
 		return { values: tp.segments.flow, range, color: rampColor };
 	}
-	const om = omFlow ?? new Float64Array(tp.segments.x0.length).fill(NaN);
-	if (mode === "om") {
-		return { values: om, range, color: rampColor };
+	const flow = segmentFlow ?? new Float64Array(tp.segments.x0.length).fill(NaN);
+	if (mode !== "diff") {
+		return { values: flow, range, color: rampColor };
 	}
-	const diff = flowDiff(tp, om);
+	const diff = flowDiff(tp, flow);
 	return { values: diff, range: diffRange(diff), color: divergingColor };
 }
 

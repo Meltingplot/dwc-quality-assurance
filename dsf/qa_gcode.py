@@ -53,6 +53,8 @@ import threading
 import zlib
 from collections import OrderedDict
 
+import qa_planner
+
 # DuetControlServer Settings.FirmwareComments (v3.7-dev @ cd3ae65f)
 FIRMWARE_COMMENTS = ("printing object", "MESH", "process", "stop printing object", "layer", "LAYER",
                      "BEGIN_LAYER_OBJECT z=", "HEIGHT", "PRINTING", "REMAINING_TIME")
@@ -60,7 +62,8 @@ FIRMWARE_COMMENTS = ("printing object", "MESH", "process", "stop printing object
 START_STRINGS = ("printing object", "MESH", "process", "stop printing object", "layer", "LAYER",
                  "; --- layer", "BEGIN_LAYER_OBJECT z=", "HEIGHT", "PRINTING", "REMAINING_TIME", "LAYER_CHANGE")
 
-INDEX_VERSION = 4  # 2: per-layer stats, 3: pathMm and macrosRetracted (2026-09-28), 4: bounds (2026-09-30)
+INDEX_VERSION = 5  # 2: per-layer stats, 3: pathMm and macrosRetracted (2026-09-28), 4: bounds (2026-09-30),
+# 5: motion settings in the range states (2026-10-20)
 _WORD_RE = re.compile(r"([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))")
 _INT_RE = re.compile(r"[-+]?\d+")
 _M486_NAME_RE = re.compile(r'A\s*"((?:[^"]|"")*)"')
@@ -118,7 +121,10 @@ def parse_words(code):
 
 
 class _State:
-    __slots__ = ("x", "y", "z", "e", "f", "rel_xyz", "rel_e", "obj", "type")
+    """``motion``: what the file set of RRF's motion limits, for ``qa_planner``: ``accP``/``accT`` (M204, mm/s²),
+    ``accX``… (M201), ``jerkX``… (M205, or M566 which also sets ``maxJerkX``…; mm/s), ``speed`` (M220) and
+    ``extrude`` (M221 for extruder 0) as factors; a key the file has not set is missing (the machine's value)."""
+    __slots__ = ("x", "y", "z", "e", "f", "rel_xyz", "rel_e", "obj", "type", "motion")
 
     def __init__(self):
         self.x = self.y = self.z = 0.0
@@ -128,16 +134,17 @@ class _State:
         self.rel_e = False
         self.obj = None
         self.type = None
+        self.motion = {}
 
     def to_dict(self):
-        return {k: getattr(self, k) for k in self.__slots__}
+        return {k: dict(v) if isinstance(v, dict) else v for k, v in ((k, getattr(self, k)) for k in self.__slots__)}
 
     @classmethod
     def from_dict(cls, data):
         state = cls()
         for k in cls.__slots__:
             if k in data:
-                setattr(state, k, data[k])
+                setattr(state, k, dict(data[k]) if isinstance(data[k], dict) else data[k])
         return state
 
 
@@ -214,7 +221,33 @@ def _process_code(state, objects, code):
             name = _M486_NAME_RE.search(stripped)
             if name and s >= 0:
                 objects.names[s] = name.group(1).replace('""', '"')
+        else:
+            _motion_code(state.motion, m, words)
     return None
+
+
+def _motion_code(motion, m, words):
+    """M201, M204, M205, M566, M220, M221 into ``_State.motion`` (units: wiki GcodeDictionaryFull.md @ 2262621;
+    M205 sets the printing jerk only, at most the M566 maximum, RRF 3.7-dev @ ea93885 Move2.cpp:182-193)."""
+    if m == 201:
+        for axis in "XYZE":
+            if words.get(axis, 0) > 0:
+                motion["acc" + axis] = words[axis]
+    elif m == 204:
+        for key in "PT":
+            if words.get(key, 0) > 0:
+                motion["acc" + key] = words[key]
+    elif m in (205, 566):
+        for axis in "XYZE":
+            if words.get(axis, 0) > 0:
+                value = words[axis] if m == 205 else words[axis] / 60
+                motion["jerk" + axis] = value
+                if m == 566:
+                    motion["maxJerk" + axis] = value
+    elif m == 220 and words.get("S", 0) > 0:
+        motion["speed"] = words["S"] / 100
+    elif m == 221 and words.get("S", 0) > 0 and int(words.get("D", 0)) == 0:
+        motion["extrude"] = words["S"] / 100
 
 
 def _comment_object(state, objects, comment):
@@ -525,12 +558,12 @@ def _arc_points(x0, y0, words, clockwise, x1, y1):
     return points
 
 
-def _layer_segments(path, entry, objects):
-    """Every straight piece of ``entry``'s moves, arcs as chords: ``(x0, y0, x1, y1, z, e, feed, obj, type,
-    pos)`` with ``feed`` in mm/s (None without one) and ``pos`` the byte offset of the move's line: the file
-    position DSF gives the code (``Code.FilePosition``, DuetAPI ParserAsync.cs, DuetSoftwareFramework
-    3.7.0+mp.4 @ fb3b475a) and RRF reports for the move it executes (``move.currentMove.filePosition``, RRF
-    3.7-dev @ ea93885 Move.cpp:214; 2026-10-20). Moves without X/Y travel (retract, Z hop) yield nothing."""
+def _layer_lines(path, entry, objects):
+    """``entry``'s lines of code with the parse state after each: ``(pos, state, move, words)``, ``move``
+    ``(x0, y0, z0, de, points)`` for G0-G3 (``points`` the end, an arc's chord ends), None for another code.
+    ``pos`` is the byte offset of the line: the file position DSF gives the code (``Code.FilePosition``, DuetAPI
+    ParserAsync.cs, DuetSoftwareFramework 3.7.0+mp.4 @ fb3b475a) and RRF reports for the move it executes
+    (``move.currentMove.filePosition``, RRF 3.7-dev @ ea93885 Move.cpp:214; 2026-10-20)."""
     for (start, end), st in zip(entry["ranges"], entry.get("states") or [entry["state"]] * len(entry["ranges"])):
         state = _State.from_dict(st)
         with open(path, "rb") as handle:
@@ -556,8 +589,11 @@ def _layer_segments(path, entry, objects):
             first = False
             if comment is not None:
                 _comment_object(state, objects, comment)
+            if not code.strip():
+                continue
             move = _process_code(state, objects, code)
             if move is None:
+                yield line_pos, state, None, parse_words(code)
                 continue
             cmd, words = move
             x0, y0, z0, de = _apply_move(state, words, cmd)
@@ -565,19 +601,34 @@ def _layer_segments(path, entry, objects):
                 points = _arc_points(x0, y0, words, cmd == 2, state.x, state.y)
             else:
                 points = [(state.x, state.y)]
-            total = 0.0
-            px, py = x0, y0
-            for qx, qy in points:
-                total += math.hypot(qx - px, qy - py)
-                px, py = qx, qy
-            if total <= 0:
-                continue  # retract, unretract, Z hop, feed rate only
-            feed = state.f / 60.0 if state.f > 0 else None
-            px, py = x0, y0
-            for qx, qy in points:
-                yield (px, py, qx, qy, state.z, de * math.hypot(qx - px, qy - py) / total, feed, state.obj, state.type,
-                       line_pos)
-                px, py = qx, qy
+            yield line_pos, state, (x0, y0, z0, de, points), words
+
+
+def _layer_segments(path, entry, objects):
+    """Every straight piece of ``entry``'s moves, arcs as chords: ``(x0, y0, x1, y1, z, e, feed, obj, type,
+    pos)`` with ``feed`` in mm/s (None without one) and ``pos`` the byte offset of the move's line
+    (``_layer_lines``). Moves without X/Y travel (retract, Z hop) yield nothing."""
+    for line_pos, state, move, _words in _layer_lines(path, entry, objects):
+        if move is None:
+            continue
+        x0, y0, _z0, de, points = move
+        total = _path_length(x0, y0, points)
+        if total <= 0:
+            continue  # retract, unretract, Z hop, feed rate only
+        feed = state.f / 60.0 if state.f > 0 else None
+        px, py = x0, y0
+        for qx, qy in points:
+            yield (px, py, qx, qy, state.z, de * math.hypot(qx - px, qy - py) / total, feed, state.obj, state.type,
+                   line_pos)
+            px, py = qx, qy
+
+
+def _path_length(x0, y0, points):
+    total = 0.0
+    for qx, qy in points:
+        total += math.hypot(qx - x0, qy - y0)
+        x0, y0 = qx, qy
+    return total
 
 
 def _layer_entry(index, layer):
@@ -650,6 +701,43 @@ def executed_flow(index, layer, moves, filament_diameter=1.75):
             "moves": {"pos": positions, "flow": [round(sums[p][0] / sums[p][1] * area, 3) for p in positions],
                       "n": [sums[p][1] for p in positions]},
             "samples": sum(n for _, n in sums.values()), "seen": seen}
+
+
+def planned_flow(path, index, layer, limits, filament_diameter=1.75):
+    """The flow RRF plans for ``layer``'s printing moves, from a look-ahead over its G-code (``qa_planner``) with
+    the machine's ``limits`` and what the file sets of them: ``{pos, flow}``, ``flow`` in mm³/s at the move's top
+    speed (an arc's chords averaged), ``pos`` ascending as ``executed_flow``'s. None for a layer the index does
+    not have."""
+    entry = _layer_entry(index, layer)
+    if entry is None:
+        return None
+    moves = []
+    for line_pos, state, move, words in _layer_lines(path, entry, _index_objects(index)):
+        if move is None:
+            if qa_planner.blocks(words):
+                moves.append(None)
+            continue
+        x0, y0, z0, de, points = move
+        total = _path_length(x0, y0, points)
+        if total <= 0:
+            if de or state.z != z0:
+                moves.append(None)  # retract, Z move: RRF does not meld them with X/Y moves (jerk policy 0)
+            continue  # a feed rate alone is no move
+        px, py = x0, y0
+        for qx, qy in points:
+            share = math.hypot(qx - px, qy - py) / total
+            if share > 0:
+                moves.append(qa_planner.Move(line_pos, qx - px, qy - py, (state.z - z0) * share, de * share,
+                                             state.f / 60.0, state.motion, limits))
+            px, py = qx, qy
+    area = _area(filament_diameter)
+    sums = {}
+    for move, top in zip(moves, qa_planner.plan(moves)):
+        if move is not None and move.printing:
+            total, n = sums.get(move.pos, (0.0, 0))
+            sums[move.pos] = (total + top * move.ez * area, n + 1)
+    positions = sorted(sums)
+    return {"pos": positions, "flow": [round(sums[p][0] / sums[p][1], 3) for p in positions]}
 
 
 # The replay's 3D stack (PLAN.md §5.8): the layers below the one shown, reduced here so that a print

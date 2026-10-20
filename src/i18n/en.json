@@ -280,13 +280,16 @@
 		"colour": {
 			"gcode": "Colour: commanded volumetric flow from the G-code; dots: extrusion rate RRF planned for the move it was executing, sampled (same scale; not measured).",
 			"om": "Colour: volumetric flow RRF planned for each move at its top speed (move.currentMove.extrusionRate × filament cross-section from the object model journal, matched to its G-code line by move.currentMove.filePosition; not measured), on the G-code view's scale; faint grey: moves without a sample (DSF reports the current move about every 130 ms).",
+			"fused": "Colour: volumetric flow RRF planned for every move: the object model's sample where there is one, else a simulation of RRF's look-ahead over the G-code (the file's M204/M205/M220/M221, the machine's accelerations, jerk and kinematics from the journal), corrected by the layer's samples; on the G-code view's scale; not measured.",
 			"diff": "Colour: planned minus commanded flow; blue: RRF planned less, e.g. a short move that does not reach its feed rate, red: more; faint grey: moves without a sample."
 		},
 		"omLoading": "Loading the flow RRF planned for the layer's moves…",
 		"omNone": "There is no object model journal for this layer.",
 		"omFailed": "The object model's flow could not be loaded: {message}",
 		"omNoFilePosition": "The journal has no position of the current move here: the firmware does not report move.currentMove.filePosition.",
-		"omCoverage": "Object model: {share} of the layer's extrusion length has a planned flow ({samples} samples)."
+		"omCoverage": "Object model: {share} of the layer's extrusion length has a planned flow ({samples} samples).",
+		"flowFused": "Fusion",
+		"omFused": "Fusion: {share} of the layer's extrusion length sampled ({samples} samples), the rest planned, corrected ×{correction} by the samples."
 	},
 	"timelapse": {
 		"states": {

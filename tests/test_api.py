@@ -326,6 +326,8 @@ def test_toolpath_om(ctx, rig, settings):
     assert body["moves"] == {"pos": [pos], "flow": [round(0.5 * area, 3)], "n": [1]}
     assert (body["from"], body["to"]) == (span["started_at"], span["ended_at"] + qa_api.LAYER_MOVES_LAG_MS)
     assert (body["samples"], body["seen"]) == (1, 1)
+    # the plan covers the printing moves (G1 X20 Y20 E1 with absolute E extrudes nothing), no sample matches one
+    assert body["plan"] == {"pos": [], "flow": []} and body["correction"] is None
     assert get(ctx, "job/toolpath/om", id=job_id, layer=9)[0] == 404
     assert get(ctx, "job/toolpath/om", id=job_id)[0] == 400
 

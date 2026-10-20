@@ -315,6 +315,13 @@ export interface ToolpathOmAnswer {
 	samples: number;
 	/** samples with a file position in the window, any layer: 0 when the firmware reports none */
 	seen: number;
+	/**
+	 * Every printing move of the layer as a look-ahead over its G-code plans it (dsf/qa_planner.py, RRF's rules
+	 * with the machine's limits from the journal): mm³/s at the move's top speed
+	 */
+	plan: { pos: Array<number>; flow: Array<number> };
+	/** median of sampled / planned over the sampled moves, null without one */
+	correction: number | null;
 }
 
 /** Printed extent of a job file (``job/toolpath/stack`` meta; from the layer index) */

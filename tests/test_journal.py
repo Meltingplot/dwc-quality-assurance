@@ -141,6 +141,20 @@ def test_current_moves_of_the_job_file(journal, data_dir):
     assert list(qa_journal.current_moves(folder, T0 + 200, T0 + 400)) == [(T0 + 230, 160, 1.5)]
 
 
+def test_snapshot_before_a_time(journal, data_dir):
+    journal.job_started(JOB, T0)
+    journal.model.model = {"move": {"printingAcceleration": 3000}}
+    journal.tick(T0 + journal.cfg()["snapshotIntervalMin"] * 60_000)
+    journal.shutdown()
+    folder = directory(data_dir)
+    later = T0 + journal.cfg()["snapshotIntervalMin"] * 60_000
+    assert qa_journal.snapshot_before(folder, T0 + 1)["global"] == {"machine_mode": "automatic"}
+    assert qa_journal.snapshot_before(folder, later)["move"] == {"printingAcceleration": 3000}
+    assert qa_journal.snapshot_before(folder, None)["move"] == {"printingAcceleration": 3000}
+    assert qa_journal.snapshot_before(folder, T0 - 1)["global"] == {"machine_mode": "automatic"}   # the first
+    assert qa_journal.snapshot_before(directory(data_dir, "20200101-000000-00000000"), T0) is None
+
+
 def test_a_shorter_list_ends_the_value(journal, data_dir):
     journal.job_started(JOB, T0)
     journal.patch('{"move":{"axes":[{}]}}', T0 + 1000)

@@ -38,9 +38,9 @@ const SETTLE_MS = 200;
 
 /**
  * One layer's toolpath on a 2D canvas, coloured by commanded volumetric flow; the planned rate of the
- * executed moves as dots coloured on the same scale, events as rings. ``flowMode`` ``om`` colours the
- * segments by the flow RRF planned for their moves instead (``omFlow``, NaN where none; the G-code's scale),
- * ``diff`` by that minus the commanded flow; both without the dots. Wheel zooms, drag pans, double click fits.
+ * executed moves as dots coloured on the same scale, events as rings. ``flowMode`` ``om`` and ``fused`` colour
+ * the segments by the flow RRF planned for their moves instead (``segmentFlow``, NaN where none; the G-code's
+ * scale), ``diff`` by that minus the commanded flow; all without the dots. Wheel zooms, drag pans, double click fits.
  * With ``stack`` the view is 3D: the stack's layers below ``layer`` in grey under the layer, events of
  * those layers as smaller rings; drag turns and tilts, shift or right drag pans, double click returns to
  * the isometric view. The drawn stack is kept in an offscreen canvas that stepping up only adds to.
@@ -61,8 +61,8 @@ export default defineComponent({
 		/** The layer shown: the stack below it is drawn */
 		layer: { type: Number, default: 0 },
 		flowMode: { type: String as PropType<FlowMode>, default: "gcode" },
-		/** Per segment the flow RRF planned for its move, NaN without a sample (``segmentOmFlow``) */
-		omFlow: { type: Float64Array as PropType<Float64Array | null>, default: null }
+		/** Per segment the mode's flow (``segmentOmFlow``, ``segmentFusedFlow``), NaN without one */
+		segmentFlow: { type: Float64Array as PropType<Float64Array | null>, default: null }
 	},
 	data() {
 		return {
@@ -94,7 +94,7 @@ export default defineComponent({
 			return this.stack !== null;
 		},
 		colouring(): FlowColouring | null {
-			return this.toolpath ? flowColouring(this.toolpath, this.flowMode, this.omFlow) : null;
+			return this.toolpath ? flowColouring(this.toolpath, this.flowMode, this.segmentFlow) : null;
 		},
 		range(): [number, number] {
 			return this.colouring?.range ?? [0, 1];
@@ -133,7 +133,7 @@ export default defineComponent({
 		showTravel() { this.draw(); },
 		layer() { this.draw(); },
 		flowMode() { this.draw(); },
-		omFlow() { this.draw(); },
+		segmentFlow() { this.draw(); },
 		stack(next: Array<StackLayer> | null, previous: Array<StackLayer> | null) {
 			if ((next === null) !== (previous === null)) {
 				this.fit();  // 2D ↔ 3D
